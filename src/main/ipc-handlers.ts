@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { BotConfig, BotStatus, ChatMessage } from '../shared/ipc-types';
+import type { BotConfig, BotStatus, ChatMessage, CharacterInfo } from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): void {
     const engine = new BotEngine();
@@ -19,6 +19,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         win.webContents.send(IPC_CHANNELS.ACTION_TRIGGERED, actionName);
     });
 
+    engine.on('characters-available', (characters: CharacterInfo[], defaultId: string | null) => {
+        win.webContents.send(IPC_CHANNELS.CHARACTERS_AVAILABLE, characters, defaultId);
+    });
+
     // Handle renderer requests
     ipcMain.handle(IPC_CHANNELS.CONNECT, async (_event, config: BotConfig) => {
         await engine.connect(config);
@@ -26,6 +30,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
     ipcMain.handle(IPC_CHANNELS.DISCONNECT, async () => {
         await engine.disconnect();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.START_CHAT, async (_event, characterId: string) => {
+        await engine.startChat(characterId);
     });
 
     ipcMain.handle(IPC_CHANNELS.SEND_MESSAGE, async (_event, text: string) => {

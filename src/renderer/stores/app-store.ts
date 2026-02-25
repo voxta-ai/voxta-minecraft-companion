@@ -1,6 +1,6 @@
 import { createStore } from 'solid-js/store';
 import { onCleanup, onMount } from 'solid-js';
-import type { BotStatus, ChatMessage, ActionToggle } from '../../shared/ipc-types';
+import type { BotStatus, ChatMessage, ActionToggle, CharacterInfo } from '../../shared/ipc-types';
 
 // ---- Connection / Status Store ----
 
@@ -31,6 +31,28 @@ export async function connect(config: Parameters<typeof window.api.connect>[0]):
 
 export async function disconnect(): Promise<void> {
     await window.api.disconnect();
+}
+
+// ---- Character Store ----
+
+const [characters, setCharacters] = createStore<{ list: CharacterInfo[]; defaultId: string | null }>({
+    list: [],
+    defaultId: null,
+});
+
+export { characters };
+
+export function useCharactersListener(): void {
+    onMount(() => {
+        const cleanup = window.api.onCharactersAvailable((chars, defaultId) => {
+            setCharacters({ list: chars, defaultId });
+        });
+        onCleanup(cleanup);
+    });
+}
+
+export async function startChat(characterId: string): Promise<void> {
+    await window.api.startChat(characterId);
 }
 
 // ---- Chat Store ----

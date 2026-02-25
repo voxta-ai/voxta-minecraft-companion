@@ -1,10 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { BotConfig, BotStatus, ChatMessage, ActionToggle } from '../shared/ipc-types';
+import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
 export type ChatCallback = (message: ChatMessage) => void;
 export type ActionCallback = (actionName: string) => void;
+export type CharactersCallback = (characters: CharacterInfo[], defaultId: string | null) => void;
 
 const api = {
     connect: (config: BotConfig): Promise<void> =>
@@ -12,6 +13,9 @@ const api = {
 
     disconnect: (): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.DISCONNECT),
+
+    startChat: (characterId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.START_CHAT, characterId),
 
     sendMessage: (text: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.SEND_MESSAGE, text),
@@ -41,6 +45,12 @@ const api = {
         const handler = (_event: Electron.IpcRendererEvent, name: string): void => callback(name);
         ipcRenderer.on(IPC_CHANNELS.ACTION_TRIGGERED, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.ACTION_TRIGGERED, handler);
+    },
+
+    onCharactersAvailable: (callback: CharactersCallback): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, characters: CharacterInfo[], defaultId: string | null): void => callback(characters, defaultId);
+        ipcRenderer.on(IPC_CHANNELS.CHARACTERS_AVAILABLE, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.CHARACTERS_AVAILABLE, handler);
     },
 };
 

@@ -11,16 +11,7 @@
         "isolatedModules": true,
         "jsx": "preserve",
         "jsxImportSource": "solid-js",
-        "outDir": "dist",
-        "baseUrl": ".",
-        "paths": {
-            "@shared/*": [
-                "src/shared/*"
-            ],
-            "@bot/*": [
-                "src/bot/*"
-            ]
-        }
+        "outDir": "dist"
     },
     "include": [
         "src/**/*"

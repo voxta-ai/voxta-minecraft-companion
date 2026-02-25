@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import { status, connect, disconnect } from '../stores/app-store';
+import { createSignal, Show, For, createEffect } from 'solid-js';
+import { status, connect, disconnect, characters, startChat } from '../stores/app-store';
 import type { BotConfig } from '../../shared/ipc-types';
 
 const STORAGE_KEY = 'voxta-mc-config';
@@ -27,9 +27,19 @@ export default function ConnectionPanel() {
     const [apiKey, setApiKey] = createSignal(saved.voxtaApiKey ?? '');
     const [collapsed, setCollapsed] = createSignal(false);
     const [connecting, setConnecting] = createSignal(false);
+    const [selectedCharacterId, setSelectedCharacterId] = createSignal<string | null>(null);
 
     const isConnected = () => status.mc === 'connected' || status.voxta === 'connected';
     const isConnecting = () => status.mc === 'connecting' || status.voxta === 'connecting' || connecting();
+    const hasSession = () => status.sessionId !== null;
+    const showCharacterPicker = () => isConnected() && characters.list.length > 0 && !hasSession();
+
+    // Auto-select default character when characters become available
+    createEffect(() => {
+        if (characters.list.length > 0 && !selectedCharacterId()) {
+            setSelectedCharacterId(characters.defaultId ?? characters.list[0]?.id ?? null);
+        }
+    });
 
     const handleConnect = async () => {
         const config: BotConfig = {
@@ -51,7 +61,14 @@ export default function ConnectionPanel() {
         }
     };
 
+    const handleStartChat = async () => {
+        const charId = selectedCharacterId();
+        if (!charId) return;
+        await startChat(charId);
+    };
+
     const handleDisconnect = async () => {
+        setSelectedCharacterId(null);
         await disconnect();
     };
 
@@ -122,7 +139,7 @@ export default function ConnectionPanel() {
             </div>
 
             <div class="connection-actions">
-                {!isConnected() ? (
+                <Show when={!isConnected()}>
                     <button
                         class="btn btn-connect"
                         onClick={handleConnect}
@@ -130,11 +147,32 @@ export default function ConnectionPanel() {
                     >
                         {isConnecting() ? '⏳ Connecting...' : '🚀 Connect'}
                     </button>
-                ) : (
+                </Show>
+
+                <Show when={showCharacterPicker()}>
+                    <select
+                        class="character-select"
+                        value={selectedCharacterId() ?? ''}
+                        onChange={(e) => setSelectedCharacterId(e.currentTarget.value)}
+                    >
+                        <For each={characters.list}>
+                            {(char) => (
+                                <option value={char.id}>
+                                    {char.name} {char.id === characters.defaultId ? '⭐' : ''}
+                                </option>
+                            )}
+                        </For>
+                    </select>
+                    <button class="btn btn-connect" onClick={handleStartChat}>
+                        💬 Start Chat
+                    </button>
+                </Show>
+
+                <Show when={isConnected()}>
                     <button class="btn btn-disconnect" onClick={handleDisconnect}>
                         ⏹ Disconnect
                     </button>
-                )}
+                </Show>
             </div>
         </div>
     );

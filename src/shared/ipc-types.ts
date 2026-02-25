@@ -40,12 +40,18 @@ export interface ActionToggle {
     category: 'movement' | 'combat' | 'communication';
 }
 
+export interface CharacterInfo {
+    id: string;
+    name: string;
+}
+
 // ---- IPC Channels ----
 
 export const IPC_CHANNELS = {
     // Renderer → Main
     CONNECT: 'bot:connect',
     DISCONNECT: 'bot:disconnect',
+    START_CHAT: 'bot:start-chat',
     SEND_MESSAGE: 'bot:send-message',
     GET_STATUS: 'bot:get-status',
     TOGGLE_ACTION: 'bot:toggle-action',
@@ -55,4 +61,5 @@ export const IPC_CHANNELS = {
     STATUS_CHANGED: 'bot:status-changed',
     CHAT_MESSAGE: 'bot:chat-message',
     ACTION_TRIGGERED: 'bot:action-triggered',
+    CHARACTERS_AVAILABLE: 'bot:characters-available',
 } as const;

@@ -1,4 +1,4 @@
-import { useStatusListener, useChatListener } from './stores/app-store';
+import { useStatusListener, useChatListener, useCharactersListener } from './stores/app-store';
 import ConnectionPanel from './components/ConnectionPanel';
 import ChatView from './components/ChatView';
 import ActionToggles from './components/ActionToggles';
@@ -7,6 +7,7 @@ import StatusBar from './components/StatusBar';
 export default function App() {
     useStatusListener();
     useChatListener();
+    useCharactersListener();
 
     return (
         <div class="app">

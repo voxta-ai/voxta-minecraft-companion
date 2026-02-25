@@ -4,12 +4,12 @@ import { readWorldState, buildContextStrings } from '../bot/minecraft/perception
 import { MINECRAFT_ACTIONS, executeAction } from '../bot/minecraft/actions';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage } from '../bot/voxta/types';
-import type { BotConfig, BotStatus, ChatMessage, ActionToggle } from '../shared/ipc-types';
+import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
 import type { ScenarioAction } from '../bot/voxta/types';
 
-type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered';
+type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered' | 'characters-available';
 
 export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
@@ -20,6 +20,9 @@ export class BotEngine extends EventEmitter {
     private currentReply = '';
     private messageCounter = 0;
     private actionToggles: Map<string, boolean> = new Map();
+    private characters: CharacterInfo[] = [];
+    private defaultAssistantId: string | null = null;
+    private currentConfig: CompanionConfig | null = null;
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -96,6 +99,7 @@ export class BotEngine extends EventEmitter {
 
     async connect(uiConfig: BotConfig): Promise<void> {
         const config = this.toCompanionConfig(uiConfig);
+        this.currentConfig = config;
 
         // ---- 1. Connect Minecraft ----
         this.updateStatus({ mc: 'connecting' });
@@ -146,32 +150,56 @@ export class BotEngine extends EventEmitter {
             // Register app
             await this.voxta.registerApp();
 
-            // Start chat
-            if (this.assistantId) {
-                await this.voxta.startChat(this.assistantId);
-
-                const chatStart = Date.now();
-                while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
-                    await new Promise((r) => setTimeout(r, 200));
-                }
-
-                this.updateStatus({
-                    sessionId: this.voxta.sessionId,
-                    assistantName: this.assistantName,
-                });
-
-                // Register actions
-                this.pushActionsToVoxta();
-                this.addChat('system', 'System', `Chat started with ${this.assistantName ?? 'assistant'}`);
+            // Fetch characters from REST API
+            const baseUrl = config.voxta.url.replace(/\/hub\/?$/, '');
+            const headers: Record<string, string> = {};
+            if (config.voxta.apiKey) {
+                headers['Authorization'] = `Bearer ${config.voxta.apiKey}`;
             }
+            const res = await fetch(`${baseUrl}/api/characters/?assistant=true`, { headers });
+            if (res.ok) {
+                const data = await res.json() as { characters: Array<{ id: string; name: string }> };
+                this.characters = data.characters.map((c) => ({ id: c.id, name: c.name }));
+            }
+
+            // Emit characters for the UI to show picker
+            this.addChat('system', 'System', `${this.characters.length} character(s) available — select one to start chatting`);
+            this.emit('characters-available', this.characters, this.defaultAssistantId);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this.updateStatus({ voxta: 'error' });
             this.addChat('system', 'System', `Voxta connection failed: ${message}`);
             return;
         }
+    }
 
-        // ---- 3. Perception loop ----
+    async startChat(characterId: string): Promise<void> {
+        if (!this.voxta || !this.mcBot) return;
+
+        const config = this.currentConfig;
+        if (!config) return;
+
+        const bot = this.mcBot.bot;
+        const character = this.characters.find((c) => c.id === characterId);
+        this.assistantName = character?.name ?? 'AI';
+
+        await this.voxta.startChat(characterId);
+
+        const chatStart = Date.now();
+        while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
+            await new Promise((r) => setTimeout(r, 200));
+        }
+
+        this.updateStatus({
+            sessionId: this.voxta.sessionId,
+            assistantName: this.assistantName,
+        });
+
+        // Register actions
+        this.pushActionsToVoxta();
+        this.addChat('system', 'System', `Chat started with ${this.assistantName}`);
+
+        // ---- Perception loop ----
         let lastContextHash = '';
         this.perceptionLoop = setInterval(() => {
             if (!this.voxta?.sessionId) return;
@@ -266,9 +294,9 @@ export class BotEngine extends EventEmitter {
         switch (message.$type) {
             case 'welcome': {
                 const welcome = message as ServerWelcomeMessage;
+                this.characters = (welcome.characters ?? []).map((c) => ({ id: c.id, name: c.name }));
                 if (welcome.assistant) {
-                    this.assistantId = welcome.assistant.id;
-                    this.assistantName = welcome.assistant.name;
+                    this.defaultAssistantId = welcome.assistant.id;
                 }
                 break;
             }
