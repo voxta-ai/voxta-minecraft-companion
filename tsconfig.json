@@ -7,12 +7,26 @@
         "esModuleInterop": true,
         "skipLibCheck": true,
         "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "jsx": "preserve",
+        "jsxImportSource": "solid-js",
         "outDir": "dist",
-        "rootDir": "src",
-        "declaration": true,
-        "resolveJsonModule": true
+        "baseUrl": ".",
+        "paths": {
+            "@shared/*": [
+                "src/shared/*"
+            ],
+            "@bot/*": [
+                "src/bot/*"
+            ]
+        }
     },
     "include": [
         "src/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist"
     ]
 }
