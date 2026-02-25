@@ -1,0 +1,20 @@
+{
+    "name": "voxta-minecraft-companion",
+    "version": "0.1.0",
+    "description": "Minecraft companion powered by Voxta AI",
+    "type": "module",
+    "scripts": {
+        "start": "tsx src/index.ts",
+        "dev": "tsx watch src/index.ts"
+    },
+    "dependencies": {
+        "@microsoft/signalr": "^9.0.0",
+        "mineflayer": "^4.35.0",
+        "mineflayer-pathfinder": "^2.4.5"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "tsx": "^4.19.0",
+        "typescript": "^5.7.0"
+    }
+}
