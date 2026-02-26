@@ -5,7 +5,8 @@ import { MINECRAFT_ACTIONS, executeAction } from '../bot/minecraft/actions';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage } from '../bot/voxta/types';
-import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo } from '../shared/ipc-types';
+import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings } from '../shared/ipc-types';
+import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
 import type { ScenarioAction } from '../bot/voxta/types';
@@ -27,6 +28,9 @@ export class BotEngine extends EventEmitter {
     private currentConfig: CompanionConfig | null = null;
     private voxtaUserName: string | null = null;
     private playerMcUsername: string | null = null;
+    private settings: McSettings = { ...DEFAULT_SETTINGS };
+    private isReplying = false;
+    private pendingNotes: string[] = [];
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -88,6 +92,28 @@ export class BotEngine extends EventEmitter {
     private updateStatus(patch: Partial<BotStatus>): void {
         Object.assign(this.status, patch);
         this.emit('status-changed', this.getStatus());
+    }
+
+    updateSettings(newSettings: McSettings): void {
+        this.settings = { ...newSettings };
+    }
+
+    /** Queue a note — sent immediately if AI is idle, queued if AI is speaking */
+    private queueNote(text: string): void {
+        if (this.isReplying) {
+            this.pendingNotes.push(text);
+        } else {
+            void this.voxta?.sendNote(text);
+        }
+    }
+
+    /** Flush all queued notes after AI finishes speaking */
+    private flushPendingNotes(): void {
+        if (!this.voxta || this.pendingNotes.length === 0) return;
+        for (const note of this.pendingNotes) {
+            void this.voxta.sendNote(note);
+        }
+        this.pendingNotes = [];
     }
 
     private addChat(type: ChatMessage['type'], sender: string, text: string): void {
@@ -242,15 +268,91 @@ export class BotEngine extends EventEmitter {
         bot.on('chat', (username: string, message: string) => {
             if (username === bot.username) return;
             if (!this.voxta?.sessionId) return;
-            this.addChat('player', username, message);
-            void this.voxta.sendMessage(`[${username} says in Minecraft chat]: ${message}`);
+            if (!this.settings.enableTelemetryChat) return;
+            const voxtaName = this.names.resolveToVoxta(username);
+            this.addChat('player', voxtaName, message);
+            void this.voxta.sendMessage(`[${voxtaName} says in Minecraft chat]: ${message}`);
         });
 
         bot.on('whisper', (username: string, message: string) => {
             if (username === bot.username) return;
             if (!this.voxta?.sessionId) return;
-            this.addChat('player', `${username} (whisper)`, message);
-            void this.voxta.sendMessage(`[${username} whispers in Minecraft]: ${message}`);
+            if (!this.settings.enableTelemetryChat) return;
+            const voxtaName = this.names.resolveToVoxta(username);
+            this.addChat('player', `${voxtaName} (whisper)`, message);
+            void this.voxta.sendMessage(`[${voxtaName} whispers in Minecraft]: ${message}`);
+        });
+
+        // ---- 5. MC Game Events (with cooldowns to prevent spam) ----
+        let lastHealth = bot.health;
+        const eventCooldowns = new Map<string, number>();
+        const EVENT_COOLDOWN_MS = 15_000; // 15s between same event type
+        let pendingDamage = 0;
+        let damageTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const isOnCooldown = (key: string): boolean => {
+            const last = eventCooldowns.get(key);
+            if (last && Date.now() - last < EVENT_COOLDOWN_MS) return true;
+            eventCooldowns.set(key, Date.now());
+            return false;
+        };
+
+        bot.on('health', () => {
+            if (!this.voxta?.sessionId) return;
+            const currentHealth = Math.round(bot.health * 10) / 10;
+            if (currentHealth < lastHealth && this.settings.enableEventDamage) {
+                const damage = Math.round((lastHealth - currentHealth) * 10) / 10;
+                pendingDamage += damage;
+                this.addChat('event', 'Event', `Took ${damage} damage! Health: ${currentHealth}/20`);
+
+                // Consolidate damage into one message after a short delay
+                if (!damageTimer) {
+                    damageTimer = setTimeout(() => {
+                        const totalDmg = Math.round(pendingDamage * 10) / 10;
+                        const hp = Math.round(bot.health * 10) / 10;
+                        if (this.voxta?.sessionId) {
+                            void this.voxta.sendMessage(
+                                `[event]: Bot took ${totalDmg} total damage! Health now: ${hp}/20`,
+                            );
+                        }
+                        pendingDamage = 0;
+                        damageTimer = null;
+                    }, 3000); // Wait 3s to consolidate hits
+                }
+            }
+            lastHealth = currentHealth;
+        });
+
+        bot.on('death', () => {
+            if (!this.voxta?.sessionId) return;
+            if (!this.settings.enableEventDeath) return;
+            lastHealth = 20;
+            pendingDamage = 0;
+            if (damageTimer) { clearTimeout(damageTimer); damageTimer = null; }
+            this.addChat('event', 'Event', 'Bot died!');
+            void this.voxta.sendMessage('[event]: Bot has died and respawned!');
+        });
+
+        bot.on('entityHurt', (entity: { id: number }) => {
+            if (!this.voxta?.sessionId) return;
+            if (entity.id !== bot.entity.id) return;
+            if (!this.settings.enableEventUnderAttack) return;
+            if (isOnCooldown('underAttack')) return;
+            // Find the attacker and resolve their name to Voxta name
+            const attacker = bot.nearestEntity((e) => e !== bot.entity && e.position.distanceTo(bot.entity.position) < 6);
+            if (attacker) {
+                const mcName = attacker.username ?? attacker.displayName ?? attacker.name ?? 'something';
+                const voxtaName = this.names.resolveToVoxta(mcName);
+                this.addChat('event', 'Event', `Under attack by ${voxtaName}!`);
+                void this.voxta.sendMessage(`[event]: Bot is being attacked by ${voxtaName}!`);
+            }
+        });
+
+        bot.on('playerCollect', (collector: { id: number }, collected: { id: number }) => {
+            if (!this.voxta?.sessionId) return;
+            if (collector.id !== bot.entity.id) return;
+            if (!this.settings.enableTelemetryItemPickup) return;
+            this.addChat('system', 'Telemetry', 'Picked up an item');
         });
 
         bot.chat("Hello! I'm your Voxta AI companion. Talk to me!");
@@ -320,6 +422,9 @@ export class BotEngine extends EventEmitter {
                 this.currentReply += chunk.text;
                 break;
             }
+            case 'replyGenerating':
+                this.isReplying = true;
+                break;
             case 'replyEnd': {
                 if (this.currentReply.trim()) {
                     const chatText = this.currentReply.trim();
@@ -334,6 +439,8 @@ export class BotEngine extends EventEmitter {
                     }
                 }
                 this.currentReply = '';
+                this.isReplying = false;
+                this.flushPendingNotes();
                 break;
             }
             case 'action': {
@@ -345,6 +452,10 @@ export class BotEngine extends EventEmitter {
                     void executeAction(this.mcBot.bot, action.value, action.arguments, this.names).then((result) => {
                         this.addChat('system', 'System', `Action result: ${result}`);
                         this.updateStatus({ currentAction: null });
+                        // Queue result as a note — will be sent after AI finishes speaking
+                        if (this.settings.enableTelemetryActionResults) {
+                            this.queueNote(`[event]: Action result: ${result}`);
+                        }
                     });
                 }
                 break;

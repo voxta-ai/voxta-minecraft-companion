@@ -26,7 +26,6 @@ export default function ConnectionPanel() {
     const [playerMcName, setPlayerMcName] = createSignal(saved.playerMcUsername ?? 'Player');
     const [voxtaUrl, setVoxtaUrl] = createSignal(saved.voxtaUrl ?? 'http://localhost:5384/hub');
     const [apiKey, setApiKey] = createSignal(saved.voxtaApiKey ?? '');
-    const [collapsed, setCollapsed] = createSignal(false);
     const [connecting, setConnecting] = createSignal(false);
     const [selectedCharacterId, setSelectedCharacterId] = createSignal<string | null>(null);
 
@@ -35,7 +34,6 @@ export default function ConnectionPanel() {
     const hasSession = () => status.sessionId !== null;
     const showCharacterPicker = () => isConnected() && characters.list.length > 0 && !hasSession();
 
-    // Auto-select default character when characters become available
     createEffect(() => {
         if (characters.list.length > 0 && !selectedCharacterId()) {
             setSelectedCharacterId(characters.defaultId ?? characters.list[0]?.id ?? null);
@@ -75,18 +73,7 @@ export default function ConnectionPanel() {
     };
 
     return (
-        <div class={`connection-panel ${collapsed() ? 'collapsed' : ''}`}>
-            <div class="connection-header" onClick={() => setCollapsed(!collapsed())}>
-                <h2>⚡ Connection</h2>
-                <div style={{ display: 'flex', 'align-items': 'center', gap: '10px' }}>
-                    <span class={`status-dot ${status.mc}`} />
-                    <span class="status-label">MC</span>
-                    <span class={`status-dot ${status.voxta}`} />
-                    <span class="status-label">Voxta</span>
-                    <span style={{ 'font-size': '12px', color: 'var(--text-muted)' }}>{collapsed() ? '▶' : '▼'}</span>
-                </div>
-            </div>
-
+        <div class="connection-panel">
             <div class="connection-fields">
                 <div class="field">
                     <label>MC Host</label>
@@ -109,7 +96,7 @@ export default function ConnectionPanel() {
                     />
                 </div>
                 <div class="field">
-                    <label>Username</label>
+                    <label>Bot Name (in Minecraft)</label>
                     <input
                         type="text"
                         value={mcUsername()}
@@ -119,16 +106,16 @@ export default function ConnectionPanel() {
                     />
                 </div>
                 <div class="field">
-                    <label>Your MC Name</label>
+                    <label>Your Minecraft Name</label>
                     <input
                         type="text"
                         value={playerMcName()}
                         onInput={(e) => setPlayerMcName(e.currentTarget.value)}
-                        placeholder="Player"
+                        placeholder="Your in-game name"
                         disabled={isConnected()}
                     />
                 </div>
-                <div class="field">
+                <div class="field full-width">
                     <label>Voxta URL</label>
                     <input
                         type="text"

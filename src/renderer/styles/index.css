@@ -60,12 +60,18 @@ body {
 .app-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 20px;
+  justify-content: space-between;
+  padding: 10px 20px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   -webkit-app-region: drag;
   user-select: none;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .app-header h1 {
@@ -76,6 +82,122 @@ body {
 
 .app-header .logo {
   font-size: 20px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.header-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 16px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.header-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-color);
+}
+
+.header-btn.active {
+  background: var(--bg-hover);
+  border-color: var(--accent-blue);
+}
+
+/* ---- Modal ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  animation: modal-fade-in 0.15s ease;
+}
+
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-content {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  width: 90%;
+  max-width: 520px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  animation: modal-slide-in 0.15s ease;
+}
+
+@keyframes modal-slide-in {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-header h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.modal-close {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
 }
 
 .app-body {
@@ -91,40 +213,7 @@ body {
   overflow: hidden;
 }
 
-.side-panel {
-  width: 220px;
-  border-left: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  overflow-y: auto;
-  flex-shrink: 0;
-}
-
-/* ---- Connection Panel ---- */
-.connection-panel {
-  padding: 16px 20px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.connection-panel.collapsed .connection-fields {
-  display: none;
-}
-
-.connection-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  cursor: pointer;
-  margin-bottom: 12px;
-}
-
-.connection-header h2 {
-  font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-secondary);
-}
+/* ---- Connection Panel (inside modal) ---- */
 
 .connection-fields {
   display: grid;
@@ -296,7 +385,7 @@ body {
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .chat-messages::-webkit-scrollbar {
@@ -312,13 +401,14 @@ body {
   border-radius: 3px;
 }
 
+/* Base chat bubble */
 .chat-msg {
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  border-radius: 16px;
   font-size: 13px;
   line-height: 1.5;
-  max-width: 85%;
   word-wrap: break-word;
+  max-width: 75%;
 }
 
 .chat-msg .sender {
@@ -326,53 +416,82 @@ body {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
 }
 
+/* Player messages — right-aligned blue */
 .chat-msg.player {
-  background: #1e3a5f;
-  border-left: 3px solid var(--accent-blue);
+  background: linear-gradient(135deg, #1a3a6b, #1e3a5f);
+  border: 1px solid rgba(96, 165, 250, 0.2);
   align-self: flex-end;
+  border-radius: 16px 16px 4px 16px;
 }
 
 .chat-msg.player .sender {
   color: var(--accent-blue);
 }
 
+/* AI messages — left-aligned green */
 .chat-msg.ai {
-  background: #1a3328;
-  border-left: 3px solid var(--accent-green);
+  background: linear-gradient(135deg, #1a3b2a, #1a3328);
+  border: 1px solid rgba(74, 222, 128, 0.2);
   align-self: flex-start;
+  border-radius: 16px 16px 16px 4px;
 }
 
 .chat-msg.ai .sender {
   color: var(--accent-green);
 }
 
+/* System messages — centered compact strip */
 .chat-msg.system {
-  background: var(--bg-surface);
-  border-left: 3px solid var(--text-muted);
+  background: rgba(30, 30, 56, 0.6);
+  border: 1px solid var(--border-color);
   align-self: center;
   max-width: 100%;
+  border-radius: 8px;
+  padding: 6px 14px;
   font-size: 12px;
   color: var(--text-secondary);
 }
 
 .chat-msg.system .sender {
   color: var(--text-muted);
+  font-size: 10px;
 }
 
+/* Action messages — centered amber */
 .chat-msg.action {
-  background: #3d2e0f;
-  border-left: 3px solid var(--accent-amber);
+  background: rgba(59, 46, 15, 0.7);
+  border: 1px solid rgba(251, 191, 36, 0.25);
   align-self: center;
   max-width: 100%;
+  border-radius: 8px;
+  padding: 6px 14px;
   font-family: 'Courier New', monospace;
   font-size: 12px;
 }
 
 .chat-msg.action .sender {
   color: var(--accent-amber);
+  font-size: 10px;
+}
+
+/* Event messages — centered orange */
+.chat-msg.event {
+  background: rgba(80, 40, 10, 0.6);
+  border: 1px solid rgba(251, 146, 60, 0.3);
+  align-self: center;
+  max-width: 100%;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: #fbbf80;
+}
+
+.chat-msg.event .sender {
+  color: #fb923c;
+  font-size: 10px;
 }
 
 .chat-input-bar {

@@ -33,6 +33,14 @@ export class NameRegistry {
         return this.voxtaToMc.get(name.toLowerCase()) ?? name;
     }
 
+    /**
+     * Resolve an MC username to a Voxta name.
+     * Returns the original name if no mapping exists.
+     */
+    resolveToVoxta(mcName: string): string {
+        return this.mcToVoxta.get(mcName.toLowerCase()) ?? mcName;
+    }
+
     clear(): void {
         this.voxtaToMc.clear();
         this.mcToVoxta.clear();

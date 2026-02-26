@@ -1,6 +1,7 @@
 import { createStore } from 'solid-js/store';
 import { onCleanup, onMount } from 'solid-js';
-import type { BotStatus, ChatMessage, ActionToggle, CharacterInfo } from '../../shared/ipc-types';
+import type { BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings } from '../../shared/ipc-types';
+import { DEFAULT_SETTINGS } from '../../shared/ipc-types';
 
 // ---- Connection / Status Store ----
 
@@ -97,3 +98,31 @@ export async function toggleAction(name: string, enabled: boolean): Promise<void
     await window.api.toggleAction(name, enabled);
     setActions('list', (a) => a.name === name, 'enabled', enabled);
 }
+
+// ---- Settings Store ----
+
+const SETTINGS_KEY = 'voxta-mc-settings';
+
+function loadSavedSettings(): McSettings {
+    try {
+        const raw = localStorage.getItem(SETTINGS_KEY);
+        if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    } catch { /* ignore */ }
+    return { ...DEFAULT_SETTINGS };
+}
+
+const [settings, setSettings] = createStore<McSettings>(loadSavedSettings());
+
+export { settings };
+
+export function updateSetting(key: keyof McSettings, value: boolean): void {
+    setSettings(key, value);
+    const updated = { ...settings };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
+    window.api.updateSettings(updated);
+}
+
+export function getSettings(): McSettings {
+    return { ...settings };
+}
+

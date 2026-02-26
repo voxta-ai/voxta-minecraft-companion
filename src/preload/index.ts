@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo } from '../shared/ipc-types';
+import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
 export type ChatCallback = (message: ChatMessage) => void;
@@ -28,6 +28,9 @@ const api = {
 
     toggleAction: (name: string, enabled: boolean): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.TOGGLE_ACTION, name, enabled),
+
+    updateSettings: (settings: McSettings): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.UPDATE_SETTINGS, settings),
 
     onStatusChanged: (callback: StatusCallback): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, status: BotStatus): void => callback(status);

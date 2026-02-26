@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { BotConfig, BotStatus, ChatMessage, CharacterInfo } from '../shared/ipc-types';
+import type { BotConfig, BotStatus, ChatMessage, CharacterInfo, McSettings } from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): void {
     const engine = new BotEngine();
@@ -50,5 +50,9 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
     ipcMain.handle(IPC_CHANNELS.TOGGLE_ACTION, (_event, name: string, enabled: boolean) => {
         engine.toggleAction(name, enabled);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.UPDATE_SETTINGS, (_event, settings: McSettings) => {
+        engine.updateSettings(settings);
     });
 }
