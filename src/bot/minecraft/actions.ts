@@ -54,16 +54,6 @@ export const MINECRAFT_ACTIONS: ScenarioAction[] = [
         ],
     },
     {
-        name: 'mc_say',
-        description: 'Say a message in Minecraft chat',
-        disabled: false,
-        layer: '',
-        effect: {},
-        arguments: [
-            { name: 'message', type: 'String', description: 'Message to say in game chat', required: true },
-        ],
-    },
-    {
         name: 'mc_look_at',
         description: 'Turn to look at a player',
         disabled: false,
@@ -234,14 +224,6 @@ export async function executeAction(
             case 'mc_attack':
                 return await attackEntity(bot, getArg(args, 'entity_name'), names);
 
-            case 'mc_say': {
-                const message = getArg(args, 'message');
-                if (message) {
-                    bot.chat(message);
-                    return `Said: "${message}"`;
-                }
-                return 'No message provided';
-            }
 
             case 'mc_look_at':
                 return await lookAtPlayer(bot, getArg(args, 'player_name'), names);

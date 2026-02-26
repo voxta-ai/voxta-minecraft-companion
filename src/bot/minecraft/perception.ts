@@ -16,6 +16,7 @@ export interface WorldState {
     nearbyPlayers: NearbyEntity[];
     nearbyMobs: NearbyEntity[];
     inventorySummary: string[];
+    shelter: string; // e.g. 'indoors (roof, bed nearby)' or 'outdoors'
 }
 
 export interface NearbyEntity {
@@ -51,7 +52,11 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         if (entity.type === 'player') {
             nearbyPlayers.push(entry);
         } else if (entity.type === 'mob' || entity.type === 'hostile') {
-            nearbyMobs.push(entry);
+            // Skip mobs that are more than 5 blocks above/below (likely underground or on different level)
+            const yDiff = Math.abs(entity.position.y - pos.y);
+            if (yDiff <= 5) {
+                nearbyMobs.push(entry);
+            }
         }
     }
 
@@ -76,6 +81,52 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         // biome read can fail before chunks load
     }
 
+    // Shelter detection
+    const HOME_BLOCKS = [
+        'white_bed', 'orange_bed', 'magenta_bed', 'light_blue_bed', 'yellow_bed',
+        'lime_bed', 'pink_bed', 'gray_bed', 'light_gray_bed', 'cyan_bed',
+        'purple_bed', 'blue_bed', 'brown_bed', 'green_bed', 'red_bed', 'black_bed',
+        'furnace', 'chest', 'crafting_table', 'barrel', 'smoker', 'blast_furnace',
+        'torch', 'wall_torch', 'lantern', 'soul_lantern',
+    ];
+    let hasRoof = false;
+    try {
+        for (let dy = 1; dy <= 6; dy++) {
+            const above = bot.blockAt(pos.offset(0, dy, 0));
+            if (above && above.name !== 'air' && above.name !== 'cave_air') {
+                hasRoof = true;
+                break;
+            }
+        }
+    } catch { /* chunk not loaded */ }
+
+    const nearbyHomeBlocks: string[] = [];
+    try {
+        const searchRadius = 8;
+        for (let dx = -searchRadius; dx <= searchRadius; dx += 2) {
+            for (let dy = -2; dy <= 3; dy++) {
+                for (let dz = -searchRadius; dz <= searchRadius; dz += 2) {
+                    const block = bot.blockAt(pos.offset(dx, dy, dz));
+                    if (block && HOME_BLOCKS.includes(block.name)) {
+                        const label = block.name.replace(/_/g, ' ');
+                        if (!nearbyHomeBlocks.includes(label)) {
+                            nearbyHomeBlocks.push(label);
+                        }
+                    }
+                }
+            }
+        }
+    } catch { /* chunk not loaded */ }
+
+    let shelter = 'outdoors';
+    if (hasRoof && nearbyHomeBlocks.length > 0) {
+        shelter = `indoors, inside shelter (${nearbyHomeBlocks.join(', ')} nearby)`;
+    } else if (hasRoof) {
+        shelter = 'indoors (roof overhead)';
+    } else if (nearbyHomeBlocks.length > 0) {
+        shelter = `near shelter (${nearbyHomeBlocks.join(', ')} nearby)`;
+    }
+
     return {
         position: {
             x: Math.round(pos.x),
@@ -97,6 +148,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         nearbyPlayers,
         nearbyMobs,
         inventorySummary,
+        shelter,
     };
 }
 
@@ -129,7 +181,8 @@ export function buildContextStrings(
     lines.push(
         `Health: ${state.health}/20 | Food: ${state.food}/20 | ` +
         `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${timeStr}) | ` +
-        `Weather: ${state.isRaining ? 'Raining' : 'Clear'}`
+        `Weather: ${state.isRaining ? 'Raining' : 'Clear'} | ` +
+        `Location: ${state.shelter}`
     );
 
     if (state.heldItem) {

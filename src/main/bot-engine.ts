@@ -576,7 +576,7 @@ export class BotEngine extends EventEmitter {
 
                         if (!this.settings.enableTelemetryActionResults) return;
                         // Only send event for long-running actions (not follow, equip, look, stop, say)
-                        const QUICK_ACTIONS = ['mc_follow_player', 'mc_stop', 'mc_equip', 'mc_look_at', 'mc_say', 'mc_acknowledge'];
+                        const QUICK_ACTIONS = ['mc_follow_player', 'mc_stop', 'mc_equip', 'mc_look_at', 'mc_acknowledge'];
                         if (QUICK_ACTIONS.includes(actionName)) return;
                         // Use sendEvent so AI responds without it appearing as user message
                         if (this.isReplying) {
