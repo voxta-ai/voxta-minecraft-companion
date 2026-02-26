@@ -13,10 +13,11 @@ export interface WorldState {
     isDay: boolean;
     isRaining: boolean;
     heldItem: string | null;
+    armor: string[]; // Equipped armor pieces
     nearbyPlayers: NearbyEntity[];
     nearbyMobs: NearbyEntity[];
     inventorySummary: string[];
-    shelter: string; // e.g. 'indoors (roof, bed nearby)' or 'outdoors'
+    shelter: string;
 }
 
 export interface NearbyEntity {
@@ -145,6 +146,12 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         isDay: bot.time.isDay,
         isRaining: bot.isRaining,
         heldItem: bot.heldItem?.name ?? null,
+        armor: [
+            bot.inventory.slots[5]?.name,  // head
+            bot.inventory.slots[6]?.name,  // chest
+            bot.inventory.slots[7]?.name,  // legs
+            bot.inventory.slots[8]?.name,  // feet
+        ].filter((name): name is string => !!name),
         nearbyPlayers,
         nearbyMobs,
         inventorySummary,
@@ -185,8 +192,36 @@ export function buildContextStrings(
         `Location: ${state.shelter}`
     );
 
+    // Survival status warnings — helps AI understand Minecraft mechanics
+    const warnings: string[] = [];
+    if (state.food === 0) {
+        warnings.push('CRITICAL: Starving! Taking damage from hunger. Must eat food immediately!');
+    } else if (state.food <= 6) {
+        warnings.push('WARNING: Very hungry, should eat food soon to avoid starvation.');
+    } else if (state.food <= 14) {
+        warnings.push('Note: Could eat food to restore hunger bar.');
+    }
+
+    if (state.health <= 4) {
+        warnings.push(`CRITICAL: Very low health (${state.health}/20)! In danger of dying.`);
+    } else if (state.health <= 10) {
+        warnings.push(`WARNING: Low health (${state.health}/20). Eating food helps regenerate health.`);
+    } else if (state.health < 20 && state.food >= 18) {
+        warnings.push('Health regenerating from food.');
+    }
+
+    if (warnings.length > 0) {
+        lines.push(warnings.join(' | '));
+    }
+
     if (state.heldItem) {
         lines.push(`Holding: ${state.heldItem}`);
+    }
+
+    if (state.armor.length > 0) {
+        lines.push(`Armor: ${state.armor.map((a) => a.replace(/_/g, ' ')).join(', ')}`);
+    } else {
+        lines.push('Armor: none');
     }
 
     if (state.nearbyPlayers.length > 0) {

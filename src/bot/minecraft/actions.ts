@@ -112,12 +112,49 @@ export const MINECRAFT_ACTIONS: ScenarioAction[] = [
         ],
     },
     {
-        name: 'mc_acknowledge',
-        description: 'Acknowledge information or continue current behavior. Use this when no action change is needed.',
+        name: 'mc_none',
+        description: 'ONLY use when just talking and absolutely no game action is needed. Do NOT use if the player asked you to do something.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [],
+    },
+    {
+        name: 'mc_sleep',
+        description: 'Find a nearby bed and sleep in it. Only works at night.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [],
+    },
+    {
+        name: 'mc_wake',
+        description: 'Wake up and get out of bed.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [],
+    },
+    {
+        name: 'mc_cook',
+        description: 'Cook raw food in a nearby furnace. Needs fuel (wood/coal) in inventory.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            { name: 'item_name', type: 'String', description: 'Raw food to cook (optional, will cook whatever is available)', required: false },
+        ],
+    },
+    {
+        name: 'mc_craft',
+        description: 'Craft an item using materials in inventory. Needs a crafting table nearby for tools/weapons.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            { name: 'item_name', type: 'String', description: 'Item to craft (e.g. wooden_sword, stone_pickaxe, oak_planks, sticks, crafting_table, furnace)', required: true },
+            { name: 'count', type: 'String', description: 'How many to craft (default: 1)', required: false },
+        ],
     },
 ];
 
@@ -195,6 +232,9 @@ function findPlayerEntity(bot: Bot, playerName: string, names: NameRegistry): En
     );
 }
 
+// Shared cancellation signal for long-running actions
+let actionAbort = new AbortController();
+
 export async function executeAction(
     bot: Bot,
     actionName: string,
@@ -229,7 +269,10 @@ export async function executeAction(
                 return await lookAtPlayer(bot, getArg(args, 'player_name'), names);
 
             case 'mc_stop':
+                actionAbort.abort();
+                actionAbort = new AbortController();
                 bot.pathfinder.stop();
+                bot.stopDigging();
                 return 'Stopped current action';
 
             case 'mc_equip':
@@ -244,8 +287,24 @@ export async function executeAction(
             case 'mc_eat':
                 return await eatFood(bot, getArg(args, 'food_name'));
 
-            case 'mc_acknowledge':
+            case 'mc_none':
                 return ''; // No-op — AI acknowledged, nothing to do
+
+            case 'mc_sleep':
+                return await sleepInBed(bot);
+
+            case 'mc_wake':
+                if (bot.isSleeping) {
+                    bot.wake();
+                    return 'Woke up and got out of bed';
+                }
+                return 'Not currently sleeping';
+
+            case 'mc_cook':
+                return await cookFood(bot, getArg(args, 'item_name'));
+
+            case 'mc_craft':
+                return await craftItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
 
             default:
                 return `Unknown action: ${actionName}`;
@@ -254,6 +313,36 @@ export async function executeAction(
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[MC Action] Error executing ${actionName}:`, message);
         return `Failed to execute ${actionName}: ${message}`;
+    }
+}
+
+// ---- Armor slot detection ----
+
+/** Determine the correct equipment slot for an item */
+function getEquipSlot(itemName: string): 'head' | 'torso' | 'legs' | 'feet' | 'hand' {
+    if (itemName.includes('helmet') || itemName.includes('cap')) return 'head';
+    if (itemName.includes('chestplate') || itemName.includes('tunic')) return 'torso';
+    if (itemName.includes('leggings') || itemName.includes('pants')) return 'legs';
+    if (itemName.includes('boots')) return 'feet';
+    return 'hand';
+}
+
+async function equipItem(bot: Bot, itemName: string | undefined): Promise<string> {
+    if (!itemName) return 'No item name provided';
+
+    const item = bot.inventory.items().find(
+        (i) => i.name.toLowerCase().includes(itemName.toLowerCase()),
+    );
+    if (!item) return `No ${itemName} found in inventory`;
+
+    const slot = getEquipSlot(item.name);
+    try {
+        await bot.equip(item.type, slot);
+        const slotLabel = slot === 'hand' ? 'hand' : `${slot} armor slot`;
+        return `Equipped ${item.displayName ?? item.name} in ${slotLabel}`;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to equip ${item.name}: ${message}`;
     }
 }
 
@@ -369,7 +458,10 @@ async function mineBlock(
 
     console.log(`[MC Action] Mining up to ${maxCount} ${displayName} blocks...`);
 
+    const signal = actionAbort.signal;
+
     while (mined < maxCount && attempts < MAX_ATTEMPTS) {
+        if (signal.aborted) break;
         attempts++;
 
         // Find blocks within reach (max 2 blocks above bot — no pillaring needed)
@@ -411,6 +503,7 @@ async function mineBlock(
                 setTimeout(() => reject(new Error('timeout')), 15000),
             );
             await Promise.race([pathPromise, timeout]);
+            if (signal.aborted) break;
             await bot.dig(block);
             mined++;
             console.log(`[MC Action] Mined ${block.name} (${mined}/${maxCount})`);
@@ -455,7 +548,16 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
     const TIMEOUT_MS = 30000; // 30 seconds max combat
 
     return new Promise<string>((resolve) => {
+        const signal = actionAbort.signal;
         const attackLoop = setInterval(() => {
+            // Check if cancelled
+            if (signal.aborted) {
+                clearInterval(attackLoop);
+                bot.pathfinder.stop();
+                resolve(`Stopped attacking ${displayName}`);
+                return;
+            }
+
             // Check if target is dead (entity removed from world)
             if (!bot.entities[target.id]) {
                 clearInterval(attackLoop);
@@ -492,20 +594,6 @@ async function lookAtPlayer(bot: Bot, playerName: string | undefined, names: Nam
     return `Looking at ${displayName}`;
 }
 
-async function equipItem(bot: Bot, itemName: string | undefined): Promise<string> {
-    if (!itemName) return 'No item name provided';
-
-    const item = bot.inventory.items().find((i) => i.name === itemName);
-    if (!item) return `No ${itemName} in inventory`;
-
-    try {
-        await bot.equip(item, 'hand');
-        return `Equipped ${itemName}`;
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return `Failed to equip ${itemName}: ${message}`;
-    }
-}
 
 async function giveItem(
     bot: Bot,
@@ -603,5 +691,235 @@ async function eatFood(bot: Bot, foodName: string | undefined): Promise<string> 
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to eat ${foodItem.name}: ${message}`;
+    }
+}
+
+const BED_BLOCKS = [
+    'white_bed', 'orange_bed', 'magenta_bed', 'light_blue_bed', 'yellow_bed',
+    'lime_bed', 'pink_bed', 'gray_bed', 'light_gray_bed', 'cyan_bed',
+    'purple_bed', 'blue_bed', 'brown_bed', 'green_bed', 'red_bed', 'black_bed',
+];
+
+async function sleepInBed(bot: Bot): Promise<string> {
+    // Find nearest bed
+    const bedBlock = bot.findBlock({
+        matching: (block) => BED_BLOCKS.includes(block.name),
+        maxDistance: 32,
+    });
+
+    if (!bedBlock) return 'No bed found nearby';
+
+    // Walk to the bed
+    try {
+        await bot.pathfinder.goto(
+            new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2),
+        );
+    } catch {
+        return 'Cannot reach the bed';
+    }
+
+    // Try to sleep
+    try {
+        await bot.sleep(bedBlock);
+        return 'Went to sleep in bed';
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (message.includes('not night')) return 'Cannot sleep, it is not night time yet';
+        if (message.includes('occupied')) return 'Cannot sleep, the bed is occupied';
+        if (message.includes('monsters')) return 'Cannot sleep, there are monsters nearby';
+        return `Cannot sleep: ${message}`;
+    }
+}
+
+// ---- Cooking ----
+
+/** Raw items that can be smelted in a furnace */
+const COOKABLE_ITEMS: Record<string, string> = {
+    beef: 'cooked_beef',
+    porkchop: 'cooked_porkchop',
+    chicken: 'cooked_chicken',
+    mutton: 'cooked_mutton',
+    rabbit: 'cooked_rabbit',
+    cod: 'cooked_cod',
+    salmon: 'cooked_salmon',
+    potato: 'baked_potato',
+    kelp: 'dried_kelp',
+};
+
+/** Items that work as furnace fuel, sorted by burn time (best first) */
+const FUEL_ITEMS = [
+    'coal', 'charcoal', 'coal_block',
+    'oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log',
+    'mangrove_log', 'cherry_log',
+    'oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks',
+    'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks',
+    'stick',
+];
+
+async function cookFood(bot: Bot, itemName: string | undefined): Promise<string> {
+    const items = bot.inventory.items();
+
+    // Find cookable item
+    let rawItem;
+    if (itemName) {
+        rawItem = items.find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()) && i.name in COOKABLE_ITEMS);
+        if (!rawItem) {
+            // Maybe they gave us the exact name
+            rawItem = items.find((i) => i.name in COOKABLE_ITEMS && i.name.includes(itemName.toLowerCase()));
+        }
+        if (!rawItem) return `No cookable ${itemName} in inventory`;
+    } else {
+        rawItem = items.find((i) => i.name in COOKABLE_ITEMS);
+        if (!rawItem) return 'No raw food to cook in inventory';
+    }
+
+    // Find fuel
+    const fuelItem = items.find((i) => FUEL_ITEMS.includes(i.name));
+    if (!fuelItem) return 'No fuel in inventory (need coal, wood, or planks)';
+
+    // Find nearby furnace
+    const furnaceBlock = bot.findBlock({
+        matching: (block) => block.name === 'furnace' || block.name === 'smoker' || block.name === 'blast_furnace',
+        maxDistance: 32,
+    });
+    if (!furnaceBlock) return 'No furnace found nearby';
+
+    // Walk to furnace
+    try {
+        await bot.pathfinder.goto(
+            new goals.GoalNear(furnaceBlock.position.x, furnaceBlock.position.y, furnaceBlock.position.z, 2),
+        );
+    } catch {
+        return 'Cannot reach the furnace';
+    }
+
+    // Open furnace and cook
+    try {
+        const furnace = await bot.openFurnace(furnaceBlock);
+        const cookCount = Math.min(rawItem.count, 8); // Cook up to 8 at a time
+
+        // Take any existing output first
+        if (furnace.outputItem()) {
+            await furnace.takeOutput();
+        }
+
+        // Only add fuel if the fuel slot is empty
+        if (!furnace.fuelItem()) {
+            await furnace.putFuel(fuelItem.type, null, Math.min(fuelItem.count, cookCount));
+        }
+        // Put raw food in
+        await furnace.putInput(rawItem.type, null, cookCount);
+
+        console.log(`[MC Action] Cooking ${cookCount} ${rawItem.name}...`);
+
+        // Wait for cooking (10 seconds per item in furnace, 5 in smoker)
+        const isSmoker = furnaceBlock.name === 'smoker';
+        const cookTimeMs = (isSmoker ? 5000 : 10000) * cookCount;
+        await new Promise((resolve) => setTimeout(resolve, cookTimeMs + 1000));
+
+        // Take output
+        const output = furnace.outputItem();
+        if (output) {
+            await furnace.takeOutput();
+        }
+
+        furnace.close();
+
+        const cookedName = COOKABLE_ITEMS[rawItem.name] ?? 'cooked food';
+        return `Cooked ${cookCount} ${cookedName.replace(/_/g, ' ')}`;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to cook: ${message}`;
+    }
+}
+
+// ---- Crafting ----
+
+/** Common name aliases to real item names */
+const CRAFT_ALIASES: Record<string, string> = {
+    planks: 'oak_planks',
+    sticks: 'stick',
+    stick: 'stick',
+    'wooden sword': 'wooden_sword',
+    'wooden axe': 'wooden_axe',
+    'wooden pickaxe': 'wooden_pickaxe',
+    'wooden shovel': 'wooden_shovel',
+    'stone sword': 'stone_sword',
+    'stone axe': 'stone_axe',
+    'stone pickaxe': 'stone_pickaxe',
+    'stone shovel': 'stone_shovel',
+    'iron sword': 'iron_sword',
+    'iron axe': 'iron_axe',
+    'iron pickaxe': 'iron_pickaxe',
+    'iron shovel': 'iron_shovel',
+    'crafting table': 'crafting_table',
+    workbench: 'crafting_table',
+    chest: 'chest',
+    furnace: 'furnace',
+    torch: 'torch',
+    torches: 'torch',
+    shield: 'shield',
+    bucket: 'bucket',
+    bowl: 'bowl',
+    bread: 'bread',
+    boat: 'oak_boat',
+};
+
+async function craftItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
+    if (!itemName) return 'No item name provided';
+
+    const mcData = require('minecraft-data')(bot.version);
+    const count = countStr ? parseInt(countStr, 10) : 1;
+
+    // Resolve name
+    const resolved = CRAFT_ALIASES[itemName.toLowerCase()] ?? itemName.toLowerCase().replace(/ /g, '_');
+    const itemInfo = mcData.itemsByName[resolved] as { id: number; displayName: string; name: string } | undefined;
+    if (!itemInfo) return `Unknown item: ${itemName}`;
+
+    // Try crafting without a table first (2x2 recipes like planks, sticks)
+    let recipes = bot.recipesFor(itemInfo.id, null, 1, null);
+
+    if (recipes.length === 0) {
+        // Need a crafting table — find one nearby
+        const craftingTable = bot.findBlock({
+            matching: (block) => block.name === 'crafting_table',
+            maxDistance: 32,
+        });
+
+        if (!craftingTable) {
+            return `Cannot craft ${itemInfo.displayName}: no crafting table nearby and recipe requires one`;
+        }
+
+        // Walk to crafting table
+        try {
+            await bot.pathfinder.goto(
+                new goals.GoalNear(craftingTable.position.x, craftingTable.position.y, craftingTable.position.z, 2),
+            );
+        } catch {
+            return 'Cannot reach the crafting table';
+        }
+
+        recipes = bot.recipesFor(itemInfo.id, null, 1, craftingTable);
+        if (recipes.length === 0) {
+            return `Cannot craft ${itemInfo.displayName}: missing materials`;
+        }
+
+        // Craft with table
+        try {
+            await bot.craft(recipes[0], count, craftingTable);
+            return `Crafted ${count} ${itemInfo.displayName}`;
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return `Failed to craft ${itemInfo.displayName}: ${message}`;
+        }
+    }
+
+    // Craft without table (2x2)
+    try {
+        await bot.craft(recipes[0], count);
+        return `Crafted ${count} ${itemInfo.displayName}`;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to craft ${itemInfo.displayName}: ${message}`;
     }
 }

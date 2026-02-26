@@ -421,6 +421,14 @@ export class BotEngine extends EventEmitter {
             }
         });
 
+        // Notify when bot wakes up from sleeping
+        bot.on('wake', () => {
+            if (!this.voxta?.sessionId) return;
+            const botName = this.assistantName ?? 'Bot';
+            this.addChat('event', 'Event', `${botName} woke up!`);
+            void this.voxta.sendEvent(`${botName} woke up. It is now morning.`);
+        });
+
         // Track item pickups via inventory changes
         bot.inventory.on('updateSlot', (slot: number, oldItem: { name: string; count: number } | null, newItem: { name: string; displayName: string; count: number } | null) => {
             if (!this.voxta?.sessionId) return;
@@ -563,7 +571,7 @@ export class BotEngine extends EventEmitter {
                         const shouldResume = this.followingPlayer
                             && actionName !== 'mc_follow_player'
                             && actionName !== 'mc_stop'
-                            && actionName !== 'mc_acknowledge';
+                            && actionName !== 'mc_none';
                         console.log(`[Bot] Action done: ${actionName}, followingPlayer: ${this.followingPlayer}, shouldResume: ${!!shouldResume}`);
                         if (shouldResume && this.mcBot) {
                             const resumeResult = await executeAction(
@@ -576,7 +584,7 @@ export class BotEngine extends EventEmitter {
 
                         if (!this.settings.enableTelemetryActionResults) return;
                         // Only send event for long-running actions (not follow, equip, look, stop, say)
-                        const QUICK_ACTIONS = ['mc_follow_player', 'mc_stop', 'mc_equip', 'mc_look_at', 'mc_acknowledge'];
+                        const QUICK_ACTIONS = ['mc_follow_player', 'mc_stop', 'mc_equip', 'mc_look_at', 'mc_none', 'mc_sleep', 'mc_wake'];
                         if (QUICK_ACTIONS.includes(actionName)) return;
                         // Use sendEvent so AI responds without it appearing as user message
                         if (this.isReplying) {
