@@ -39,7 +39,7 @@ export const MINECRAFT_ACTIONS: ScenarioAction[] = [
         layer: '',
         effect: {},
         arguments: [
-            { name: 'block_type', type: 'String', description: 'Type of block to mine (e.g. oak_log, stone, iron_ore)', required: true },
+            { name: 'block_type', type: 'String', description: 'Type of block to mine. Use "wood" or "log" for any nearby tree, or a specific block like oak_log, stone, iron_ore', required: true },
             { name: 'count', type: 'String', description: 'Number of blocks to mine', required: false },
         ],
     },
@@ -155,14 +155,19 @@ function getBestTool(bot: Bot, category: ToolCategory): { item: unknown; name: s
 
 // ---- Action execution ----
 
-/** Strip leading '=' and surrounding quotes from argument values */
+/** Strip type annotations, leading '=' and surrounding quotes from argument values.
+ *  Handles LLM quirks like: '="Lapiro"', 'string = "oak_log"', 'string="oak_log', '"value"' */
 function cleanArgValue(raw: string): string {
     let val = raw.trim();
-    if (val.startsWith('=')) val = val.slice(1);
-    val = val.trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
+    // If the value contains '=', take everything after the last '='
+    // This handles patterns like 'string = "oak_log"' or 'string="oak_log'
+    const eqIdx = val.lastIndexOf('=');
+    if (eqIdx >= 0) {
+        val = val.slice(eqIdx + 1).trim();
     }
+    // Strip leading and trailing quotes (handles both balanced and unbalanced)
+    while (val.startsWith('"') || val.startsWith("'")) val = val.slice(1);
+    while (val.endsWith('"') || val.endsWith("'")) val = val.slice(0, -1);
     return val.trim();
 }
 
@@ -255,8 +260,21 @@ async function followPlayer(bot: Bot, playerName: string | undefined, names: Nam
     const displayName = names.resolveToVoxta(names.resolveToMc(playerName));
     if (!player) return `Cannot find player "${displayName}" nearby`;
 
+    // Remember current hand item before pathfinder changes it
+    const heldItem = bot.heldItem;
+
     const goal = new goals.GoalFollow(player, 3);
     bot.pathfinder.setGoal(goal, true); // dynamic = true → keeps following
+
+    // Re-equip previous item (pathfinder tends to switch held item)
+    if (heldItem) {
+        try {
+            await bot.equip(heldItem.type, 'hand');
+        } catch {
+            // Best effort — item might have been consumed
+        }
+    }
+
     return `Following ${displayName}`;
 }
 
@@ -287,8 +305,28 @@ async function mineBlock(
     if (!blockType) return 'No block type provided';
 
     const mcData = require('minecraft-data')(bot.version);
-    const blockInfo = mcData.blocksByName[blockType];
-    if (!blockInfo) return `Unknown block type: ${blockType}`;
+
+    // Aliases: "wood", "log", "tree" → find any nearby log type
+    const LOG_ALIASES = ['wood', 'log', 'tree', 'trees', 'any'];
+    const ALL_LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log'];
+
+    let blockIds: number[];
+    let displayName: string;
+
+    if (LOG_ALIASES.includes(blockType.toLowerCase())) {
+        // Match any log type
+        blockIds = ALL_LOGS
+            .map((name) => mcData.blocksByName[name] as { id: number } | undefined)
+            .filter((b): b is { id: number } => b !== undefined)
+            .map((b) => b.id);
+        displayName = 'wood';
+        if (blockIds.length === 0) return 'Cannot find any wood block types in this Minecraft version';
+    } else {
+        const blockInfo = mcData.blocksByName[blockType];
+        if (!blockInfo) return `Unknown block type: ${blockType}`;
+        blockIds = [blockInfo.id];
+        displayName = blockType;
+    }
 
     // Check tool requirements
     const toolCategory = getToolCategory(blockType);
@@ -307,20 +345,20 @@ async function mineBlock(
         }
     }
 
-    const count = countStr ? parseInt(countStr, 10) : 1;
-    const maxCount = Math.min(count, 10);
+    const count = countStr ? parseInt(countStr, 10) : 5;
+    const maxCount = Math.min(count, 16);
     let mined = 0;
 
     console.log(`[MC Action] Mining up to ${maxCount} ${blockType} blocks...`);
 
     for (let i = 0; i < maxCount; i++) {
         const block = bot.findBlock({
-            matching: blockInfo.id,
+            matching: blockIds,
             maxDistance: 64,
         });
 
         if (!block) {
-            if (mined === 0) return `Cannot find any ${blockType} nearby`;
+            if (mined === 0) return `Cannot find any ${displayName} nearby`;
             break;
         }
 
@@ -328,16 +366,16 @@ async function mineBlock(
             await bot.pathfinder.goto(new goals.GoalGetToBlock(block.position.x, block.position.y, block.position.z));
             await bot.dig(block);
             mined++;
-            console.log(`[MC Action] Mined ${blockType} (${mined}/${maxCount})`);
+            console.log(`[MC Action] Mined ${block.name} (${mined}/${maxCount})`);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             console.error(`[MC Action] Mining failed:`, message);
-            if (mined === 0) return `Failed to mine ${blockType}: ${message}`;
+            if (mined === 0) return `Failed to mine ${displayName}: ${message}`;
             break;
         }
     }
 
-    return `Mined ${mined} ${blockType} block${mined > 1 ? 's' : ''}`;
+    return `Mined ${mined} ${displayName} block${mined > 1 ? 's' : ''}`;
 }
 
 async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {

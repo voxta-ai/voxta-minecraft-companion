@@ -270,8 +270,9 @@ export class BotEngine extends EventEmitter {
             if (!this.voxta?.sessionId) return;
             if (!this.settings.enableTelemetryChat) return;
             const voxtaName = this.names.resolveToVoxta(username);
-            this.addChat('player', voxtaName, message);
-            void this.voxta.sendMessage(`[${voxtaName} says in Minecraft chat]: ${message}`);
+            const resolvedMsg = this.names.resolveNamesInText(message);
+            this.addChat('player', voxtaName, resolvedMsg);
+            void this.voxta.sendMessage(`[${voxtaName} says in Minecraft chat]: ${resolvedMsg}`);
         });
 
         bot.on('whisper', (username: string, message: string) => {
@@ -279,8 +280,9 @@ export class BotEngine extends EventEmitter {
             if (!this.voxta?.sessionId) return;
             if (!this.settings.enableTelemetryChat) return;
             const voxtaName = this.names.resolveToVoxta(username);
-            this.addChat('player', `${voxtaName} (whisper)`, message);
-            void this.voxta.sendMessage(`[${voxtaName} whispers in Minecraft]: ${message}`);
+            const resolvedMsg = this.names.resolveNamesInText(message);
+            this.addChat('player', `${voxtaName} (whisper)`, resolvedMsg);
+            void this.voxta.sendMessage(`[${voxtaName} whispers in Minecraft]: ${resolvedMsg}`);
         });
 
         // ---- 5. MC Game Events (with cooldowns to prevent spam) ----
@@ -289,6 +291,8 @@ export class BotEngine extends EventEmitter {
         const EVENT_COOLDOWN_MS = 15_000; // 15s between same event type
         let pendingDamage = 0;
         let damageTimer: ReturnType<typeof setTimeout> | null = null;
+        let lastAttacker: string | null = null;
+        let lastAttackerTime = 0;
 
         const isOnCooldown = (key: string): boolean => {
             const last = eventCooldowns.get(key);
@@ -297,27 +301,47 @@ export class BotEngine extends EventEmitter {
             return false;
         };
 
+        /** Guess damage source from bot state and recent attacker */
+        const getDamageSource = (): string => {
+            // Recent attacker (within 2 seconds)
+            if (lastAttacker && Date.now() - lastAttackerTime < 2000) {
+                const source = lastAttacker;
+                lastAttacker = null;
+                return source;
+            }
+            // Environmental checks via entity metadata
+            const meta = bot.entity as unknown as Record<string, unknown>;
+            if (meta['isInLava']) return 'lava';
+            if (meta['isInFire'] || meta['onFire']) return 'fire';
+            // Fall damage: check if velocity was high before landing
+            return 'falling or environment';
+        };
+
         bot.on('health', () => {
             if (!this.voxta?.sessionId) return;
             const currentHealth = Math.round(bot.health * 10) / 10;
             if (currentHealth < lastHealth && this.settings.enableEventDamage) {
                 const damage = Math.round((lastHealth - currentHealth) * 10) / 10;
+                const source = getDamageSource();
                 pendingDamage += damage;
-                this.addChat('event', 'Event', `Took ${damage} damage! Health: ${currentHealth}/20`);
+                const botName = this.assistantName ?? 'Bot';
+                this.addChat('event', 'Event', `${botName} took ${damage} damage from ${source}! Health: ${currentHealth}/20`);
 
                 // Consolidate damage into one message after a short delay
                 if (!damageTimer) {
+                    const damageSource = source;
                     damageTimer = setTimeout(() => {
                         const totalDmg = Math.round(pendingDamage * 10) / 10;
                         const hp = Math.round(bot.health * 10) / 10;
                         if (this.voxta?.sessionId) {
+                            const botName = this.assistantName ?? 'Bot';
                             void this.voxta.sendMessage(
-                                `[event]: Bot took ${totalDmg} total damage! Health now: ${hp}/20`,
+                                `[event]: ${botName} took ${totalDmg} total damage from ${damageSource}! ${botName}'s health is now: ${hp}/20`,
                             );
                         }
                         pendingDamage = 0;
                         damageTimer = null;
-                    }, 3000); // Wait 3s to consolidate hits
+                    }, 3000);
                 }
             }
             lastHealth = currentHealth;
@@ -329,30 +353,41 @@ export class BotEngine extends EventEmitter {
             lastHealth = 20;
             pendingDamage = 0;
             if (damageTimer) { clearTimeout(damageTimer); damageTimer = null; }
-            this.addChat('event', 'Event', 'Bot died!');
-            void this.voxta.sendMessage('[event]: Bot has died and respawned!');
+            this.addChat('event', 'Event', `${this.assistantName ?? 'Bot'} died!`);
+            void this.voxta.sendMessage(`[event]: ${this.assistantName ?? 'Bot'} has died and respawned!`);
         });
 
         bot.on('entityHurt', (entity: { id: number }) => {
             if (!this.voxta?.sessionId) return;
             if (entity.id !== bot.entity.id) return;
-            if (!this.settings.enableEventUnderAttack) return;
-            if (isOnCooldown('underAttack')) return;
-            // Find the attacker and resolve their name to Voxta name
+            // Always track last attacker for damage source detection
             const attacker = bot.nearestEntity((e) => e !== bot.entity && e.position.distanceTo(bot.entity.position) < 6);
             if (attacker) {
                 const mcName = attacker.username ?? attacker.displayName ?? attacker.name ?? 'something';
-                const voxtaName = this.names.resolveToVoxta(mcName);
-                this.addChat('event', 'Event', `Under attack by ${voxtaName}!`);
-                void this.voxta.sendMessage(`[event]: Bot is being attacked by ${voxtaName}!`);
+                lastAttacker = this.names.resolveToVoxta(mcName);
+                lastAttackerTime = Date.now();
+            }
+            if (!this.settings.enableEventUnderAttack) return;
+            if (isOnCooldown('underAttack')) return;
+            if (attacker) {
+                const voxtaName = lastAttacker ?? 'something';
+                this.addChat('event', 'Event', `${this.assistantName ?? 'Bot'} is under attack by ${voxtaName}!`);
+                void this.voxta.sendMessage(`[event]: ${this.assistantName ?? 'Bot'} is being attacked by ${voxtaName}!`);
             }
         });
 
-        bot.on('playerCollect', (collector: { id: number }, collected: { id: number }) => {
+        // Track item pickups via inventory changes
+        bot.inventory.on('updateSlot', (slot: number, oldItem: { name: string; count: number } | null, newItem: { name: string; displayName: string; count: number } | null) => {
             if (!this.voxta?.sessionId) return;
-            if (collector.id !== bot.entity.id) return;
             if (!this.settings.enableTelemetryItemPickup) return;
-            this.addChat('system', 'Telemetry', 'Picked up an item');
+            if (!newItem) return;
+            const gained = oldItem && oldItem.name === newItem.name
+                ? newItem.count - oldItem.count
+                : newItem.count;
+            if (gained <= 0) return;
+            const name = newItem.displayName ?? newItem.name;
+            const botName = this.assistantName ?? 'Bot';
+            this.addChat('system', 'Telemetry', `${botName} picked up ${gained} ${name}`);
         });
 
         bot.chat("Hello! I'm your Voxta AI companion. Talk to me!");
@@ -450,11 +485,12 @@ export class BotEngine extends EventEmitter {
 
                 if (this.mcBot) {
                     void executeAction(this.mcBot.bot, action.value, action.arguments, this.names).then((result) => {
-                        this.addChat('system', 'System', `Action result: ${result}`);
+                        const botName = this.assistantName ?? 'Bot';
+                        this.addChat('system', 'System', `${botName}: ${result}`);
                         this.updateStatus({ currentAction: null });
                         // Queue result as a note — will be sent after AI finishes speaking
                         if (this.settings.enableTelemetryActionResults) {
-                            this.queueNote(`[event]: Action result: ${result}`);
+                            this.queueNote(`[event]: ${botName}: ${result}`);
                         }
                     });
                 }

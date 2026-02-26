@@ -41,6 +41,20 @@ export class NameRegistry {
         return this.mcToVoxta.get(mcName.toLowerCase()) ?? mcName;
     }
 
+    /**
+     * Replace all known MC names in a text string with their Voxta names.
+     * Useful for translating server messages like "Teleported VoxtaBot to Emptyngton".
+     */
+    resolveNamesInText(text: string): string {
+        let result = text;
+        for (const [mcLower, voxtaName] of this.mcToVoxta.entries()) {
+            // Case-insensitive replacement of the MC name
+            const regex = new RegExp(mcLower.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+            result = result.replace(regex, voxtaName);
+        }
+        return result;
+    }
+
     clear(): void {
         this.voxtaToMc.clear();
         this.mcToVoxta.clear();

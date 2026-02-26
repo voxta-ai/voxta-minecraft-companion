@@ -54,7 +54,7 @@ export default function App() {
 
             <div class="app-body">
                 <div class="main-panel">
-                    <ChatView />
+                    <ChatView onConnect={() => setActivePopup('connection')} />
                 </div>
             </div>
 

@@ -1,7 +1,11 @@
 import { For, Show, createSignal, createEffect } from 'solid-js';
 import { chatMessages, sendMessage, status } from '../stores/app-store';
 
-export default function ChatView() {
+interface ChatViewProps {
+    onConnect: () => void;
+}
+
+export default function ChatView(props: ChatViewProps) {
     let messagesContainerRef: HTMLDivElement | undefined;
     const [inputText, setInputText] = createSignal('');
 
@@ -39,7 +43,13 @@ export default function ChatView() {
                 when={chatMessages.messages.length > 0}
                 fallback={
                     <div class="empty-chat">
-                        Connect to start chatting with your AI companion ✨
+                        <div class="empty-chat-content">
+                            <span class="empty-chat-icon">⛏️</span>
+                            <p>No active session</p>
+                            <button class="btn btn-connect" onClick={() => props.onConnect()}>
+                                🔗 Connect
+                            </button>
+                        </div>
                     </div>
                 }
             >

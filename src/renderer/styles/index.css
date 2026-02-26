@@ -646,7 +646,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.empty-chat-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
   color: var(--text-muted);
-  font-size: 14px;
+}
+
+.empty-chat-icon {
+  font-size: 48px;
+}
+
+.empty-chat-content p {
+  font-size: 15px;
   letter-spacing: 0.02em;
 }
