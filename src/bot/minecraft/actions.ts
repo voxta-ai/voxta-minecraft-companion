@@ -111,6 +111,24 @@ export const MINECRAFT_ACTIONS: ScenarioAction[] = [
         effect: {},
         arguments: [],
     },
+    {
+        name: 'mc_eat',
+        description: 'Eat food from inventory to restore hunger. Will eat the best food available.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            { name: 'food_name', type: 'String', description: 'Specific food to eat (optional, will pick best available if not specified)', required: false },
+        ],
+    },
+    {
+        name: 'mc_acknowledge',
+        description: 'Acknowledge information or continue current behavior. Use this when no action change is needed.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [],
+    },
 ];
 
 // ---- Tool requirements ----
@@ -241,6 +259,12 @@ export async function executeAction(
             case 'mc_collect_items':
                 return await collectItems(bot);
 
+            case 'mc_eat':
+                return await eatFood(bot, getArg(args, 'food_name'));
+
+            case 'mc_acknowledge':
+                return ''; // No-op — AI acknowledged, nothing to do
+
             default:
                 return `Unknown action: ${actionName}`;
         }
@@ -322,7 +346,16 @@ async function mineBlock(
         displayName = 'wood';
         if (blockIds.length === 0) return 'Cannot find any wood block types in this Minecraft version';
     } else {
-        const blockInfo = mcData.blocksByName[blockType];
+        // Try exact match first
+        let blockInfo = mcData.blocksByName[blockType];
+        // Fuzzy match: try common suffixes if exact fails
+        if (!blockInfo) {
+            const suffixes = ['_block', '_ore', '_log', '_planks', '_slab', '_stairs'];
+            for (const suffix of suffixes) {
+                blockInfo = mcData.blocksByName[blockType + suffix];
+                if (blockInfo) break;
+            }
+        }
         if (!blockInfo) return `Unknown block type: ${blockType}`;
         blockIds = [blockInfo.id];
         displayName = blockType;
@@ -348,33 +381,66 @@ async function mineBlock(
     const count = countStr ? parseInt(countStr, 10) : 5;
     const maxCount = Math.min(count, 16);
     let mined = 0;
+    let attempts = 0;
+    const MAX_ATTEMPTS = maxCount + 5;
+    const failedPositions = new Set<string>();
 
-    console.log(`[MC Action] Mining up to ${maxCount} ${blockType} blocks...`);
+    console.log(`[MC Action] Mining up to ${maxCount} ${displayName} blocks...`);
 
-    for (let i = 0; i < maxCount; i++) {
-        const block = bot.findBlock({
+    while (mined < maxCount && attempts < MAX_ATTEMPTS) {
+        attempts++;
+
+        // Find blocks within reach (max 2 blocks above bot — no pillaring needed)
+        const candidates = bot.findBlocks({
             matching: blockIds,
-            maxDistance: 64,
+            maxDistance: 32,
+            count: 20,
         });
 
-        if (!block) {
-            if (mined === 0) return `Cannot find any ${displayName} nearby`;
+        // Filter: reachable height + not already failed
+        const botY = bot.entity.position.y;
+        const reachable = candidates
+            .filter((pos) => {
+                const key = `${pos.x},${pos.y},${pos.z}`;
+                return pos.y - botY <= 2 && !failedPositions.has(key);
+            })
+            .sort((a, b) => {
+                const distA = bot.entity.position.distanceTo(a);
+                const distB = bot.entity.position.distanceTo(b);
+                return distA - distB;
+            });
+
+        if (reachable.length === 0) {
+            if (mined === 0) return `Cannot find any reachable ${displayName} nearby`;
             break;
         }
 
+        const blockPos = reachable[0];
+        const posKey = `${blockPos.x},${blockPos.y},${blockPos.z}`;
+        const block = bot.blockAt(blockPos);
+        if (!block) { failedPositions.add(posKey); continue; }
+
         try {
-            await bot.pathfinder.goto(new goals.GoalGetToBlock(block.position.x, block.position.y, block.position.z));
+            // Use GoalNear to get within 2 blocks, then dig
+            const pathPromise = bot.pathfinder.goto(
+                new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2),
+            );
+            const timeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error('timeout')), 15000),
+            );
+            await Promise.race([pathPromise, timeout]);
             await bot.dig(block);
             mined++;
             console.log(`[MC Action] Mined ${block.name} (${mined}/${maxCount})`);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            console.error(`[MC Action] Mining failed:`, message);
-            if (mined === 0) return `Failed to mine ${displayName}: ${message}`;
-            break;
+            console.warn(`[MC Action] Skipping block at ${posKey}: ${message}`);
+            bot.pathfinder.stop();
+            failedPositions.add(posKey);
         }
     }
 
+    if (mined === 0) return `Failed to mine any ${displayName} (stuck or unreachable)`;
     return `Mined ${mined} ${displayName} block${mined > 1 ? 's' : ''}`;
 }
 
@@ -397,32 +463,40 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
 
     if (!target) return `Cannot find ${names.resolveToVoxta(names.resolveToMc(entityName))} nearby`;
 
-    // Move toward and attack
+    const displayName = names.resolveToVoxta(names.resolveToMc(entityName));
+
+    // Follow and attack until dead
     const goal = new goals.GoalFollow(target, 2);
     bot.pathfinder.setGoal(goal, true);
 
-    // Wait to get in range then attack
-    const waitForRange = (): Promise<void> => {
-        return new Promise((resolve) => {
-            const interval = setInterval(() => {
-                if (target.position.distanceTo(bot.entity.position) < 3.5) {
-                    clearInterval(interval);
-                    resolve();
-                }
-            }, 200);
+    const startTime = Date.now();
+    const TIMEOUT_MS = 30000; // 30 seconds max combat
 
-            // Timeout after 10 seconds
-            setTimeout(() => {
-                clearInterval(interval);
-                resolve();
-            }, 10000);
-        });
-    };
+    return new Promise<string>((resolve) => {
+        const attackLoop = setInterval(() => {
+            // Check if target is dead (entity removed from world)
+            if (!bot.entities[target.id]) {
+                clearInterval(attackLoop);
+                bot.pathfinder.stop();
+                resolve(`Killed ${displayName}`);
+                return;
+            }
 
-    await waitForRange();
-    bot.attack(target);
-    const displayName = names.resolveToVoxta(names.resolveToMc(entityName));
-    return `Attacking ${displayName}`;
+            // Timeout — stop chasing
+            if (Date.now() - startTime > TIMEOUT_MS) {
+                clearInterval(attackLoop);
+                bot.pathfinder.stop();
+                resolve(`Stopped attacking ${displayName} (timeout)`);
+                return;
+            }
+
+            // Attack if in range
+            const dist = target.position.distanceTo(bot.entity.position);
+            if (dist < 3.5) {
+                bot.attack(target);
+            }
+        }, 500); // MC attack cooldown is ~500ms
+    });
 }
 
 async function lookAtPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
@@ -510,3 +584,42 @@ async function collectItems(bot: Bot): Promise<string> {
     return `Collected ${collected} dropped item${collected !== 1 ? 's' : ''}`;
 }
 
+// Food items sorted by hunger restoration (best first)
+const FOOD_ITEMS: Record<string, number> = {
+    golden_carrot: 6, cooked_beef: 8, cooked_porkchop: 8, cooked_mutton: 6,
+    cooked_salmon: 6, cooked_chicken: 6, cooked_rabbit: 5, cooked_cod: 5,
+    bread: 5, baked_potato: 5, beetroot_soup: 6, mushroom_stew: 6,
+    rabbit_stew: 10, suspicious_stew: 6, pumpkin_pie: 8, cake: 2,
+    apple: 4, melon_slice: 2, sweet_berries: 2, glow_berries: 2,
+    carrot: 3, potato: 1, beetroot: 1, dried_kelp: 1, cookie: 2,
+    beef: 3, porkchop: 3, mutton: 2, chicken: 2, rabbit: 3,
+    cod: 2, salmon: 2, tropical_fish: 1,
+    rotten_flesh: 4, spider_eye: 2, // edible but risky
+};
+
+async function eatFood(bot: Bot, foodName: string | undefined): Promise<string> {
+    const items = bot.inventory.items();
+
+    let foodItem;
+    if (foodName) {
+        // Eat specific food
+        foodItem = items.find((i) => i.name === foodName);
+        if (!foodItem) return `No ${foodName} in inventory`;
+    } else {
+        // Find best food in inventory
+        const foodItems = items
+            .filter((i) => i.name in FOOD_ITEMS)
+            .sort((a, b) => (FOOD_ITEMS[b.name] ?? 0) - (FOOD_ITEMS[a.name] ?? 0));
+        foodItem = foodItems[0];
+        if (!foodItem) return 'No food in inventory';
+    }
+
+    try {
+        await bot.equip(foodItem.type, 'hand');
+        await bot.consume();
+        return `Ate ${foodItem.displayName ?? foodItem.name} (hunger restored)`;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to eat ${foodItem.name}: ${message}`;
+    }
+}

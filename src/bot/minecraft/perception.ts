@@ -1,5 +1,6 @@
 import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
+import type { NameRegistry } from '../name-registry';
 
 export interface WorldState {
     position: { x: number; y: number; z: number };
@@ -99,17 +100,35 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     };
 }
 
-export function buildContextStrings(state: WorldState): string[] {
+/** Convert Minecraft ticks (0-24000) to human-readable time like "7:30 AM" */
+function ticksToTime(ticks: number): string {
+    // MC tick 0 = 6:00 AM, tick 6000 = noon, tick 12000 = 6:00 PM, tick 18000 = midnight
+    const mcMinutes = (ticks / 1000) * 60; // each 1000 ticks = 1 hour
+    const totalMinutes = Math.floor(mcMinutes) + 360; // offset: tick 0 = 6:00 AM (360 min)
+    const hours24 = Math.floor(totalMinutes / 60) % 24;
+    const minutes = totalMinutes % 60;
+    const period = hours24 >= 12 ? 'PM' : 'AM';
+    const hours12 = hours24 % 12 || 12;
+    return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
+export function buildContextStrings(
+    state: WorldState,
+    names: NameRegistry,
+    characterName: string | null,
+): string[] {
     const lines: string[] = [];
+    const who = characterName ?? 'Bot';
+    const timeStr = ticksToTime(state.timeOfDay);
 
     lines.push(
-        `Bot position: ${state.position.x}, ${state.position.y}, ${state.position.z} | ` +
+        `${who}'s position: ${state.position.x}, ${state.position.y}, ${state.position.z} | ` +
         `Biome: ${state.biome} | Dimension: ${state.dimension}`
     );
 
     lines.push(
         `Health: ${state.health}/20 | Food: ${state.food}/20 | ` +
-        `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${state.timeOfDay}) | ` +
+        `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${timeStr}) | ` +
         `Weather: ${state.isRaining ? 'Raining' : 'Clear'}`
     );
 
@@ -119,7 +138,10 @@ export function buildContextStrings(state: WorldState): string[] {
 
     if (state.nearbyPlayers.length > 0) {
         const playerList = state.nearbyPlayers
-            .map((p) => `${p.name} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z})`)
+            .map((p) => {
+                const voxtaName = names.resolveToVoxta(p.name);
+                return `${voxtaName} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z})`;
+            })
             .join(', ');
         lines.push(`Nearby players: ${playerList}`);
     }

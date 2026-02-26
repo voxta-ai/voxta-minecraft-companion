@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
+import type { Entity } from 'prismarine-entity';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS, executeAction } from '../bot/minecraft/actions';
 import { NameRegistry } from '../bot/name-registry';
@@ -31,6 +32,8 @@ export class BotEngine extends EventEmitter {
     private settings: McSettings = { ...DEFAULT_SETTINGS };
     private isReplying = false;
     private pendingNotes: string[] = [];
+    private followingPlayer: string | null = null; // Track who we're following to resume after tasks
+    private recentEvents: string[] = []; // Events injected into context on next perception tick
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -114,6 +117,15 @@ export class BotEngine extends EventEmitter {
             void this.voxta.sendNote(note);
         }
         this.pendingNotes = [];
+    }
+
+    /** Push a game event into the context queue — AI sees it via updateContext, not as a user message */
+    private pushEvent(text: string): void {
+        this.recentEvents.push(text);
+        // Keep only latest 10 events
+        if (this.recentEvents.length > 10) {
+            this.recentEvents.shift();
+        }
     }
 
     private addChat(type: ChatMessage['type'], sender: string, text: string): void {
@@ -245,7 +257,13 @@ export class BotEngine extends EventEmitter {
             if (!this.voxta?.sessionId) return;
             try {
                 const state = readWorldState(bot, config.perception.entityRange);
-                const contextStrings = buildContextStrings(state);
+                const contextStrings = buildContextStrings(state, this.names, this.assistantName);
+
+                // Append recent events to context
+                if (this.recentEvents.length > 0) {
+                    contextStrings.push('Recent events: ' + this.recentEvents.join(' | '));
+                }
+
                 const contextHash = contextStrings.join('|');
 
                 this.updateStatus({
@@ -258,6 +276,8 @@ export class BotEngine extends EventEmitter {
                     void this.voxta.updateContext(
                         contextStrings.map((text) => ({ text })),
                     );
+                    // Clear events after they've been sent to context
+                    this.recentEvents = [];
                 }
             } catch {
                 // Perception can fail during respawn/chunk loading
@@ -309,6 +329,8 @@ export class BotEngine extends EventEmitter {
                 lastAttacker = null;
                 return source;
             }
+            // Starvation: food at 0 causes periodic damage
+            if (bot.food === 0) return 'starvation (no food)';
             // Environmental checks via entity metadata
             const meta = bot.entity as unknown as Record<string, unknown>;
             if (meta['isInLava']) return 'lava';
@@ -335,8 +357,8 @@ export class BotEngine extends EventEmitter {
                         const hp = Math.round(bot.health * 10) / 10;
                         if (this.voxta?.sessionId) {
                             const botName = this.assistantName ?? 'Bot';
-                            void this.voxta.sendMessage(
-                                `[event]: ${botName} took ${totalDmg} total damage from ${damageSource}! ${botName}'s health is now: ${hp}/20`,
+                            void this.voxta.sendEvent(
+                                `${botName} took ${totalDmg} total damage from ${damageSource}! Health is now: ${hp}/20`,
                             );
                         }
                         pendingDamage = 0;
@@ -354,25 +376,48 @@ export class BotEngine extends EventEmitter {
             pendingDamage = 0;
             if (damageTimer) { clearTimeout(damageTimer); damageTimer = null; }
             this.addChat('event', 'Event', `${this.assistantName ?? 'Bot'} died!`);
-            void this.voxta.sendMessage(`[event]: ${this.assistantName ?? 'Bot'} has died and respawned!`);
+            void this.voxta.sendEvent(`${this.assistantName ?? 'Bot'} has died and respawned!`);
+        });
+
+        // Track actual attackers via arm swing animation (melee hits)
+        let lastSwingAttacker: string | null = null;
+        let lastSwingTime = 0;
+        bot.on('entitySwingArm', (entity: Entity) => {
+            if (entity.id === bot.entity.id) return;
+            // Only track if they're close enough to actually hit the bot
+            if (entity.position.distanceTo(bot.entity.position) < 6) {
+                const mcName = entity.username ?? entity.displayName ?? entity.name ?? 'something';
+                lastSwingAttacker = this.names.resolveToVoxta(mcName);
+                lastSwingTime = Date.now();
+            }
         });
 
         bot.on('entityHurt', (entity: { id: number }) => {
             if (!this.voxta?.sessionId) return;
             if (entity.id !== bot.entity.id) return;
-            // Always track last attacker for damage source detection
-            const attacker = bot.nearestEntity((e) => e !== bot.entity && e.position.distanceTo(bot.entity.position) < 6);
-            if (attacker) {
-                const mcName = attacker.username ?? attacker.displayName ?? attacker.name ?? 'something';
-                lastAttacker = this.names.resolveToVoxta(mcName);
+            // Use the entity that actually swung at us (within last 1.5s)
+            if (lastSwingAttacker && Date.now() - lastSwingTime < 1500) {
+                lastAttacker = lastSwingAttacker;
                 lastAttackerTime = Date.now();
+                lastSwingAttacker = null;
+            } else {
+                // Fallback for ranged attacks: find nearest hostile mob
+                const hostileMob = Object.values(bot.entities).find(
+                    (e) => e !== bot.entity
+                        && (e.type === 'mob' || e.type === 'hostile')
+                        && e.position.distanceTo(bot.entity.position) < 16,
+                );
+                if (hostileMob) {
+                    const mcName = hostileMob.username ?? hostileMob.displayName ?? hostileMob.name ?? 'something';
+                    lastAttacker = this.names.resolveToVoxta(mcName);
+                    lastAttackerTime = Date.now();
+                }
             }
             if (!this.settings.enableEventUnderAttack) return;
             if (isOnCooldown('underAttack')) return;
-            if (attacker) {
-                const voxtaName = lastAttacker ?? 'something';
-                this.addChat('event', 'Event', `${this.assistantName ?? 'Bot'} is under attack by ${voxtaName}!`);
-                void this.voxta.sendMessage(`[event]: ${this.assistantName ?? 'Bot'} is being attacked by ${voxtaName}!`);
+            if (lastAttacker) {
+                this.addChat('event', 'Event', `${this.assistantName ?? 'Bot'} is under attack by ${lastAttacker}!`);
+                void this.voxta.sendEvent(`${this.assistantName ?? 'Bot'} is being attacked by ${lastAttacker}!`);
             }
         });
 
@@ -388,6 +433,7 @@ export class BotEngine extends EventEmitter {
             const name = newItem.displayName ?? newItem.name;
             const botName = this.assistantName ?? 'Bot';
             this.addChat('system', 'Telemetry', `${botName} picked up ${gained} ${name}`);
+            this.queueNote(`${botName} picked up ${gained} ${name}`);
         });
 
         bot.chat("Hello! I'm your Voxta AI companion. Talk to me!");
@@ -480,17 +526,63 @@ export class BotEngine extends EventEmitter {
             }
             case 'action': {
                 const action = message as ServerActionMessage;
-                this.updateStatus({ currentAction: action.value });
-                this.addChat('action', 'Action', `${action.value}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
+                const actionName = action.value?.trim() ?? '';
+
+                // Ignore empty actions (AI sometimes sends action () with no name)
+                if (!actionName) {
+                    this.updateStatus({ currentAction: null });
+                    break;
+                }
+
+                this.updateStatus({ currentAction: actionName });
+                this.addChat('action', 'Action', `${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
 
                 if (this.mcBot) {
-                    void executeAction(this.mcBot.bot, action.value, action.arguments, this.names).then((result) => {
+                    // Track follow state
+                    if (actionName === 'mc_follow_player') {
+                        const playerArg = action.arguments?.find((a) => a.name.toLowerCase() === 'player_name');
+                        // Strip LLM type annotations like 'string="Lapiro' → 'Lapiro'
+                        let rawVal = playerArg?.value ?? '';
+                        const eqIdx = rawVal.lastIndexOf('=');
+                        if (eqIdx >= 0) rawVal = rawVal.slice(eqIdx + 1);
+                        rawVal = rawVal.replace(/"/g, '').trim();
+                        this.followingPlayer = rawVal || null;
+                    } else if (actionName === 'mc_stop') {
+                        this.followingPlayer = null;
+                    }
+
+                    void executeAction(this.mcBot.bot, actionName, action.arguments, this.names).then(async (result) => {
                         const botName = this.assistantName ?? 'Bot';
-                        this.addChat('system', 'System', `${botName}: ${result}`);
+                        // Don't show empty results (e.g. mc_acknowledge)
+                        if (result) {
+                            this.addChat('system', 'System', `${botName}: ${result}`);
+                        }
                         this.updateStatus({ currentAction: null });
-                        // Queue result as a note — will be sent after AI finishes speaking
-                        if (this.settings.enableTelemetryActionResults) {
-                            this.queueNote(`[event]: ${botName}: ${result}`);
+
+                        // Resume following if we were following before this action (silent — UI only)
+                        const shouldResume = this.followingPlayer
+                            && actionName !== 'mc_follow_player'
+                            && actionName !== 'mc_stop'
+                            && actionName !== 'mc_acknowledge';
+                        console.log(`[Bot] Action done: ${actionName}, followingPlayer: ${this.followingPlayer}, shouldResume: ${!!shouldResume}`);
+                        if (shouldResume && this.mcBot) {
+                            const resumeResult = await executeAction(
+                                this.mcBot.bot, 'mc_follow_player',
+                                [{ name: 'player_name', value: this.followingPlayer ?? '' }],
+                                this.names,
+                            );
+                            console.log(`[Bot] Resumed following: ${resumeResult}`);
+                        }
+
+                        if (!this.settings.enableTelemetryActionResults) return;
+                        // Only send event for long-running actions (not follow, equip, look, stop, say)
+                        const QUICK_ACTIONS = ['mc_follow_player', 'mc_stop', 'mc_equip', 'mc_look_at', 'mc_say', 'mc_acknowledge'];
+                        if (QUICK_ACTIONS.includes(actionName)) return;
+                        // Use sendEvent so AI responds without it appearing as user message
+                        if (this.isReplying) {
+                            this.queueNote(`${botName}: ${result}`);
+                        } else if (this.voxta?.sessionId) {
+                            void this.voxta.sendEvent(`${botName} finished: ${result}`);
                         }
                     });
                 }

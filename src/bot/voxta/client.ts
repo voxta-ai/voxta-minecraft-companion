@@ -160,16 +160,29 @@ export class VoxtaClient {
         });
     }
 
-    /** Send a non-intrusive note — AI sees it but does NOT reply */
+    /** Send a non-intrusive note — AI sees it but does NOT reply, not shown as user message */
     async sendNote(text: string): Promise<void> {
         if (!this._sessionId) return;
         await this.send({
             $type: 'send',
             sessionId: this._sessionId,
-            text,
+            text: `/note ${text}`,
             doReply: false,
             doUserActionInference: false,
             doCharacterActionInference: false,
+        });
+    }
+
+    /** Send an event that triggers the AI to reply, not shown as user message */
+    async sendEvent(text: string): Promise<void> {
+        if (!this._sessionId) return;
+        await this.send({
+            $type: 'send',
+            sessionId: this._sessionId,
+            text: `/event ${text}`,
+            doReply: true,
+            doUserActionInference: false,
+            doCharacterActionInference: true,
         });
     }
 
