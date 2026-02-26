@@ -23,6 +23,7 @@ export default function ConnectionPanel() {
     const [mcHost, setMcHost] = createSignal(saved.mcHost ?? 'localhost');
     const [mcPort, setMcPort] = createSignal(String(saved.mcPort ?? 25565));
     const [mcUsername, setMcUsername] = createSignal(saved.mcUsername ?? 'VoxtaBot');
+    const [playerMcName, setPlayerMcName] = createSignal(saved.playerMcUsername ?? 'Player');
     const [voxtaUrl, setVoxtaUrl] = createSignal(saved.voxtaUrl ?? 'http://localhost:5384/hub');
     const [apiKey, setApiKey] = createSignal(saved.voxtaApiKey ?? '');
     const [collapsed, setCollapsed] = createSignal(false);
@@ -47,6 +48,7 @@ export default function ConnectionPanel() {
             mcPort: parseInt(mcPort(), 10),
             mcUsername: mcUsername(),
             mcVersion: '1.21.11',
+            playerMcUsername: playerMcName(),
             voxtaUrl: voxtaUrl(),
             voxtaApiKey: apiKey(),
             perceptionIntervalMs: 3000,
@@ -113,6 +115,16 @@ export default function ConnectionPanel() {
                         value={mcUsername()}
                         onInput={(e) => setMcUsername(e.currentTarget.value)}
                         placeholder="VoxtaBot"
+                        disabled={isConnected()}
+                    />
+                </div>
+                <div class="field">
+                    <label>Your MC Name</label>
+                    <input
+                        type="text"
+                        value={playerMcName()}
+                        onInput={(e) => setPlayerMcName(e.currentTarget.value)}
+                        placeholder="Player"
                         disabled={isConnected()}
                     />
                 </div>

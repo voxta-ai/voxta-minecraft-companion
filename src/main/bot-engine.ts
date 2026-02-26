@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS, executeAction } from '../bot/minecraft/actions';
+import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage } from '../bot/voxta/types';
 import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo } from '../shared/ipc-types';
@@ -20,9 +21,12 @@ export class BotEngine extends EventEmitter {
     private currentReply = '';
     private messageCounter = 0;
     private actionToggles: Map<string, boolean> = new Map();
+    private readonly names = new NameRegistry();
     private characters: CharacterInfo[] = [];
     private defaultAssistantId: string | null = null;
     private currentConfig: CompanionConfig | null = null;
+    private voxtaUserName: string | null = null;
+    private playerMcUsername: string | null = null;
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -100,6 +104,7 @@ export class BotEngine extends EventEmitter {
     async connect(uiConfig: BotConfig): Promise<void> {
         const config = this.toCompanionConfig(uiConfig);
         this.currentConfig = config;
+        this.playerMcUsername = uiConfig.playerMcUsername || null;
 
         // ---- 1. Connect Minecraft ----
         this.updateStatus({ mc: 'connecting' });
@@ -182,6 +187,15 @@ export class BotEngine extends EventEmitter {
         const bot = this.mcBot.bot;
         const character = this.characters.find((c) => c.id === characterId);
         this.assistantName = character?.name ?? 'AI';
+
+        // Populate name registry
+        this.names.clear();
+        if (this.voxtaUserName && this.playerMcUsername) {
+            this.names.register(this.voxtaUserName, this.playerMcUsername);
+        }
+        if (this.assistantName && config.mc.username) {
+            this.names.register(this.assistantName, config.mc.username);
+        }
 
         await this.voxta.startChat(characterId);
 
@@ -295,6 +309,7 @@ export class BotEngine extends EventEmitter {
             case 'welcome': {
                 const welcome = message as ServerWelcomeMessage;
                 this.characters = (welcome.characters ?? []).map((c) => ({ id: c.id, name: c.name }));
+                this.voxtaUserName = welcome.user?.name ?? null;
                 if (welcome.assistant) {
                     this.defaultAssistantId = welcome.assistant.id;
                 }
@@ -327,10 +342,18 @@ export class BotEngine extends EventEmitter {
                 this.addChat('action', 'Action', `${action.value}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
 
                 if (this.mcBot) {
-                    void executeAction(this.mcBot.bot, action.value, action.arguments).then((result) => {
+                    void executeAction(this.mcBot.bot, action.value, action.arguments, this.names).then((result) => {
                         this.addChat('system', 'System', `Action result: ${result}`);
                         this.updateStatus({ currentAction: null });
                     });
+                }
+                break;
+            }
+            case 'speechRecognitionEnd': {
+                const text = (message as { text?: string }).text;
+                if (text) {
+                    this.addChat('player', 'You (voice)', text);
+                    void this.voxta?.sendMessage(text);
                 }
                 break;
             }

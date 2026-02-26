@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import type { Entity } from 'prismarine-entity';
 import type { ActionInvocationArgument, ScenarioAction } from '../voxta/types.js';
+import type { NameRegistry } from '../name-registry';
 
 // ---- Action definitions for Voxta registration ----
 
@@ -88,9 +89,14 @@ function getArg(args: ActionInvocationArgument[] | undefined, name: string): str
     return args?.find((a) => a.name.toLowerCase() === name.toLowerCase())?.value;
 }
 
-function findPlayerEntity(bot: Bot, playerName: string): Entity | undefined {
+function findPlayerEntity(bot: Bot, playerName: string, names: NameRegistry): Entity | undefined {
+    // Resolve Voxta name → MC username
+    const mcName = names.resolveToMc(playerName);
+
     return Object.values(bot.entities).find(
-        (e) => e.type === 'player' && e.username?.toLowerCase() === playerName.toLowerCase()
+        (e) => e.type === 'player' &&
+            e !== bot.entity &&
+            e.username?.toLowerCase() === mcName.toLowerCase()
     );
 }
 
@@ -98,11 +104,12 @@ export async function executeAction(
     bot: Bot,
     actionName: string,
     args: ActionInvocationArgument[] | undefined,
+    names: NameRegistry,
 ): Promise<string> {
     try {
         switch (actionName) {
             case 'mc_follow_player':
-                return await followPlayer(bot, getArg(args, 'player_name'));
+                return await followPlayer(bot, getArg(args, 'player_name'), names);
 
             case 'mc_go_to':
                 return await goTo(
@@ -132,7 +139,7 @@ export async function executeAction(
             }
 
             case 'mc_look_at':
-                return await lookAtPlayer(bot, getArg(args, 'player_name'));
+                return await lookAtPlayer(bot, getArg(args, 'player_name'), names);
 
             case 'mc_stop':
                 bot.pathfinder.stop();
@@ -150,11 +157,11 @@ export async function executeAction(
 
 // ---- Individual action implementations ----
 
-async function followPlayer(bot: Bot, playerName: string | undefined): Promise<string> {
+async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
-    const player = findPlayerEntity(bot, playerName);
-    if (!player) return `Cannot find player "${playerName}" nearby`;
+    const player = findPlayerEntity(bot, playerName, names);
+    if (!player) return `Cannot find player "${playerName}" (mc: "${names.resolveToMc(playerName)}") nearby`;
 
     const goal = new goals.GoalFollow(player, 3);
     bot.pathfinder.setGoal(goal, true); // dynamic = true → keeps following
@@ -192,7 +199,8 @@ async function mineBlock(
     if (!blockInfo) return `Unknown block type: ${blockType}`;
 
     const count = countStr ? parseInt(countStr, 10) : 1;
-    const maxCount = Math.min(count, 64);
+
+    console.log(`[MC Action] Looking for ${blockType} (id=${blockInfo.id}) within 64 blocks...`);
 
     const block = bot.findBlock({
         matching: blockInfo.id,
@@ -201,13 +209,18 @@ async function mineBlock(
 
     if (!block) return `Cannot find any ${blockType} nearby`;
 
+    console.log(`[MC Action] Found ${blockType} at ${block.position}, navigating...`);
+
     // Navigate to the block and mine it
     try {
         await bot.pathfinder.goto(new goals.GoalGetToBlock(block.position.x, block.position.y, block.position.z));
+        console.log(`[MC Action] Reached block, digging...`);
         await bot.dig(block);
+        console.log(`[MC Action] Successfully mined ${blockType}`);
         return `Mined ${blockType} at ${block.position}`;
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        console.error(`[MC Action] Mining failed:`, message);
         return `Failed to mine ${blockType}: ${message}`;
     }
 }
@@ -250,11 +263,11 @@ async function attackEntity(bot: Bot, entityName: string | undefined): Promise<s
     return `Attacking ${entityName}`;
 }
 
-async function lookAtPlayer(bot: Bot, playerName: string | undefined): Promise<string> {
+async function lookAtPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
-    const player = findPlayerEntity(bot, playerName);
-    if (!player) return `Cannot find player "${playerName}" nearby`;
+    const player = findPlayerEntity(bot, playerName, names);
+    if (!player) return `Cannot find player "${playerName}" (mc: "${names.resolveToMc(playerName)}") nearby`;
 
     await bot.lookAt(player.position.offset(0, 1.6, 0));
     return `Looking at ${playerName}`;

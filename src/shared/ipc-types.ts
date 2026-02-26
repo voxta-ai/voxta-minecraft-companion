@@ -7,6 +7,7 @@ export interface BotConfig {
     mcPort: number;
     mcUsername: string;
     mcVersion: string;
+    playerMcUsername: string;
     voxtaUrl: string;
     voxtaApiKey: string;
     perceptionIntervalMs: number;
