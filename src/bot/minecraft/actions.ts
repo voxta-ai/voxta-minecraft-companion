@@ -93,6 +93,10 @@ let actionAbort = new AbortController();
 let actionBusy = false;
 export function isActionBusy(): boolean { return actionBusy; }
 
+// Saved home/bed position — set when the bot sleeps in a bed
+let homePosition: { x: number; y: number; z: number } | null = null;
+export function getHomePosition(): { x: number; y: number; z: number } | null { return homePosition; }
+
 export async function executeAction(
     bot: Bot,
     actionName: string,
@@ -125,6 +129,9 @@ export async function executeAction(
                     getArg(args, 'y'),
                     getArg(args, 'z'),
                 );
+
+            case 'mc_go_home':
+                return await goHome(bot);
 
             case 'mc_mine_block':
                 return await mineBlock(
@@ -175,6 +182,15 @@ export async function executeAction(
 
             case 'mc_craft':
                 return await craftItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
+
+            case 'mc_store_item':
+                return await storeItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
+
+            case 'mc_take_item':
+                return await takeItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
+
+            case 'mc_inspect':
+                return await inspectContainer(bot, getArg(args, 'target'));
 
             default:
                 return `Unknown action: ${actionName}`;
@@ -231,6 +247,21 @@ async function goTo(
     const goal = new goals.GoalBlock(x, y, z);
     bot.pathfinder.setGoal(goal);
     return `Navigating to ${x}, ${y}, ${z}`;
+}
+
+async function goHome(bot: Bot): Promise<string> {
+    const home = homePosition;
+    if (!home) return 'No home bed set yet. I need to sleep in a bed first to remember where home is.';
+
+    const dx = bot.entity.position.x - home.x;
+    const dy = bot.entity.position.y - home.y;
+    const dz = bot.entity.position.z - home.z;
+    const distance = Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz));
+    console.log(`[MC Action] Going home to bed at ${home.x}, ${home.y}, ${home.z} (${distance} blocks away)`);
+
+    const goal = new goals.GoalNear(home.x, home.y, home.z, 2);
+    bot.pathfinder.setGoal(goal);
+    return `Heading home to the shelter at ${home.x}, ${home.y}, ${home.z} (${distance} blocks away)`;
 }
 
 async function mineBlock(
@@ -568,6 +599,184 @@ async function giveItem(
     }
 }
 
+async function storeItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
+    if (!itemName) return 'No item name provided';
+
+    // Find nearby chest
+    const chestBlock = bot.findBlock({
+        matching: (block) => block.name === 'chest' || block.name === 'trapped_chest' || block.name === 'barrel',
+        maxDistance: 32,
+    });
+    if (!chestBlock) return 'No chest found nearby';
+
+    // Walk to the chest
+    try {
+        await bot.pathfinder.goto(
+            new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2),
+        );
+    } catch {
+        return 'Cannot reach the chest';
+    }
+
+    try {
+        const container = await bot.openContainer(chestBlock);
+        let stored = 0;
+
+        if (itemName.toLowerCase() === 'all') {
+            // Store everything in inventory
+            const items = bot.inventory.items();
+            for (const item of items) {
+                try {
+                    await container.deposit(item.type, null, item.count);
+                    stored += item.count;
+                } catch {
+                    // Chest might be full
+                    break;
+                }
+            }
+            container.close();
+            if (stored === 0) return 'Could not store any items (chest may be full)';
+            return `Stored ${stored} items in the chest`;
+        } else {
+            // Store specific item
+            const item = bot.inventory.items().find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()));
+            if (!item) {
+                container.close();
+                return `No ${itemName} in inventory`;
+            }
+            const count = countStr ? Math.min(parseInt(countStr, 10), item.count) : item.count;
+            await container.deposit(item.type, null, count);
+            container.close();
+            return `Stored ${count} ${item.name.replace(/_/g, ' ')} in the chest`;
+        }
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to store items: ${message}`;
+    }
+}
+
+async function takeItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
+    if (!itemName) return 'No item name provided';
+
+    // Find nearby chest
+    const chestBlock = bot.findBlock({
+        matching: (block) => block.name === 'chest' || block.name === 'trapped_chest' || block.name === 'barrel',
+        maxDistance: 32,
+    });
+    if (!chestBlock) return 'No chest found nearby';
+
+    // Walk to the chest
+    try {
+        await bot.pathfinder.goto(
+            new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2),
+        );
+    } catch {
+        return 'Cannot reach the chest';
+    }
+
+    try {
+        const container = await bot.openContainer(chestBlock);
+
+        // Find the item in the chest's slots
+        const chestItems = container.containerItems();
+        const item = chestItems.find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()));
+        if (!item) {
+            container.close();
+            return `No ${itemName} found in the chest`;
+        }
+
+        const count = countStr ? Math.min(parseInt(countStr, 10), item.count) : item.count;
+        await container.withdraw(item.type, null, count);
+        container.close();
+        return `Took ${count} ${item.name.replace(/_/g, ' ')} from the chest`;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to take items: ${message}`;
+    }
+}
+
+async function inspectContainer(bot: Bot, target: string | undefined): Promise<string> {
+    if (!target) return 'No target specified. Use "chest", "furnace", "barrel", or "inventory"';
+
+    const t = target.toLowerCase();
+
+    // Inspect own inventory
+    if (t === 'inventory' || t === 'self' || t === 'me') {
+        const items = bot.inventory.items();
+        if (items.length === 0) return 'Inventory is empty';
+        const list = items.map((i) => `${i.count}x ${i.name.replace(/_/g, ' ')}`).join(', ');
+        return `Inventory contains: ${list}`;
+    }
+
+    // Determine which block type to look for
+    const blockMatchers: Record<string, (name: string) => boolean> = {
+        chest: (name) => name === 'chest' || name === 'trapped_chest',
+        furnace: (name) => name === 'furnace' || name === 'smoker' || name === 'blast_furnace',
+        barrel: (name) => name === 'barrel',
+    };
+
+    const matcher = blockMatchers[t];
+    if (!matcher) {
+        // Try to match any container
+        const allMatcher = (name: string): boolean =>
+            name === 'chest' || name === 'trapped_chest' || name === 'barrel'
+            || name === 'furnace' || name === 'smoker' || name === 'blast_furnace';
+        return await doInspect(bot, allMatcher, target);
+    }
+
+    return await doInspect(bot, matcher, t);
+}
+
+async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: string): Promise<string> {
+    const block = bot.findBlock({
+        matching: (b) => matcher(b.name),
+        maxDistance: 32,
+    });
+    if (!block) return `No ${label} found nearby`;
+
+    // Walk to it
+    try {
+        await bot.pathfinder.goto(
+            new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2),
+        );
+    } catch {
+        return `Cannot reach the ${label}`;
+    }
+
+    // Furnace has special slots
+    if (block.name === 'furnace' || block.name === 'smoker' || block.name === 'blast_furnace') {
+        try {
+            const furnace = await bot.openFurnace(block);
+            const parts: string[] = [];
+            const input = furnace.inputItem();
+            const fuel = furnace.fuelItem();
+            const output = furnace.outputItem();
+            if (input) parts.push(`Input: ${input.count}x ${input.name.replace(/_/g, ' ')}`);
+            if (fuel) parts.push(`Fuel: ${fuel.count}x ${fuel.name.replace(/_/g, ' ')}`);
+            if (output) parts.push(`Output: ${output.count}x ${output.name.replace(/_/g, ' ')}`);
+            furnace.close();
+            if (parts.length === 0) return `The ${block.name.replace(/_/g, ' ')} is empty`;
+            return `${block.name.replace(/_/g, ' ')} contains: ${parts.join(', ')}`;
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            return `Failed to inspect ${label}: ${message}`;
+        }
+    }
+
+    // Regular container (chest, barrel)
+    try {
+        const container = await bot.openContainer(block);
+        const items = container.containerItems();
+        container.close();
+        if (items.length === 0) return `The ${label} is empty`;
+        const list = items.map((i) => `${i.count}x ${i.name.replace(/_/g, ' ')}`).join(', ');
+        return `${label} contains: ${list}`;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to inspect ${label}: ${message}`;
+    }
+}
+
 async function collectItems(bot: Bot): Promise<string> {
     const items = Object.values(bot.entities).filter(
         (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < 32
@@ -644,6 +853,9 @@ async function sleepInBed(bot: Bot): Promise<string> {
     // Try to sleep
     try {
         await bot.sleep(bedBlock);
+        // Save bed position as home
+        homePosition = { x: bedBlock.position.x, y: bedBlock.position.y, z: bedBlock.position.z };
+        console.log(`[MC Action] Home position saved: ${homePosition.x}, ${homePosition.y}, ${homePosition.z}`);
         return 'Went to sleep in bed';
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

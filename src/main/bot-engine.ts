@@ -574,7 +574,7 @@ export class BotEngine extends EventEmitter {
                         if (eqIdx >= 0) rawVal = rawVal.slice(eqIdx + 1);
                         rawVal = rawVal.replace(/"/g, '').trim();
                         this.followingPlayer = rawVal || null;
-                    } else if (actionName === 'mc_stop') {
+                    } else if (actionName === 'mc_stop' || actionName === 'mc_go_home' || actionName === 'mc_go_to') {
                         this.followingPlayer = null;
                     }
 
@@ -590,6 +590,8 @@ export class BotEngine extends EventEmitter {
                         const shouldResume = this.followingPlayer
                             && actionName !== 'mc_follow_player'
                             && actionName !== 'mc_stop'
+                            && actionName !== 'mc_go_home'
+                            && actionName !== 'mc_go_to'
                             && actionName !== 'mc_none';
                         console.log(`[Bot] Action done: ${actionName}, followingPlayer: ${this.followingPlayer}, shouldResume: ${!!shouldResume}`);
                         if (actionName === 'mc_follow_player' && this.mcBot) {

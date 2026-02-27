@@ -131,23 +131,22 @@ export class McEventBridge {
         this.on('entityHurt', ((entity: { id: number }) => {
             if (entity.id !== this.bot.entity.id) return;
 
-            // Use the entity that actually swung at us (within last 1.5s)
-            if (this.lastSwingAttacker && Date.now() - this.lastSwingTime < 1500) {
+            // Priority 1: Check for nearby hostile mobs (handles explosions, ranged, AOE)
+            const hostileMob = Object.values(this.bot.entities).find(
+                (e) => e !== this.bot.entity
+                    && (e.type === 'mob' || e.type === 'hostile')
+                    && e.position.distanceTo(this.bot.entity.position) < 16,
+            );
+            if (hostileMob) {
+                const mcName = hostileMob.username ?? hostileMob.displayName ?? hostileMob.name ?? 'something';
+                this.lastAttacker = this.names.resolveToVoxta(mcName);
+                this.lastAttackerTime = Date.now();
+                this.lastSwingAttacker = null; // Clear swing — mob takes priority
+            } else if (this.lastSwingAttacker && Date.now() - this.lastSwingTime < 1500) {
+                // Priority 2: Player PvP — only if no hostile mob is nearby
                 this.lastAttacker = this.lastSwingAttacker;
                 this.lastAttackerTime = Date.now();
                 this.lastSwingAttacker = null;
-            } else {
-                // Fallback for ranged attacks: find nearest hostile mob
-                const hostileMob = Object.values(this.bot.entities).find(
-                    (e) => e !== this.bot.entity
-                        && (e.type === 'mob' || e.type === 'hostile')
-                        && e.position.distanceTo(this.bot.entity.position) < 16,
-                );
-                if (hostileMob) {
-                    const mcName = hostileMob.username ?? hostileMob.displayName ?? hostileMob.name ?? 'something';
-                    this.lastAttacker = this.names.resolveToVoxta(mcName);
-                    this.lastAttackerTime = Date.now();
-                }
             }
 
             const settings = this.callbacks.getSettings();
