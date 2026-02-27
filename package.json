@@ -7,7 +7,30 @@
         "dev": "electron-vite dev",
         "build": "electron-vite build",
         "preview": "electron-vite preview",
-        "start": "electron-vite dev"
+        "start": "electron-vite dev",
+        "pack": "electron-vite build && electron-builder --dir",
+        "dist": "electron-vite build && electron-builder"
+    },
+    "build": {
+        "appId": "com.voxta.minecraft-companion",
+        "productName": "Voxta Minecraft Companion",
+        "directories": {
+            "output": "release"
+        },
+        "files": [
+            "out/**/*"
+        ],
+        "asarUnpack": [
+            "node_modules/mineflayer/**",
+            "node_modules/mineflayer-pathfinder/**"
+        ],
+        "win": {
+            "target": "nsis"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true
+        }
     },
     "dependencies": {
         "@microsoft/signalr": "^9.0.0",
@@ -18,6 +41,7 @@
         "@electron-toolkit/preload": "^3.0.1",
         "@electron-toolkit/utils": "^4.0.0",
         "electron": "^33.0.0",
+        "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
         "solid-js": "^1.9.0",
         "typescript": "^5.7.0",
