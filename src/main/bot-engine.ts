@@ -631,7 +631,10 @@ export class BotEngine extends EventEmitter {
                 break;
             }
             case 'visionCaptureRequest': {
-                if (!this.settings.enableVision) break;
+                if (!this.settings.enableVision) {
+                    console.log('[Vision] Capture request received but vision is disabled in settings');
+                    break;
+                }
                 const visionReq = message as ServerVisionCaptureRequestMessage;
                 const baseUrl = (this.voxtaUrl ?? 'http://localhost:5384/hub').replace(/\/hub\/?$/, '');
                 console.log(`[Vision] Received capture request: ${visionReq.visionCaptureRequestId} (source: ${visionReq.source})`);

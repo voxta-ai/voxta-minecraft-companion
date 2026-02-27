@@ -1,4 +1,4 @@
-import { desktopCapturer, nativeImage } from 'electron';
+import { desktopCapturer } from 'electron';
 
 /**
  * Handles Voxta vision capture requests by screenshotting the Minecraft window
@@ -24,8 +24,6 @@ async function captureMinecraftWindow(): Promise<Buffer | null> {
     // Find the actual Minecraft game window (not dev tools like "voxta-minecraft-companion")
     const mcSource = sources.find((s) => {
         const name = s.name.toLowerCase();
-        // Minecraft game window title starts with "Minecraft"
-        // Exclude dev tools that have "minecraft" in the project name
         return name.startsWith('minecraft') && !name.includes('companion') && !name.includes('voxta');
     });
 
@@ -55,7 +53,7 @@ export async function handleVisionCaptureRequest(
     baseUrl: string,
     apiKey: string | null,
 ): Promise<void> {
-    const { sessionId, visionCaptureRequestId } = request;
+    const { sessionId, visionCaptureRequestId, source } = request;
 
     const headers: Record<string, string> = {};
     if (apiKey) {
@@ -76,7 +74,7 @@ export async function handleVisionCaptureRequest(
         const formData = new FormData();
         formData.append('file', blob, 'minecraft.jpg');
 
-        const url = `${baseUrl}/api/vision/requests/${visionCaptureRequestId}/send?sessionId=${sessionId}&source=Screen&label=minecraft`;
+        const url = `${baseUrl}/api/vision/requests/${visionCaptureRequestId}/send?sessionId=${sessionId}&source=${source}&label=minecraft`;
 
         const response = await fetch(url, {
             method: 'POST',

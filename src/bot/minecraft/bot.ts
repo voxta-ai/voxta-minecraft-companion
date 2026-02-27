@@ -92,7 +92,6 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                 }
             }
         });
-
         if (resolveSpawn) {
             resolveSpawn();
             resolveSpawn = null;

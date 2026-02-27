@@ -113,6 +113,10 @@ function loadSavedSettings(): McSettings {
 
 const [settings, setSettings] = createStore<McSettings>(loadSavedSettings());
 
+// Sync saved settings to the main process on startup
+// (without this, main starts with DEFAULT_SETTINGS until user changes a toggle)
+window.api.updateSettings({ ...settings });
+
 export { settings };
 
 export function updateSetting(key: keyof McSettings, value: boolean): void {
