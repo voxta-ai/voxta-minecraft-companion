@@ -2,14 +2,27 @@
 // IPC channel types shared between main, preload, and renderer
 // ============================================================
 
+// Phase 1: connect to Voxta only
+export interface VoxtaConnectConfig {
+    voxtaUrl: string;
+    voxtaApiKey: string;
+}
+
+// Phase 1 response
+export interface VoxtaInfo {
+    userName: string;
+    characters: CharacterInfo[];
+    defaultAssistantId: string | null;
+}
+
+// Phase 2: launch the MC bot + start chat
 export interface BotConfig {
     mcHost: string;
     mcPort: number;
     mcUsername: string;
     mcVersion: string;
     playerMcUsername: string;
-    voxtaUrl: string;
-    voxtaApiKey: string;
+    characterId: string;
     perceptionIntervalMs: number;
     entityRange: number;
 }
@@ -101,13 +114,22 @@ export interface CharacterInfo {
     name: string;
 }
 
+export type ToastType = 'success' | 'error' | 'info' | 'warning';
+
+export interface ToastMessage {
+    id: string;
+    type: ToastType;
+    message: string;
+    durationMs?: number;
+}
+
 // ---- IPC Channels ----
 
 export const IPC_CHANNELS = {
     // Renderer → Main
-    CONNECT: 'bot:connect',
+    CONNECT_VOXTA: 'bot:connect-voxta',
+    LAUNCH_BOT: 'bot:launch-bot',
     DISCONNECT: 'bot:disconnect',
-    START_CHAT: 'bot:start-chat',
     SEND_MESSAGE: 'bot:send-message',
     GET_STATUS: 'bot:get-status',
     TOGGLE_ACTION: 'bot:toggle-action',
@@ -118,6 +140,6 @@ export const IPC_CHANNELS = {
     STATUS_CHANGED: 'bot:status-changed',
     CHAT_MESSAGE: 'bot:chat-message',
     ACTION_TRIGGERED: 'bot:action-triggered',
-    CHARACTERS_AVAILABLE: 'bot:characters-available',
+    TOAST: 'bot:toast',
 } as const;
 

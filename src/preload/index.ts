@@ -1,21 +1,21 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ToastMessage, McSettings } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
 export type ChatCallback = (message: ChatMessage) => void;
 export type ActionCallback = (actionName: string) => void;
-export type CharactersCallback = (characters: CharacterInfo[], defaultId: string | null) => void;
+export type ToastCallback = (toast: ToastMessage) => void;
 
 const api = {
-    connect: (config: BotConfig): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.CONNECT, config),
+    connectVoxta: (config: VoxtaConnectConfig): Promise<VoxtaInfo> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CONNECT_VOXTA, config),
+
+    launchBot: (config: BotConfig): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.LAUNCH_BOT, config),
 
     disconnect: (): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.DISCONNECT),
-
-    startChat: (characterId: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.START_CHAT, characterId),
 
     sendMessage: (text: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.SEND_MESSAGE, text),
@@ -50,10 +50,10 @@ const api = {
         return () => ipcRenderer.removeListener(IPC_CHANNELS.ACTION_TRIGGERED, handler);
     },
 
-    onCharactersAvailable: (callback: CharactersCallback): (() => void) => {
-        const handler = (_event: Electron.IpcRendererEvent, characters: CharacterInfo[], defaultId: string | null): void => callback(characters, defaultId);
-        ipcRenderer.on(IPC_CHANNELS.CHARACTERS_AVAILABLE, handler);
-        return () => ipcRenderer.removeListener(IPC_CHANNELS.CHARACTERS_AVAILABLE, handler);
+    onToast: (callback: ToastCallback): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, toast: ToastMessage): void => callback(toast);
+        ipcRenderer.on(IPC_CHANNELS.TOAST, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.TOAST, handler);
     },
 };
 

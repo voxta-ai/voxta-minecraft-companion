@@ -6,13 +6,13 @@ import { MINECRAFT_ACTIONS, executeAction } from '../bot/minecraft/actions';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage } from '../bot/voxta/types';
-import type { BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ToastMessage, ToastType, McSettings } from '../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
 import type { ScenarioAction } from '../bot/voxta/types';
 
-type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered' | 'characters-available';
+type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered' | 'toast';
 
 export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
@@ -29,11 +29,14 @@ export class BotEngine extends EventEmitter {
     private currentConfig: CompanionConfig | null = null;
     private voxtaUserName: string | null = null;
     private playerMcUsername: string | null = null;
+    private voxtaUrl: string | null = null;
+    private voxtaApiKey: string | null = null;
     private settings: McSettings = { ...DEFAULT_SETTINGS };
     private isReplying = false;
     private pendingNotes: string[] = [];
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
     private recentEvents: string[] = []; // Events injected into context on next perception tick
+    private toastCounter = 0;
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -54,6 +57,65 @@ export class BotEngine extends EventEmitter {
 
     override emit(event: BotEngineEvent, ...args: unknown[]): boolean {
         return super.emit(event, ...args);
+    }
+
+    /** Emit a toast notification to the renderer */
+    private toast(type: ToastType, message: string, durationMs?: number): void {
+        const toast: ToastMessage = {
+            id: `toast-${++this.toastCounter}`,
+            type,
+            message,
+            durationMs,
+        };
+        this.emit('toast', toast);
+    }
+
+    /** Convert raw errors into user-friendly messages */
+    private humanizeError(err: unknown, context: string): string {
+        // Build a comprehensive string to search — AggregateError has empty message
+        // but stores error codes in .code and nested .errors[] array
+        let raw = '';
+        if (err instanceof Error) {
+            raw = err.message || '';
+            const errWithCode = err as Error & { code?: string; errors?: Error[] };
+            if (errWithCode.code) raw += ` ${errWithCode.code}`;
+            if (errWithCode.errors) {
+                for (const nested of errWithCode.errors) {
+                    raw += ` ${nested.message}`;
+                    if ((nested as Error & { code?: string }).code) {
+                        raw += ` ${(nested as Error & { code?: string }).code}`;
+                    }
+                }
+            }
+        } else {
+            raw = String(err);
+        }
+
+        // Minecraft connection errors
+        if (raw.includes('ECONNREFUSED')) {
+            return `Cannot connect to Minecraft server — is the server running and the port correct?`;
+        }
+        if (raw.includes('ETIMEDOUT') || raw.includes('EHOSTUNREACH')) {
+            return `Cannot reach Minecraft server — check the host address and make sure the server is accessible.`;
+        }
+        if (raw.includes('ENOTFOUND')) {
+            return `Server address not found — check the host name is correct.`;
+        }
+
+        // Voxta connection errors
+        if (raw.includes('Failed to complete negotiation') || raw.includes('Status code')) {
+            return `Cannot connect to Voxta — is the server running at the specified URL?`;
+        }
+        if (raw.includes('authentication') || raw.includes('401') || raw.includes('403')) {
+            return `Voxta authentication failed — check your API key.`;
+        }
+
+        // Generic
+        if (raw.includes('timed out')) {
+            return `${context} timed out — try again.`;
+        }
+
+        return `${context}: ${raw}`;
     }
 
     getStatus(): BotStatus {
@@ -139,34 +201,27 @@ export class BotEngine extends EventEmitter {
         this.emit('chat-message', msg);
     }
 
-    async connect(uiConfig: BotConfig): Promise<void> {
-        const config = this.toCompanionConfig(uiConfig);
-        this.currentConfig = config;
-        this.playerMcUsername = uiConfig.playerMcUsername || null;
+    // ---- Phase 1: Connect to Voxta only ----
 
-        // ---- 1. Connect Minecraft ----
-        this.updateStatus({ mc: 'connecting' });
-        this.addChat('system', 'System', `Connecting to MC ${config.mc.host}:${config.mc.port}...`);
+    async connectVoxta(voxtaConfig: VoxtaConnectConfig): Promise<VoxtaInfo> {
+        this.voxtaUrl = voxtaConfig.voxtaUrl;
+        this.voxtaApiKey = voxtaConfig.voxtaApiKey;
 
-        try {
-            this.mcBot = createMinecraftBot(config);
-            await this.mcBot.connect();
-            this.updateStatus({ mc: 'connected' });
-            this.addChat('system', 'System', `Minecraft bot spawned as ${config.mc.username}`);
-        } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            this.updateStatus({ mc: 'error' });
-            this.addChat('system', 'System', `MC connection failed: ${message}`);
-            return;
-        }
-
-        const bot = this.mcBot.bot;
-
-        // ---- 2. Connect Voxta ----
         this.updateStatus({ voxta: 'connecting' });
         this.addChat('system', 'System', 'Connecting to Voxta...');
 
-        this.voxta = new VoxtaClient(config);
+        const companionConfig: CompanionConfig = {
+            mc: { host: '', port: 0, username: '', version: '' },
+            voxta: {
+                url: voxtaConfig.voxtaUrl,
+                apiKey: voxtaConfig.voxtaApiKey,
+                clientName: 'Voxta.Minecraft',
+                clientVersion: '0.2.0',
+            },
+            perception: { intervalMs: 3000, entityRange: 32 },
+        };
+
+        this.voxta = new VoxtaClient(companionConfig);
 
         this.voxta.onMessage((message: ServerMessage) => {
             this.handleVoxtaMessage(message);
@@ -184,20 +239,22 @@ export class BotEngine extends EventEmitter {
             if (!this.voxta.authenticated) {
                 this.updateStatus({ voxta: 'error' });
                 this.addChat('system', 'System', 'Voxta authentication timed out');
-                return;
+                this.toast('error', 'Voxta authentication timed out — check your API key and try again.');
+                throw new Error('Voxta authentication timed out');
             }
 
             this.updateStatus({ voxta: 'connected' });
             this.addChat('system', 'System', 'Connected to Voxta!');
+            this.toast('success', 'Connected to Voxta!');
 
             // Register app
             await this.voxta.registerApp();
 
             // Fetch characters from REST API
-            const baseUrl = config.voxta.url.replace(/\/hub\/?$/, '');
+            const baseUrl = voxtaConfig.voxtaUrl.replace(/\/hub\/?$/, '');
             const headers: Record<string, string> = {};
-            if (config.voxta.apiKey) {
-                headers['Authorization'] = `Bearer ${config.voxta.apiKey}`;
+            if (voxtaConfig.voxtaApiKey) {
+                headers['Authorization'] = `Bearer ${voxtaConfig.voxtaApiKey}`;
             }
             const res = await fetch(`${baseUrl}/api/characters/?assistant=true`, { headers });
             if (res.ok) {
@@ -205,26 +262,94 @@ export class BotEngine extends EventEmitter {
                 this.characters = data.characters.map((c) => ({ id: c.id, name: c.name }));
             }
 
-            // Emit characters for the UI to show picker
-            this.addChat('system', 'System', `${this.characters.length} character(s) available — select one to start chatting`);
-            this.emit('characters-available', this.characters, this.defaultAssistantId);
+            const userName = this.voxtaUserName ?? 'Player';
+            this.addChat('system', 'System', `Welcome, ${userName}! ${this.characters.length} character(s) available.`);
+
+            return {
+                userName,
+                characters: this.characters,
+                defaultAssistantId: this.defaultAssistantId,
+            };
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = this.humanizeError(err, 'Voxta connection');
             this.updateStatus({ voxta: 'error' });
             this.addChat('system', 'System', `Voxta connection failed: ${message}`);
-            return;
+            this.toast('error', message);
+            throw err;
         }
     }
 
-    async startChat(characterId: string): Promise<void> {
-        if (!this.voxta || !this.mcBot) return;
+    // ---- Phase 2: Launch MC bot + start chat ----
 
-        const config = this.currentConfig;
-        if (!config) return;
+    async launchBot(uiConfig: BotConfig): Promise<void> {
+        if (!this.voxta) {
+            throw new Error('Must connect to Voxta first');
+        }
 
+        const config: CompanionConfig = {
+            mc: {
+                host: uiConfig.mcHost,
+                port: uiConfig.mcPort,
+                username: uiConfig.mcUsername,
+                version: uiConfig.mcVersion,
+            },
+            voxta: {
+                url: this.voxtaUrl ?? '',
+                apiKey: this.voxtaApiKey ?? '',
+                clientName: 'Voxta.Minecraft',
+                clientVersion: '0.2.0',
+            },
+            perception: {
+                intervalMs: uiConfig.perceptionIntervalMs,
+                entityRange: uiConfig.entityRange,
+            },
+        };
+        this.currentConfig = config;
+        this.playerMcUsername = uiConfig.playerMcUsername || null;
+
+        // ---- 1. Connect Minecraft ----
+        this.updateStatus({ mc: 'connecting' });
+        this.addChat('system', 'System', `Connecting to MC ${config.mc.host}:${config.mc.port}...`);
+
+        try {
+            this.mcBot = createMinecraftBot(config);
+            await this.mcBot.connect();
+            this.updateStatus({ mc: 'connected' });
+            this.addChat('system', 'System', `Minecraft bot spawned as ${config.mc.username}`);
+            this.toast('success', `Bot "${config.mc.username}" joined the Minecraft server!`);
+        } catch (err) {
+            const message = this.humanizeError(err, 'Minecraft connection');
+            this.updateStatus({ mc: 'error' });
+            this.addChat('system', 'System', `MC connection failed: ${message}`);
+            this.toast('error', message);
+            return;
+        }
+
+        // ---- 2. Start chat with selected character ----
         const bot = this.mcBot.bot;
-        const character = this.characters.find((c) => c.id === characterId);
+        const character = this.characters.find((c) => c.id === uiConfig.characterId);
         this.assistantName = character?.name ?? 'AI';
+
+        // Auto-detect the player's actual MC username from the server
+        // The UI field may contain the Voxta name (e.g., "Lapiro") but the real
+        // MC username could be different (e.g., "Emptyngton")
+        const botUsername = config.mc.username;
+        const onlinePlayers = Object.keys(bot.players).filter(
+            (name) => name !== botUsername,
+        );
+
+        if (onlinePlayers.length === 1) {
+            // Only one other player — that's the user
+            this.playerMcUsername = onlinePlayers[0];
+            this.addChat('system', 'System', `Detected player: ${this.playerMcUsername}`);
+        } else if (onlinePlayers.length > 1) {
+            // Multiple players — use the UI-provided name as a hint to find the right one
+            const uiName = uiConfig.playerMcUsername;
+            const match = onlinePlayers.find((p) => p.toLowerCase() === uiName.toLowerCase());
+            this.playerMcUsername = match ?? onlinePlayers[0];
+            this.addChat('system', 'System', `Multiple players online, using: ${this.playerMcUsername}`);
+        }
+        // else: no other players, keep the UI value as fallback
 
         // Populate name registry
         this.names.clear();
@@ -235,7 +360,7 @@ export class BotEngine extends EventEmitter {
             this.names.register(this.assistantName, config.mc.username);
         }
 
-        await this.voxta.startChat(characterId);
+        await this.voxta.startChat(uiConfig.characterId);
 
         const chatStart = Date.now();
         while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
@@ -284,7 +409,7 @@ export class BotEngine extends EventEmitter {
             }
         }, config.perception.intervalMs);
 
-        // ---- 4. Bridge MC chat ----
+        // ---- 3. Bridge MC chat ----
         bot.on('chat', (username: string, message: string) => {
             if (username === bot.username) return;
             if (!this.voxta?.sessionId) return;
@@ -305,7 +430,7 @@ export class BotEngine extends EventEmitter {
             void this.voxta.sendMessage(`[${voxtaName} whispers in Minecraft]: ${resolvedMsg}`);
         });
 
-        // ---- 5. MC Game Events (with cooldowns to prevent spam) ----
+        // ---- 4. MC Game Events (with cooldowns to prevent spam) ----
         let lastHealth = bot.health;
         const eventCooldowns = new Map<string, number>();
         const EVENT_COOLDOWN_MS = 15_000; // 15s between same event type
@@ -475,6 +600,8 @@ export class BotEngine extends EventEmitter {
         this.assistantId = null;
         this.assistantName = null;
         this.currentReply = '';
+        this.voxtaUrl = null;
+        this.voxtaApiKey = null;
 
         this.updateStatus({
             mc: 'disconnected',
@@ -605,26 +732,5 @@ export class BotEngine extends EventEmitter {
                 break;
             }
         }
-    }
-
-    private toCompanionConfig(ui: BotConfig): CompanionConfig {
-        return {
-            mc: {
-                host: ui.mcHost,
-                port: ui.mcPort,
-                username: ui.mcUsername,
-                version: ui.mcVersion,
-            },
-            voxta: {
-                url: ui.voxtaUrl,
-                apiKey: ui.voxtaApiKey,
-                clientName: 'Voxta.Minecraft',
-                clientVersion: '0.2.0',
-            },
-            perception: {
-                intervalMs: ui.perceptionIntervalMs,
-                entityRange: ui.entityRange,
-            },
-        };
     }
 }

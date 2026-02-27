@@ -1,18 +1,18 @@
 import { createSignal } from 'solid-js';
-import { useStatusListener, useChatListener, useCharactersListener } from './stores/app-store';
+import { useStatusListener, useChatListener } from './stores/app-store';
 import ConnectionPanel from './components/ConnectionPanel';
 import SettingsPanel from './components/SettingsPanel';
 import ChatView from './components/ChatView';
 import ActionToggles from './components/ActionToggles';
 import StatusBar from './components/StatusBar';
 import Modal from './components/Modal';
+import ToastContainer from './components/ToastContainer';
 
 type Popup = 'connection' | 'actions' | 'settings' | null;
 
 export default function App() {
     useStatusListener();
     useChatListener();
-    useCharactersListener();
 
     const [activePopup, setActivePopup] = createSignal<Popup>(null);
 
@@ -59,6 +59,7 @@ export default function App() {
             </div>
 
             <StatusBar />
+            <ToastContainer />
 
             {/* Popup modals */}
             <Modal
@@ -66,7 +67,7 @@ export default function App() {
                 title="🔗 Connection"
                 onClose={() => setActivePopup(null)}
             >
-                <ConnectionPanel />
+                <ConnectionPanel onClose={() => setActivePopup(null)} />
             </Modal>
 
             <Modal

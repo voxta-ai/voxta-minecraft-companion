@@ -1,6 +1,6 @@
 import { createStore } from 'solid-js/store';
 import { onCleanup, onMount } from 'solid-js';
-import type { BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings } from '../../shared/ipc-types';
+import type { BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings, VoxtaConnectConfig, VoxtaInfo } from '../../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../../shared/ipc-types';
 
 // ---- Connection / Status Store ----
@@ -26,34 +26,33 @@ export function useStatusListener(): void {
     });
 }
 
-export async function connect(config: Parameters<typeof window.api.connect>[0]): Promise<void> {
-    await window.api.connect(config);
+// ---- Voxta Info Store (Phase 1 result) ----
+
+const [voxtaInfo, setVoxtaInfo] = createStore<{ userName: string | null; characters: CharacterInfo[]; defaultAssistantId: string | null }>({
+    userName: null,
+    characters: [],
+    defaultAssistantId: null,
+});
+
+export { voxtaInfo };
+
+export async function connectVoxta(config: VoxtaConnectConfig): Promise<VoxtaInfo> {
+    const info = await window.api.connectVoxta(config);
+    setVoxtaInfo({
+        userName: info.userName,
+        characters: info.characters,
+        defaultAssistantId: info.defaultAssistantId,
+    });
+    return info;
+}
+
+export async function launchBot(config: Parameters<typeof window.api.launchBot>[0]): Promise<void> {
+    await window.api.launchBot(config);
 }
 
 export async function disconnect(): Promise<void> {
     await window.api.disconnect();
-}
-
-// ---- Character Store ----
-
-const [characters, setCharacters] = createStore<{ list: CharacterInfo[]; defaultId: string | null }>({
-    list: [],
-    defaultId: null,
-});
-
-export { characters };
-
-export function useCharactersListener(): void {
-    onMount(() => {
-        const cleanup = window.api.onCharactersAvailable((chars, defaultId) => {
-            setCharacters({ list: chars, defaultId });
-        });
-        onCleanup(cleanup);
-    });
-}
-
-export async function startChat(characterId: string): Promise<void> {
-    await window.api.startChat(characterId);
+    setVoxtaInfo({ userName: null, characters: [], defaultAssistantId: null });
 }
 
 // ---- Chat Store ----
@@ -125,4 +124,3 @@ export function updateSetting(key: keyof McSettings, value: boolean): void {
 export function getSettings(): McSettings {
     return { ...settings };
 }
-

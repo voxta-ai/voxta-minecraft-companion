@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { BotConfig, BotStatus, ChatMessage, CharacterInfo, McSettings } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, BotConfig, BotStatus, ChatMessage, ToastMessage, McSettings } from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): void {
     const engine = new BotEngine();
@@ -19,21 +19,21 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         win.webContents.send(IPC_CHANNELS.ACTION_TRIGGERED, actionName);
     });
 
-    engine.on('characters-available', (characters: CharacterInfo[], defaultId: string | null) => {
-        win.webContents.send(IPC_CHANNELS.CHARACTERS_AVAILABLE, characters, defaultId);
+    engine.on('toast', (toast: ToastMessage) => {
+        win.webContents.send(IPC_CHANNELS.TOAST, toast);
     });
 
     // Handle renderer requests
-    ipcMain.handle(IPC_CHANNELS.CONNECT, async (_event, config: BotConfig) => {
-        await engine.connect(config);
+    ipcMain.handle(IPC_CHANNELS.CONNECT_VOXTA, async (_event, config: VoxtaConnectConfig) => {
+        return engine.connectVoxta(config);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.LAUNCH_BOT, async (_event, config: BotConfig) => {
+        await engine.launchBot(config);
     });
 
     ipcMain.handle(IPC_CHANNELS.DISCONNECT, async () => {
         await engine.disconnect();
-    });
-
-    ipcMain.handle(IPC_CHANNELS.START_CHAT, async (_event, characterId: string) => {
-        await engine.startChat(characterId);
     });
 
     ipcMain.handle(IPC_CHANNELS.SEND_MESSAGE, async (_event, text: string) => {
