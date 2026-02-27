@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
 import type { Entity } from 'prismarine-entity';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
-import { MINECRAFT_ACTIONS, executeAction } from '../bot/minecraft/actions';
+import { MINECRAFT_ACTIONS, executeAction, isActionBusy } from '../bot/minecraft/actions';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage } from '../bot/voxta/types';
@@ -18,6 +18,8 @@ export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
     private voxta: VoxtaClient | null = null;
     private perceptionLoop: ReturnType<typeof setInterval> | null = null;
+    private autoLookLoop: ReturnType<typeof setInterval> | null = null;
+    private isAutoDefending = false;
     private assistantId: string | null = null;
     private assistantName: string | null = null;
     private currentReply = '';
@@ -546,6 +548,37 @@ export class BotEngine extends EventEmitter {
                 this.addChat('event', 'Event', `${this.assistantName ?? 'Bot'} is under attack by ${lastAttacker}!`);
                 void this.voxta.sendEvent(`${this.assistantName ?? 'Bot'} is being attacked by ${lastAttacker}!`);
             }
+
+            // Auto self-defense: fight back against hostile mobs
+            if (this.settings.enableAutoDefense && !this.isAutoDefending) {
+                // Find the actual mob entity that attacked us
+                const attacker = Object.values(bot.entities).find(
+                    (e) => e !== bot.entity
+                        && (e.type === 'mob' || e.type === 'hostile')
+                        && e.position.distanceTo(bot.entity.position) < 8,
+                );
+                if (attacker) {
+                    const mobName = attacker.name ?? 'unknown';
+                    this.isAutoDefending = true;
+                    const botName = this.assistantName ?? 'Bot';
+                    this.addChat('action', 'Action', `${botName} auto-defending against ${mobName}!`);
+                    void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], this.names)
+                        .then(async (result) => {
+                            this.isAutoDefending = false;
+                            this.addChat('system', 'System', `${botName}: ${result}`);
+                            // Resume following if we were following before
+                            if (this.followingPlayer && this.mcBot) {
+                                const resumeResult = await executeAction(
+                                    this.mcBot.bot, 'mc_follow_player',
+                                    [{ name: 'player_name', value: this.followingPlayer }],
+                                    this.names,
+                                );
+                                console.log(`[Bot] Resumed following after defense: ${resumeResult}`);
+                            }
+                        })
+                        .catch(() => { this.isAutoDefending = false; });
+                }
+            }
         });
 
         // Notify when bot wakes up from sleeping
@@ -571,6 +604,23 @@ export class BotEngine extends EventEmitter {
             this.queueNote(`${botName} picked up ${gained} ${name}`);
         });
 
+        // Auto-look: face nearest player when idle
+        this.autoLookLoop = setInterval(() => {
+            if (!this.settings.enableAutoLook) return;
+            if (!this.mcBot) return;
+            // Don't look if an action is running (mining, following, attacking, etc.)
+            if (isActionBusy()) return;
+
+            const nearestPlayer = Object.values(bot.entities).find(
+                (e) => e.type === 'player'
+                    && e !== bot.entity
+                    && e.position.distanceTo(bot.entity.position) < 50,
+            );
+            if (nearestPlayer) {
+                void bot.lookAt(nearestPlayer.position.offset(0, 1.6, 0));
+            }
+        }, 1000);
+
         bot.chat("Hello! I'm your Voxta AI companion. Talk to me!");
     }
 
@@ -578,6 +628,10 @@ export class BotEngine extends EventEmitter {
         if (this.perceptionLoop) {
             clearInterval(this.perceptionLoop);
             this.perceptionLoop = null;
+        }
+        if (this.autoLookLoop) {
+            clearInterval(this.autoLookLoop);
+            this.autoLookLoop = null;
         }
 
         if (this.mcBot) {
@@ -648,8 +702,8 @@ export class BotEngine extends EventEmitter {
                     const chatText = this.currentReply.trim();
                     this.addChat('ai', this.assistantName ?? 'AI', chatText);
 
-                    // Speak in MC chat
-                    if (this.mcBot) {
+                    // Speak in MC chat (only if enabled)
+                    if (this.mcBot && this.settings.enableBotChatEcho) {
                         const maxLen = 250;
                         for (let i = 0; i < chatText.length; i += maxLen) {
                             this.mcBot.bot.chat(chatText.substring(i, i + maxLen));
@@ -702,6 +756,9 @@ export class BotEngine extends EventEmitter {
                             && actionName !== 'mc_stop'
                             && actionName !== 'mc_none';
                         console.log(`[Bot] Action done: ${actionName}, followingPlayer: ${this.followingPlayer}, shouldResume: ${!!shouldResume}`);
+                        if (actionName === 'mc_follow_player' && this.mcBot) {
+                            console.log(`[Bot] Pathfinder goal after follow: ${!!this.mcBot.bot.pathfinder.goal}`);
+                        }
                         if (shouldResume && this.mcBot) {
                             const resumeResult = await executeAction(
                                 this.mcBot.bot, 'mc_follow_player',

@@ -64,12 +64,19 @@ function ToggleGroup(props: ToggleGroupProps) {
     );
 }
 
+const BEHAVIOR_TOGGLES: ToggleItem[] = [
+    { key: 'enableBotChatEcho', label: 'echo replies to MC chat' },
+    { key: 'enableAutoLook', label: 'auto-look at nearby player' },
+    { key: 'enableAutoDefense', label: 'auto-defend against mobs' },
+];
+
 export default function SettingsPanel() {
     return (
         <div class="action-toggles">
             <ToggleGroup title="⚙️ Actions" items={ACTION_TOGGLES} />
             <ToggleGroup title="📡 Events" items={EVENT_TOGGLES} />
             <ToggleGroup title="📊 Telemetry" items={TELEMETRY_TOGGLES} />
+            <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
         </div>
     );
 }

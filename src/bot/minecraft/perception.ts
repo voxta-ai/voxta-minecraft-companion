@@ -17,6 +17,7 @@ export interface WorldState {
     nearbyPlayers: NearbyEntity[];
     nearbyMobs: NearbyEntity[];
     inventorySummary: string[];
+    nearbyBlocks: string[];
     shelter: string;
 }
 
@@ -82,14 +83,34 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         // biome read can fail before chunks load
     }
 
-    // Shelter detection
-    const HOME_BLOCKS = [
-        'white_bed', 'orange_bed', 'magenta_bed', 'light_blue_bed', 'yellow_bed',
-        'lime_bed', 'pink_bed', 'gray_bed', 'light_gray_bed', 'cyan_bed',
-        'purple_bed', 'blue_bed', 'brown_bed', 'green_bed', 'red_bed', 'black_bed',
-        'furnace', 'chest', 'crafting_table', 'barrel', 'smoker', 'blast_furnace',
-        'torch', 'wall_torch', 'lantern', 'soul_lantern',
-    ];
+    // Notable block detection — blocks that indicate structures and provide utility
+    const NOTABLE_BLOCKS: Record<string, string> = {
+        // Beds
+        white_bed: 'bed', orange_bed: 'bed', magenta_bed: 'bed', light_blue_bed: 'bed',
+        yellow_bed: 'bed', lime_bed: 'bed', pink_bed: 'bed', gray_bed: 'bed',
+        light_gray_bed: 'bed', cyan_bed: 'bed', purple_bed: 'bed', blue_bed: 'bed',
+        brown_bed: 'bed', green_bed: 'bed', red_bed: 'bed', black_bed: 'bed',
+        // Crafting & Smelting
+        crafting_table: 'crafting table', furnace: 'furnace', blast_furnace: 'blast furnace',
+        smoker: 'smoker', campfire: 'campfire', soul_campfire: 'soul campfire',
+        // Storage
+        chest: 'chest', trapped_chest: 'trapped chest', barrel: 'barrel',
+        ender_chest: 'ender chest', shulker_box: 'shulker box',
+        // Enchanting & Brewing
+        enchanting_table: 'enchanting table', brewing_stand: 'brewing stand',
+        anvil: 'anvil', chipped_anvil: 'anvil', damaged_anvil: 'anvil',
+        grindstone: 'grindstone', smithing_table: 'smithing table',
+        loom: 'loom', cartography_table: 'cartography table', stonecutter: 'stonecutter',
+        // Lighting
+        torch: 'torch', wall_torch: 'torch', lantern: 'lantern', soul_lantern: 'soul lantern',
+        // Redstone
+        note_block: 'note block', jukebox: 'jukebox',
+        // Farming
+        composter: 'composter', beehive: 'beehive', bee_nest: 'bee nest',
+        // Decoration
+        flower_pot: 'flower pot', bookshelf: 'bookshelf',
+    };
+
     let hasRoof = false;
     try {
         for (let dy = 1; dy <= 6; dy++) {
@@ -101,31 +122,39 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         }
     } catch { /* chunk not loaded */ }
 
-    const nearbyHomeBlocks: string[] = [];
+    // Scan for notable blocks within radius
+    const blockCounts = new Map<string, number>();
+    const shelterBlockLabels: string[] = [];
     try {
         const searchRadius = 8;
-        for (let dx = -searchRadius; dx <= searchRadius; dx += 2) {
+        for (let dx = -searchRadius; dx <= searchRadius; dx++) {
             for (let dy = -2; dy <= 3; dy++) {
-                for (let dz = -searchRadius; dz <= searchRadius; dz += 2) {
+                for (let dz = -searchRadius; dz <= searchRadius; dz++) {
                     const block = bot.blockAt(pos.offset(dx, dy, dz));
-                    if (block && HOME_BLOCKS.includes(block.name)) {
-                        const label = block.name.replace(/_/g, ' ');
-                        if (!nearbyHomeBlocks.includes(label)) {
-                            nearbyHomeBlocks.push(label);
-                        }
+                    if (!block) continue;
+                    const label = NOTABLE_BLOCKS[block.name];
+                    if (!label) continue;
+                    blockCounts.set(label, (blockCounts.get(label) ?? 0) + 1);
+                    if (!shelterBlockLabels.includes(label)) {
+                        shelterBlockLabels.push(label);
                     }
                 }
             }
         }
     } catch { /* chunk not loaded */ }
 
+    // Build nearby blocks summary (skip torches — too noisy)
+    const nearbyBlocks = Array.from(blockCounts.entries())
+        .filter(([label]) => label !== 'torch')
+        .map(([label, count]) => count > 1 ? `${label} x${count}` : label);
+
     let shelter = 'outdoors';
-    if (hasRoof && nearbyHomeBlocks.length > 0) {
-        shelter = `indoors, inside shelter (${nearbyHomeBlocks.join(', ')} nearby)`;
+    if (hasRoof && shelterBlockLabels.length > 0) {
+        shelter = `indoors, inside shelter (${shelterBlockLabels.join(', ')} nearby)`;
     } else if (hasRoof) {
         shelter = 'indoors (roof overhead)';
-    } else if (nearbyHomeBlocks.length > 0) {
-        shelter = `near shelter (${nearbyHomeBlocks.join(', ')} nearby)`;
+    } else if (shelterBlockLabels.length > 0) {
+        shelter = `near shelter (${shelterBlockLabels.join(', ')} nearby)`;
     }
 
     return {
@@ -155,6 +184,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         nearbyPlayers,
         nearbyMobs,
         inventorySummary,
+        nearbyBlocks,
         shelter,
     };
 }
@@ -246,6 +276,10 @@ export function buildContextStrings(
         lines.push(`Inventory: ${state.inventorySummary.join(', ')}`);
     } else {
         lines.push('Inventory: empty');
+    }
+
+    if (state.nearbyBlocks.length > 0) {
+        lines.push(`Nearby blocks: ${state.nearbyBlocks.join(', ')}`);
     }
 
     return lines;

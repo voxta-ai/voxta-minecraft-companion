@@ -83,6 +83,11 @@ export interface McSettings {
     enableTelemetryWeather: boolean;
     enableTelemetryTime: boolean;
     enableTelemetryChat: boolean;
+
+    // Bot behavior
+    enableBotChatEcho: boolean;
+    enableAutoLook: boolean;
+    enableAutoDefense: boolean;
 }
 
 export const DEFAULT_SETTINGS: McSettings = {
@@ -108,6 +113,10 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableTelemetryWeather: false,
     enableTelemetryTime: false,
     enableTelemetryChat: true,
+
+    enableBotChatEcho: false,
+    enableAutoLook: true,
+    enableAutoDefense: true,
 };
 
 export interface CharacterInfo {

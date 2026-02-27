@@ -235,12 +235,29 @@ function findPlayerEntity(bot: Bot, playerName: string, names: NameRegistry): En
 // Shared cancellation signal for long-running actions
 let actionAbort = new AbortController();
 
+// Tracks whether a physical action is running (mining, following, etc.)
+let actionBusy = false;
+export function isActionBusy(): boolean { return actionBusy; }
+
 export async function executeAction(
     bot: Bot,
     actionName: string,
     args: ActionInvocationArgument[] | undefined,
     names: NameRegistry,
 ): Promise<string> {
+    // Non-physical actions should not interrupt the current pathfinder goal (e.g. follow)
+    const NON_PHYSICAL = ['mc_none', 'mc_look_at'];
+    if (!NON_PHYSICAL.includes(actionName)) {
+        // Cancel any running action before starting a new one
+        actionAbort.abort();
+        actionAbort = new AbortController();
+        try { bot.stopDigging(); } catch { /* may not be digging */ }
+    }
+
+    // Track busy state for non-trivial actions
+    const isPhysical = !NON_PHYSICAL.includes(actionName) && actionName !== 'mc_stop';
+    if (isPhysical) actionBusy = true;
+
     try {
         switch (actionName) {
             case 'mc_follow_player':
@@ -269,10 +286,8 @@ export async function executeAction(
                 return await lookAtPlayer(bot, getArg(args, 'player_name'), names);
 
             case 'mc_stop':
-                actionAbort.abort();
-                actionAbort = new AbortController();
                 bot.pathfinder.stop();
-                bot.stopDigging();
+                try { bot.stopDigging(); } catch { /* may not be digging */ }
                 return 'Stopped current action';
 
             case 'mc_equip':
@@ -313,6 +328,8 @@ export async function executeAction(
         const message = err instanceof Error ? err.message : String(err);
         console.error(`[MC Action] Error executing ${actionName}:`, message);
         return `Failed to execute ${actionName}: ${message}`;
+    } finally {
+        if (isPhysical) actionBusy = false;
     }
 }
 
@@ -508,9 +525,11 @@ async function mineBlock(
             mined++;
             console.log(`[MC Action] Mined ${block.name} (${mined}/${maxCount})`);
         } catch (err) {
+            // If we were cancelled by a new action, exit cleanly without
+            // touching pathfinder (the new action owns it now)
+            if (signal.aborted) break;
             const message = err instanceof Error ? err.message : String(err);
             console.warn(`[MC Action] Skipping block at ${posKey}: ${message}`);
-            bot.pathfinder.stop();
             failedPositions.add(posKey);
         }
     }
@@ -553,7 +572,7 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
             // Check if cancelled
             if (signal.aborted) {
                 clearInterval(attackLoop);
-                bot.pathfinder.stop();
+                // Don't call pathfinder.stop() — the new action owns it now
                 resolve(`Stopped attacking ${displayName}`);
                 return;
             }
@@ -692,8 +711,12 @@ async function eatFood(bot: Bot, foodName: string | undefined): Promise<string> 
 
     let foodItem;
     if (foodName) {
-        // Eat specific food
-        foodItem = items.find((i) => i.name === foodName);
+        // Eat specific food — match against both internal name and display name
+        const normalized = foodName.toLowerCase().replace(/\s+/g, '_');
+        foodItem = items.find((i) =>
+            i.name.toLowerCase() === normalized ||
+            (i.displayName && i.displayName.toLowerCase() === foodName.toLowerCase())
+        );
         if (!foodItem) return `No ${foodName} in inventory`;
     } else {
         // Find best food in inventory
