@@ -7,19 +7,6 @@ interface ToggleItem {
     label: string;
 }
 
-const ACTION_TOGGLES: ToggleItem[] = [
-    { key: 'enableFollowPlayer', label: 'follow player' },
-    { key: 'enableGoTo', label: 'go to' },
-    { key: 'enableLookAt', label: 'look at' },
-    { key: 'enableStop', label: 'stop' },
-    { key: 'enableMineBlock', label: 'mine block' },
-    { key: 'enableAttack', label: 'attack' },
-    { key: 'enableSay', label: 'say' },
-    { key: 'enableEquip', label: 'equip' },
-    { key: 'enableGiveItem', label: 'give item' },
-    { key: 'enableCollectItems', label: 'collect items' },
-];
-
 const EVENT_TOGGLES: ToggleItem[] = [
     { key: 'enableEventDamage', label: 'damage taken' },
     { key: 'enableEventDeath', label: 'death' },
@@ -73,7 +60,6 @@ const BEHAVIOR_TOGGLES: ToggleItem[] = [
 export default function SettingsPanel() {
     return (
         <div class="action-toggles">
-            <ToggleGroup title="⚙️ Actions" items={ACTION_TOGGLES} />
             <ToggleGroup title="📡 Events" items={EVENT_TOGGLES} />
             <ToggleGroup title="📊 Telemetry" items={TELEMETRY_TOGGLES} />
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />

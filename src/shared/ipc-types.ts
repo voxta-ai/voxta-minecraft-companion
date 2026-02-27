@@ -2,6 +2,8 @@
 // IPC channel types shared between main, preload, and renderer
 // ============================================================
 
+import type { ActionCategory } from '../bot/minecraft/action-definitions';
+
 // Phase 1: connect to Voxta only
 export interface VoxtaConnectConfig {
     voxtaUrl: string;
@@ -52,24 +54,12 @@ export interface ActionToggle {
     name: string;
     description: string;
     enabled: boolean;
-    category: 'movement' | 'combat' | 'communication';
+    category: ActionCategory;
 }
 
 // ---- Settings (Toggle Groups) ----
 
 export interface McSettings {
-    // Actions — what the AI can command
-    enableFollowPlayer: boolean;
-    enableGoTo: boolean;
-    enableLookAt: boolean;
-    enableStop: boolean;
-    enableMineBlock: boolean;
-    enableAttack: boolean;
-    enableSay: boolean;
-    enableEquip: boolean;
-    enableGiveItem: boolean;
-    enableCollectItems: boolean;
-
     // Events — AI reacts with a reply
     enableEventDamage: boolean;
     enableEventDeath: boolean;
@@ -91,17 +81,6 @@ export interface McSettings {
 }
 
 export const DEFAULT_SETTINGS: McSettings = {
-    enableFollowPlayer: true,
-    enableGoTo: true,
-    enableLookAt: true,
-    enableStop: true,
-    enableMineBlock: true,
-    enableAttack: true,
-    enableSay: true,
-    enableEquip: true,
-    enableGiveItem: true,
-    enableCollectItems: true,
-
     enableEventDamage: true,
     enableEventDeath: true,
     enableEventUnderAttack: true,

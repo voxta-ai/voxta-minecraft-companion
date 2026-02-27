@@ -1,6 +1,7 @@
 import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
+import { BED_BLOCKS } from './action-definitions';
 
 export interface WorldState {
     position: { x: number; y: number; z: number };
@@ -85,11 +86,8 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     // Notable block detection — blocks that indicate structures and provide utility
     const NOTABLE_BLOCKS: Record<string, string> = {
-        // Beds
-        white_bed: 'bed', orange_bed: 'bed', magenta_bed: 'bed', light_blue_bed: 'bed',
-        yellow_bed: 'bed', lime_bed: 'bed', pink_bed: 'bed', gray_bed: 'bed',
-        light_gray_bed: 'bed', cyan_bed: 'bed', purple_bed: 'bed', blue_bed: 'bed',
-        brown_bed: 'bed', green_bed: 'bed', red_bed: 'bed', black_bed: 'bed',
+        // Beds (from shared BED_BLOCKS list)
+        ...Object.fromEntries(BED_BLOCKS.map((b) => [b, 'bed'])),
         // Crafting & Smelting
         crafting_table: 'crafting table', furnace: 'furnace', blast_furnace: 'blast furnace',
         smoker: 'smoker', campfire: 'campfire', soul_campfire: 'soul campfire',
