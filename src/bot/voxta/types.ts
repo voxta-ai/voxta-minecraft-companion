@@ -62,6 +62,7 @@ export interface ClientAuthenticateMessage {
         acceptedAudioContentTypes?: string[];
         audioInput?: string;
         visionCapture?: string;
+        visionSources?: string[];
     };
 }
 
@@ -168,6 +169,13 @@ export interface ServerErrorMessage {
     details?: string;
 }
 
+export interface ServerVisionCaptureRequestMessage {
+    $type: 'visionCaptureRequest';
+    sessionId: string;
+    visionCaptureRequestId: string;
+    source: string;
+}
+
 export type ServerMessage =
     | ServerWelcomeMessage
     | ServerAuthenticationRequiredMessage
@@ -178,4 +186,5 @@ export type ServerMessage =
     | ServerReplyEndMessage
     | ServerActionMessage
     | ServerErrorMessage
+    | ServerVisionCaptureRequestMessage
     | { $type: string;[key: string]: unknown };

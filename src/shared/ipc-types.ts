@@ -78,6 +78,7 @@ export interface McSettings {
     enableBotChatEcho: boolean;
     enableAutoLook: boolean;
     enableAutoDefense: boolean;
+    enableVision: boolean;
 }
 
 export const DEFAULT_SETTINGS: McSettings = {
@@ -96,6 +97,7 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableBotChatEcho: false,
     enableAutoLook: true,
     enableAutoDefense: true,
+    enableVision: false,
 };
 
 export interface CharacterInfo {

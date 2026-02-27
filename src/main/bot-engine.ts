@@ -6,7 +6,8 @@ import { executeAction, isActionBusy } from '../bot/minecraft/actions';
 import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
-import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage } from '../bot/voxta/types';
+import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage, ServerVisionCaptureRequestMessage } from '../bot/voxta/types';
+import { handleVisionCaptureRequest } from './vision-capture';
 import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ToastMessage, ToastType, McSettings } from '../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
@@ -627,6 +628,14 @@ export class BotEngine extends EventEmitter {
                     this.addChat('player', 'You (voice)', text);
                     void this.voxta?.sendMessage(text);
                 }
+                break;
+            }
+            case 'visionCaptureRequest': {
+                if (!this.settings.enableVision) break;
+                const visionReq = message as ServerVisionCaptureRequestMessage;
+                const baseUrl = (this.voxtaUrl ?? 'http://localhost:5384/hub').replace(/\/hub\/?$/, '');
+                console.log(`[Vision] Received capture request: ${visionReq.visionCaptureRequestId} (source: ${visionReq.source})`);
+                void handleVisionCaptureRequest(visionReq, baseUrl, this.voxtaApiKey);
                 break;
             }
         }

@@ -116,7 +116,8 @@ export class VoxtaClient {
             capabilities: {
                 audioOutput: 'None',
                 audioInput: 'None',
-                visionCapture: 'None',
+                visionCapture: 'PostImage',
+                visionSources: ['Screen'],
             },
         });
     }

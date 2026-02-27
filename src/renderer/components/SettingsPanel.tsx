@@ -55,6 +55,7 @@ const BEHAVIOR_TOGGLES: ToggleItem[] = [
     { key: 'enableBotChatEcho', label: 'echo replies to MC chat' },
     { key: 'enableAutoLook', label: 'auto-look at nearby player' },
     { key: 'enableAutoDefense', label: 'auto-defend against mobs' },
+    { key: 'enableVision', label: 'vision (capture MC screen)' },
 ];
 
 export default function SettingsPanel() {
