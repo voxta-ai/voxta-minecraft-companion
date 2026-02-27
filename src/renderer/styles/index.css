@@ -358,7 +358,7 @@ body {
 }
 
 .status-dot.disconnected {
-  background: var(--text-muted);
+  background: var(--accent-red);
 }
 
 .status-dot.connecting {
@@ -464,20 +464,21 @@ body {
   color: var(--accent-green);
 }
 
-/* System messages — centered compact strip */
+/* System messages — centered purple */
 .chat-msg.system {
-  background: rgba(30, 30, 56, 0.6);
-  border: 1px solid var(--border-color);
+  background: rgba(40, 20, 60, 0.7);
+  border: 1px solid rgba(167, 139, 250, 0.25);
   align-self: center;
-  max-width: 100%;
-  border-radius: 8px;
-  padding: 6px 14px;
+  width: 60%;
+  max-width: 60%;
+  border-radius: 16px;
+  padding: 10px 14px;
   font-size: 12px;
-  color: var(--text-secondary);
+  color: #c4b5fd;
 }
 
 .chat-msg.system .sender {
-  color: var(--text-muted);
+  color: var(--accent-purple);
   font-size: 10px;
 }
 
@@ -486,11 +487,14 @@ body {
   background: rgba(59, 46, 15, 0.7);
   border: 1px solid rgba(251, 191, 36, 0.25);
   align-self: center;
-  max-width: 100%;
-  border-radius: 8px;
-  padding: 6px 14px;
+  width: 60%;
+  max-width: 60%;
+  border-radius: 16px;
+  padding: 10px 14px;
   font-family: 'Courier New', monospace;
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fb923c;
 }
 
 .chat-msg.action .sender {
@@ -498,20 +502,21 @@ body {
   font-size: 10px;
 }
 
-/* Event messages — centered orange */
+/* Event/telemetry messages — centered teal */
 .chat-msg.event {
-  background: rgba(80, 40, 10, 0.6);
-  border: 1px solid rgba(251, 146, 60, 0.3);
+  background: rgba(10, 50, 50, 0.7);
+  border: 1px solid rgba(45, 212, 191, 0.25);
   align-self: center;
-  max-width: 100%;
-  border-radius: 8px;
-  padding: 6px 14px;
+  width: 60%;
+  max-width: 60%;
+  border-radius: 16px;
+  padding: 10px 14px;
   font-size: 12px;
-  color: #fbbf80;
+  color: #5eead4;
 }
 
 .chat-msg.event .sender {
-  color: #fb923c;
+  color: #2dd4bf;
   font-size: 10px;
 }
 

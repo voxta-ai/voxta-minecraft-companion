@@ -6,7 +6,7 @@ export default function StatusBar() {
         <div class="status-bar">
             <div class="status-bar-item">
                 <span class={`status-dot ${status.mc}`} />
-                MC: {status.mc}
+                Minecraft: {status.mc}
             </div>
             <div class="status-bar-item">
                 <span class={`status-dot ${status.voxta}`} />
@@ -25,6 +25,11 @@ export default function StatusBar() {
             <Show when={status.health !== null}>
                 <div class="status-bar-item">
                     ❤️ {status.health}/20
+                </div>
+            </Show>
+            <Show when={status.food !== null}>
+                <div class="status-bar-item">
+                    🍗 {status.food}/20
                 </div>
             </Show>
             <Show when={status.currentAction}>

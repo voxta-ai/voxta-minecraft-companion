@@ -590,8 +590,28 @@ async function lookAtPlayer(bot: Bot, playerName: string | undefined, names: Nam
     const displayName = names.resolveToVoxta(names.resolveToMc(playerName));
     if (!player) return `Cannot find player "${displayName}" nearby`;
 
+    // Initial look
     await bot.lookAt(player.position.offset(0, 1.6, 0));
-    return `Looking at ${displayName}`;
+
+    // Continuously track the player until another action cancels us
+    const signal = actionAbort.signal;
+    const trackLoop = async (): Promise<void> => {
+        while (!signal.aborted) {
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            if (signal.aborted) break;
+
+            // Re-find the player in case they moved
+            const updated = findPlayerEntity(bot, playerName, names);
+            if (!updated) break;
+
+            await bot.lookAt(updated.position.offset(0, 1.6, 0));
+        }
+    };
+
+    // Start tracking in the background (don't await — action returns immediately)
+    void trackLoop();
+
+    return `Tracking ${displayName}`;
 }
 
 

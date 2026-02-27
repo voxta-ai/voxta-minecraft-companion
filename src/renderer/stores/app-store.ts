@@ -10,6 +10,7 @@ const [status, setStatus] = createStore<BotStatus>({
     voxta: 'disconnected',
     position: null,
     health: null,
+    food: null,
     currentAction: null,
     assistantName: null,
     sessionId: null,

@@ -43,6 +43,7 @@ export class BotEngine extends EventEmitter {
         voxta: 'disconnected',
         position: null,
         health: null,
+        food: null,
         currentAction: null,
         assistantName: null,
         sessionId: null,
@@ -394,6 +395,7 @@ export class BotEngine extends EventEmitter {
                 this.updateStatus({
                     position: state.position ? { x: Math.round(state.position.x), y: Math.round(state.position.y), z: Math.round(state.position.z) } : null,
                     health: state.health,
+                    food: state.food,
                 });
 
                 if (contextHash !== lastContextHash) {

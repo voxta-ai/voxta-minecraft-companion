@@ -34,6 +34,7 @@ export interface BotStatus {
     voxta: ConnectionStatus;
     position: { x: number; y: number; z: number } | null;
     health: number | null;
+    food: number | null;
     currentAction: string | null;
     assistantName: string | null;
     sessionId: string | null;
