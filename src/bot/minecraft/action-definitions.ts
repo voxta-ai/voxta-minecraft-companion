@@ -267,18 +267,15 @@ export type ToolCategory = 'axe' | 'pickaxe' | 'shovel' | 'none';
 
 /** Maps block names to the tool required to mine them */
 export const TOOL_REQUIREMENTS: Record<string, ToolCategory> = {
-    // Wood → axe
-    oak_log: 'axe', birch_log: 'axe', spruce_log: 'axe', jungle_log: 'axe',
-    acacia_log: 'axe', dark_oak_log: 'axe', mangrove_log: 'axe', cherry_log: 'axe',
-    oak_planks: 'axe', birch_planks: 'axe', spruce_planks: 'axe', jungle_planks: 'axe',
-    // Stone/Ores → pickaxe
+    // Wood → axe preferred but NOT required (can be mined by hand)
+    // Stone/Ores → pickaxe REQUIRED (no drops without it)
     stone: 'pickaxe', cobblestone: 'pickaxe', deepslate: 'pickaxe',
     iron_ore: 'pickaxe', gold_ore: 'pickaxe', diamond_ore: 'pickaxe',
     coal_ore: 'pickaxe', copper_ore: 'pickaxe', lapis_ore: 'pickaxe',
     redstone_ore: 'pickaxe', emerald_ore: 'pickaxe', nether_quartz_ore: 'pickaxe',
     netherrack: 'pickaxe', obsidian: 'pickaxe', andesite: 'pickaxe',
     diorite: 'pickaxe', granite: 'pickaxe',
-    // Dirt/Sand → no tool required
+    // Dirt/Sand/Wood → no tool required
     dirt: 'none', sand: 'none', gravel: 'none', clay: 'none',
     grass_block: 'none',
 };

@@ -362,13 +362,28 @@ async function mineBlock(
         if (!tool) {
             return `Cannot mine ${blockType}: no ${toolCategory} in inventory. Need a ${toolCategory} to mine this block.`;
         }
-        // Auto-equip the best tool
+        // Auto-equip the required tool
         try {
             await bot.equip(tool.item as number, 'hand');
             console.log(`[MC Action] Equipped ${tool.name}`);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.error(`[MC Action] Failed to equip ${tool.name}:`, msg);
+        }
+    } else {
+        // No tool required — but try to equip a preferred tool for speed
+        // (e.g. axe for wood, shovel for dirt)
+        const preferred = resolvedName.includes('log') || resolvedName.includes('planks') ? 'axe'
+            : resolvedName.includes('dirt') || resolvedName.includes('sand') || resolvedName.includes('gravel') ? 'shovel'
+                : null;
+        if (preferred) {
+            const tool = getBestTool(bot, preferred as ToolCategory);
+            if (tool) {
+                try {
+                    await bot.equip(tool.item as number, 'hand');
+                    console.log(`[MC Action] Equipped preferred tool ${tool.name}`);
+                } catch { /* not critical — mine with whatever is in hand */ }
+            }
         }
     }
 
