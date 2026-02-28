@@ -243,13 +243,13 @@ export function buildContextStrings(
     }
 
     if (state.heldItem) {
-        lines.push(`Holding: ${state.heldItem}`);
+        lines.push(`${who} is holding: ${state.heldItem}`);
     }
 
     if (state.armor.length > 0) {
-        lines.push(`Armor: ${state.armor.map((a) => a.replace(/_/g, ' ')).join(', ')}`);
+        lines.push(`${who}'s armor: ${state.armor.map((a) => a.replace(/_/g, ' ')).join(', ')}`);
     } else {
-        lines.push('Armor: none');
+        lines.push(`${who}'s armor: none`);
     }
 
     if (state.nearbyPlayers.length > 0) {
@@ -271,9 +271,9 @@ export function buildContextStrings(
     }
 
     if (state.inventorySummary.length > 0) {
-        lines.push(`Inventory: ${state.inventorySummary.join(', ')}`);
+        lines.push(`${who}'s inventory: ${state.inventorySummary.join(', ')}`);
     } else {
-        lines.push('Inventory: empty');
+        lines.push(`${who}'s inventory: empty`);
     }
 
     if (state.nearbyBlocks.length > 0) {

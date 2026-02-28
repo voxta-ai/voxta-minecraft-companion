@@ -32,6 +32,9 @@ const api = {
     updateSettings: (settings: McSettings): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.UPDATE_SETTINGS, settings),
 
+    cycleVisionWindow: (): Promise<string | null> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CYCLE_VISION_WINDOW),
+
     onStatusChanged: (callback: StatusCallback): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, status: BotStatus): void => callback(status);
         ipcRenderer.on(IPC_CHANNELS.STATUS_CHANGED, handler);

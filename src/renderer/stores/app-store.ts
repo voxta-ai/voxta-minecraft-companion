@@ -119,7 +119,7 @@ window.api.updateSettings({ ...settings });
 
 export { settings };
 
-export function updateSetting(key: keyof McSettings, value: boolean): void {
+export function updateSetting<K extends keyof McSettings>(key: K, value: McSettings[K]): void {
     setSettings(key, value);
     const updated = { ...settings };
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));

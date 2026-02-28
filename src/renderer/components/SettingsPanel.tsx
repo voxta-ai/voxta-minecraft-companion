@@ -1,5 +1,5 @@
-import { For } from 'solid-js';
-import type { McSettings } from '../../shared/ipc-types';
+import { createSignal, For, Show } from 'solid-js';
+import type { McSettings, VisionMode } from '../../shared/ipc-types';
 import { settings, updateSetting } from '../stores/app-store';
 
 interface ToggleItem {
@@ -39,7 +39,7 @@ function ToggleGroup(props: ToggleGroupProps) {
                         <label class="toggle">
                             <input
                                 type="checkbox"
-                                checked={settings[item.key]}
+                                checked={settings[item.key] as boolean}
                                 onChange={(e) => updateSetting(item.key, e.currentTarget.checked)}
                             />
                             <span class="toggle-slider" />
@@ -55,8 +55,57 @@ const BEHAVIOR_TOGGLES: ToggleItem[] = [
     { key: 'enableBotChatEcho', label: 'echo replies to MC chat' },
     { key: 'enableAutoLook', label: 'auto-look at nearby player' },
     { key: 'enableAutoDefense', label: 'auto-defend against mobs' },
-    { key: 'enableVision', label: 'vision (capture MC screen)' },
 ];
+
+const VISION_OPTIONS: { value: VisionMode; label: string; description: string }[] = [
+    { value: 'off', label: 'Off', description: 'No vision capture' },
+    { value: 'screen', label: 'Screen', description: 'Capture your MC window' },
+    { value: 'eyes', label: 'Eyes', description: 'Bot POV (spectator client)' },
+];
+
+function VisionModeSelector() {
+    const [switchResult, setSwitchResult] = createSignal<string | null>(null);
+
+    const handleCycleWindow = async (): Promise<void> => {
+        const result = await window.api.cycleVisionWindow();
+        setSwitchResult(result ?? 'No Minecraft windows found');
+        // Clear the message after 4 seconds
+        setTimeout(() => setSwitchResult(null), 4000);
+    };
+
+    return (
+        <div class="action-category">
+            <div class="action-category-title">👁️ Vision</div>
+            <div class="action-item">
+                <label>vision mode</label>
+                <select
+                    class="vision-select"
+                    value={settings.visionMode}
+                    onChange={(e) => updateSetting('visionMode', e.currentTarget.value as VisionMode)}
+                >
+                    <For each={VISION_OPTIONS}>
+                        {(opt) => (
+                            <option value={opt.value} title={opt.description}>
+                                {opt.label}
+                            </option>
+                        )}
+                    </For>
+                </select>
+            </div>
+            <Show when={settings.visionMode === 'eyes'}>
+                <div class="action-item">
+                    <label>target window</label>
+                    <button class="btn-switch-window" onClick={handleCycleWindow}>
+                        Switch Window
+                    </button>
+                </div>
+                <Show when={switchResult()}>
+                    <div class="vision-window-info">{switchResult()}</div>
+                </Show>
+            </Show>
+        </div>
+    );
+}
 
 export default function SettingsPanel() {
     return (
@@ -64,6 +113,7 @@ export default function SettingsPanel() {
             <ToggleGroup title="📡 Events" items={EVENT_TOGGLES} />
             <ToggleGroup title="📊 Telemetry" items={TELEMETRY_TOGGLES} />
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
+            <VisionModeSelector />
         </div>
     );
 }

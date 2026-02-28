@@ -59,6 +59,8 @@ export interface ActionToggle {
 
 // ---- Settings (Toggle Groups) ----
 
+export type VisionMode = 'off' | 'screen' | 'eyes';
+
 export interface McSettings {
     // Events — AI reacts with a reply
     enableEventDamage: boolean;
@@ -78,7 +80,7 @@ export interface McSettings {
     enableBotChatEcho: boolean;
     enableAutoLook: boolean;
     enableAutoDefense: boolean;
-    enableVision: boolean;
+    visionMode: VisionMode;
 }
 
 export const DEFAULT_SETTINGS: McSettings = {
@@ -97,7 +99,7 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableBotChatEcho: false,
     enableAutoLook: true,
     enableAutoDefense: true,
-    enableVision: false,
+    visionMode: 'off',
 };
 
 export interface CharacterInfo {
@@ -126,6 +128,7 @@ export const IPC_CHANNELS = {
     TOGGLE_ACTION: 'bot:toggle-action',
     GET_ACTIONS: 'bot:get-actions',
     UPDATE_SETTINGS: 'bot:update-settings',
+    CYCLE_VISION_WINDOW: 'bot:cycle-vision-window',
 
     // Main → Renderer
     STATUS_CHANGED: 'bot:status-changed',

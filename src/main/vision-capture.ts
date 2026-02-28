@@ -1,8 +1,13 @@
 import { desktopCapturer } from 'electron';
+import type { VisionMode } from '../shared/ipc-types';
 
 /**
- * Handles Voxta vision capture requests by screenshotting the Minecraft window
+ * Handles Voxta vision capture requests by screenshotting a Minecraft window
  * and POSTing the image back to Voxta's vision API.
+ *
+ * Supports two modes:
+ *  - "screen":  captures the user's own Minecraft window (source=Screen)
+ *  - "eyes":    captures the spectator/bot-camera window (source=Eyes)
  */
 
 interface VisionCaptureRequest {
@@ -11,28 +16,66 @@ interface VisionCaptureRequest {
     source: string;
 }
 
+// ---- Window selection state for "eyes" mode ----
+let preferredWindowIndex = -1; // -1 = auto (pick last)
+
 /**
- * Find the Minecraft window and capture a screenshot.
- * Returns a JPEG Buffer or null if not found.
+ * Get all Minecraft game windows (excluding the launcher and companion app).
  */
-async function captureMinecraftWindow(): Promise<Buffer | null> {
+async function getMinecraftWindows(): Promise<Electron.DesktopCapturerSource[]> {
     const sources = await desktopCapturer.getSources({
         types: ['window'],
         thumbnailSize: { width: 1024, height: 768 },
     });
 
-    // Find the actual Minecraft game window (not dev tools like "voxta-minecraft-companion")
-    const mcSource = sources.find((s) => {
+    return sources.filter((s) => {
         const name = s.name.toLowerCase();
-        return name.startsWith('minecraft') && !name.includes('companion') && !name.includes('voxta');
+        return name.startsWith('minecraft') && !name.includes('companion') && !name.includes('voxta') && !name.includes('launcher');
     });
+}
 
-    if (!mcSource) {
-        console.log('[Vision] Minecraft window not found among:', sources.map((s) => s.name).join(', '));
+/**
+ * Cycle through available Minecraft windows for "eyes" mode.
+ * Returns the name of the newly selected window, or null if none found.
+ */
+export async function cycleVisionWindow(): Promise<string | null> {
+    const windows = await getMinecraftWindows();
+    if (windows.length === 0) return null;
+
+    // Advance to the next window
+    preferredWindowIndex = (preferredWindowIndex + 1) % windows.length;
+    const selected = windows[preferredWindowIndex];
+    console.log(`[Vision] Switched to window ${preferredWindowIndex + 1}/${windows.length}: "${selected.name}"`);
+    return `Window ${preferredWindowIndex + 1}/${windows.length}: ${selected.name}`;
+}
+
+/**
+ * Capture a Minecraft window screenshot.
+ *
+ * - "screen" mode: picks the first game window (the user's own client)
+ * - "eyes" mode: picks by preferredWindowIndex (default: last = spectator)
+ */
+async function captureMinecraftWindow(mode: VisionMode): Promise<Buffer | null> {
+    const mcWindows = await getMinecraftWindows();
+
+    if (mcWindows.length === 0) {
+        console.warn('[Vision] No Minecraft game window found');
         return null;
     }
 
-    console.log(`[Vision] Captured Minecraft window: "${mcSource.name}"`);
+    let mcSource: Electron.DesktopCapturerSource;
+
+    if (mode === 'screen') {
+        // Screen mode: pick the first game window (user's own Minecraft)
+        mcSource = mcWindows[0];
+    } else {
+        // Eyes mode: use preferred index, default to last window (spectator launched second)
+        const idx = preferredWindowIndex >= 0 && preferredWindowIndex < mcWindows.length
+            ? preferredWindowIndex
+            : mcWindows.length - 1;
+        mcSource = mcWindows[idx];
+    }
+
     const thumbnail = mcSource.thumbnail;
     if (thumbnail.isEmpty()) {
         console.warn('[Vision] Captured thumbnail is empty');
@@ -52,19 +95,23 @@ export async function handleVisionCaptureRequest(
     request: VisionCaptureRequest,
     baseUrl: string,
     apiKey: string | null,
+    mode: VisionMode,
 ): Promise<void> {
-    const { sessionId, visionCaptureRequestId, source } = request;
+    const { sessionId, visionCaptureRequestId } = request;
 
     const headers: Record<string, string> = {};
     if (apiKey) {
         headers['Authorization'] = `Bearer ${apiKey}`;
     }
 
+    // Map mode to Voxta's ComputerVisionSource
+    const visionSource = mode === 'eyes' ? 'Eyes' : 'Screen';
+
     try {
-        const imageBuffer = await captureMinecraftWindow();
+        const imageBuffer = await captureMinecraftWindow(mode);
 
         if (!imageBuffer) {
-            console.warn('[Vision] No Minecraft window found — canceling vision request');
+            console.warn('[Vision] No Minecraft window found \u2014 canceling vision request');
             await cancelVisionRequest(baseUrl, sessionId, visionCaptureRequestId, headers);
             return;
         }
@@ -74,7 +121,7 @@ export async function handleVisionCaptureRequest(
         const formData = new FormData();
         formData.append('file', blob, 'minecraft.jpg');
 
-        const url = `${baseUrl}/api/vision/requests/${visionCaptureRequestId}/send?sessionId=${sessionId}&source=${source}&label=minecraft`;
+        const url = `${baseUrl}/api/vision/requests/${visionCaptureRequestId}/send?sessionId=${sessionId}&source=${visionSource}&label=minecraft`;
 
         const response = await fetch(url, {
             method: 'POST',
@@ -82,9 +129,7 @@ export async function handleVisionCaptureRequest(
             body: formData,
         });
 
-        if (response.ok) {
-            console.log('[Vision] Screenshot sent to Voxta');
-        } else {
+        if (!response.ok) {
             console.error(`[Vision] Failed to send screenshot: ${response.status} ${response.statusText}`);
             const text = await response.text().catch(() => '');
             if (text) console.error(`[Vision] Response: ${text}`);

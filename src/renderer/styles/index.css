@@ -649,6 +649,54 @@ body {
   transform: translateX(16px);
 }
 
+/* ---- Vision Mode ---- */
+.vision-select {
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.vision-select:focus {
+  border-color: var(--accent-green);
+}
+
+.vision-select option {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.btn-switch-window {
+  padding: 4px 12px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.btn-switch-window:hover {
+  background: var(--border-active);
+  border-color: var(--accent-blue);
+}
+
+.vision-window-info {
+  font-size: 11px;
+  color: var(--accent-blue);
+  padding: 4px 0;
+  opacity: 0.85;
+}
+
 /* ---- Status Bar ---- */
 .status-bar {
   display: flex;
