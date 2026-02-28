@@ -2,6 +2,7 @@ import * as signalR from '@microsoft/signalr';
 import type { CompanionConfig } from '../config.js';
 import type {
     ClientMessage,
+    ClientStartChatMessage,
     ContextDefinition,
     ScenarioAction,
     ServerMessage,
@@ -139,11 +140,13 @@ export class VoxtaClient {
         console.log('[Voxta] App registered');
     }
 
-    async startChat(characterId: string): Promise<void> {
-        await this.send({
+    async startChat(characterId: string, chatId?: string): Promise<void> {
+        const message: ClientStartChatMessage = {
             $type: 'startChat',
             characterId,
-        });
+            chatId,
+        };
+        await this.send(message);
     }
 
     async sendMessage(text: string): Promise<void> {

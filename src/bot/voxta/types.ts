@@ -76,6 +76,7 @@ export interface ClientRegisterAppMessage {
 export interface ClientStartChatMessage {
     $type: 'startChat';
     characterId?: string;
+    chatId?: string;
     scenarioId?: string;
 }
 

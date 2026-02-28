@@ -60,5 +60,16 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     ipcMain.handle(IPC_CHANNELS.CYCLE_VISION_WINDOW, async () => {
         return cycleVisionWindow();
     });
-}
 
+    ipcMain.handle(IPC_CHANNELS.LOAD_CHATS, async (_event, characterId: string) => {
+        return engine.loadChats(characterId);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.FAVORITE_CHAT, async (_event, chatId: string, favorite: boolean) => {
+        return engine.favoriteChat(chatId, favorite);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.DELETE_CHAT, async (_event, chatId: string) => {
+        return engine.deleteChat(chatId);
+    });
+}

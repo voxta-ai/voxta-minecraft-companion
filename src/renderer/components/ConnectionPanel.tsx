@@ -1,6 +1,7 @@
-import { createSignal, Show, For, createEffect } from 'solid-js';
+import { createSignal, createMemo, Show, For, createEffect } from 'solid-js';
 import { status, connectVoxta, launchBot, disconnect, voxtaInfo } from '../stores/app-store';
-import type { BotConfig, VoxtaConnectConfig } from '../../shared/ipc-types';
+import type { BotConfig, CharacterInfo, ChatListItem, VoxtaConnectConfig } from '../../shared/ipc-types';
+import CustomDropdown from './CustomDropdown';
 
 const STORAGE_KEY = 'voxta-mc-config';
 
@@ -46,6 +47,11 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     const [selectedCharacterId, setSelectedCharacterId] = createSignal<string | null>(null);
     const [launching, setLaunching] = createSignal(false);
 
+    // Chat selection
+    const [previousChats, setPreviousChats] = createSignal<ChatListItem[]>([]);
+    const [loadingChats, setLoadingChats] = createSignal(false);
+    const [selectedChatId, setSelectedChatId] = createSignal<string | null>(null);
+
     // Track whether the user manually edited the name fields
     const [userEditedBotName, setUserEditedBotName] = createSignal(false);
     const [userEditedPlayerName, setUserEditedPlayerName] = createSignal(false);
@@ -55,6 +61,38 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     const isMcConnected = () => status.mc === 'connected';
     const hasSession = () => status.sessionId !== null;
     const hasCharacters = () => voxtaInfo.characters.length > 0;
+
+    // Track last-chat timestamp per character for sorting
+    const [charLastChat, setCharLastChat] = createSignal<Record<string, string>>({});
+
+    // Fetch all chats to build a sort order by most recent chat
+    createEffect(() => {
+        if (isVoxtaConnected() && hasCharacters()) {
+            const map: Record<string, string> = {};
+            const promises = voxtaInfo.characters.map(async (char) => {
+                const chats = await window.api.loadChats(char.id);
+                if (chats.length > 0) {
+                    // Use the sortable timestamp, not the humanized string
+                    map[char.id] = chats[0].lastSessionTimestamp ?? '';
+                }
+            });
+            Promise.all(promises).then(() => setCharLastChat(map)).catch(() => { /* ignore */ });
+        }
+    });
+
+    // Sort characters: favorites/recent chats first
+    const sortedCharacters = createMemo((): CharacterInfo[] => {
+        const map = charLastChat();
+        return [...voxtaInfo.characters].sort((a, b) => {
+            const aTime = map[a.id] ?? '';
+            const bTime = map[b.id] ?? '';
+            // Characters with chats come first, sorted by most recent
+            if (aTime && !bTime) return -1;
+            if (!aTime && bTime) return 1;
+            if (aTime && bTime) return bTime.localeCompare(aTime);
+            return 0;
+        });
+    });
 
     // Auto-select first character when available
     createEffect(() => {
@@ -80,6 +118,42 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             }
         }
     });
+
+    // Load previous chats when character changes
+    const refreshChats = () => {
+        const charId = selectedCharacterId();
+        if (!charId) return;
+        setLoadingChats(true);
+        window.api.loadChats(charId).then((chats) => {
+            setPreviousChats(chats);
+        }).catch((err) => {
+            console.error('[UI] Failed to load chats:', err);
+        }).finally(() => {
+            setLoadingChats(false);
+        });
+    };
+
+    createEffect(() => {
+        const charId = selectedCharacterId();
+        if (charId && isVoxtaConnected()) {
+            setSelectedChatId(null);
+            setPreviousChats([]);
+            refreshChats();
+        }
+    });
+
+    const handleFavorite = async (e: MouseEvent, chatId: string, currentFav: boolean) => {
+        e.stopPropagation();
+        await window.api.favoriteChat(chatId, !currentFav);
+        refreshChats();
+    };
+
+    const handleDelete = async (e: MouseEvent, chatId: string) => {
+        e.stopPropagation();
+        await window.api.deleteChat(chatId);
+        if (selectedChatId() === chatId) setSelectedChatId(null);
+        refreshChats();
+    };
 
     const handleConnectVoxta = async () => {
         const config: VoxtaConnectConfig = {
@@ -108,6 +182,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcVersion: '1.21.11',
             playerMcUsername: playerMcName(),
             characterId: charId,
+            chatId: selectedChatId(),
             perceptionIntervalMs: 3000,
             entityRange: 32,
         };
@@ -132,6 +207,8 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         setSelectedCharacterId(null);
         setUserEditedBotName(false);
         setUserEditedPlayerName(false);
+        setPreviousChats([]);
+        setSelectedChatId(null);
         await disconnect();
     };
 
@@ -177,30 +254,85 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                 </Show>
             </div>
 
-            {/* Phase 2: Character + MC Connection (shown after Voxta connects) */}
+            {/* Phase 2: Character + Chat + MC Connection (shown after Voxta connects) */}
             <Show when={isVoxtaConnected() && hasCharacters() && !hasSession()}>
                 <div class="connection-section">
                     <div class="section-title">Minecraft Setup</div>
                     <div class="connection-fields">
                         <div class="field full-width">
                             <label>Voxta Character</label>
-                            <select
-                                class="character-select"
-                                value={selectedCharacterId() ?? ''}
-                                onChange={(e) => {
-                                    setSelectedCharacterId(e.currentTarget.value);
-                                    setUserEditedBotName(false); // Reset so auto-fill works with new character
+                            <CustomDropdown
+                                options={sortedCharacters().map((char) => ({
+                                    value: char.id,
+                                    label: `${char.name}${char.id === voxtaInfo.defaultAssistantId ? ' ⭐' : ''}`,
+                                }))}
+                                value={selectedCharacterId()}
+                                onChange={(val) => {
+                                    setSelectedCharacterId(val);
+                                    setUserEditedBotName(false);
                                 }}
-                            >
-                                <For each={voxtaInfo.characters}>
-                                    {(char) => (
-                                        <option value={char.id}>
-                                            {char.name} {char.id === voxtaInfo.defaultAssistantId ? '⭐' : ''}
-                                        </option>
-                                    )}
-                                </For>
-                            </select>
+                                placeholder="Select a character..."
+                            />
                         </div>
+
+                        {/* Chat Selection */}
+                        <div class="field full-width">
+                            <label>Chat</label>
+                            <Show when={loadingChats()}>
+                                <span class="field-hint">Loading chats...</span>
+                            </Show>
+                            <Show when={!loadingChats()}>
+                                <div class="chat-list">
+                                    <div
+                                        class={`chat-list-item chat-list-new ${selectedChatId() === null ? 'selected' : ''}`}
+                                        onClick={() => setSelectedChatId(null)}
+                                    >
+                                        <span class="chat-list-icon">✨</span>
+                                        <span class="chat-list-label">New Chat</span>
+                                    </div>
+                                    <For each={previousChats()}>
+                                        {(chat, index) => {
+                                            const sessionNumber = previousChats().length - index();
+                                            const displayName = chat.title ?? `Session #${sessionNumber}`;
+                                            return (
+                                                <div
+                                                    class={`chat-list-item ${selectedChatId() === chat.id ? 'selected' : ''}`}
+                                                    onClick={() => setSelectedChatId(chat.id)}
+                                                    title={`Created: ${chat.created}`}
+                                                >
+                                                    <span class="chat-list-icon">{chat.favorite ? '⭐' : '💬'}</span>
+                                                    <div class="chat-list-info">
+                                                        <span class="chat-list-label">
+                                                            {displayName}
+                                                        </span>
+                                                        <span class="chat-list-meta">
+                                                            {chat.lastSession ?? chat.created}
+                                                        </span>
+                                                    </div>
+                                                    <div class="chat-list-actions">
+                                                        <span
+                                                            class="chat-action-btn"
+                                                            onClick={(e) => handleFavorite(e, chat.id, chat.favorite)}
+                                                            title={chat.favorite ? 'Unfavorite' : 'Favorite'}
+                                                        >
+                                                            {chat.favorite ? '★' : '☆'}
+                                                        </span>
+                                                        <span
+                                                            class="chat-action-btn chat-action-delete"
+                                                            onClick={(e) => handleDelete(e, chat.id)}
+                                                            title="Delete chat"
+                                                        >
+                                                            🗑
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        }}
+                                    </For>
+                                </div>
+                            </Show>
+                        </div>
+
                         <div class="field">
                             <label>Bot Username</label>
                             <input
@@ -253,7 +385,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                             onClick={handleLaunchBot}
                             disabled={launching() || !selectedCharacterId()}
                         >
-                            {launching() ? '⏳ Launching...' : '🚀 Launch Bot'}
+                            {launching() ? '⏳ Launching...' : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
                         </button>
                         <button class="btn btn-disconnect" onClick={handleDisconnect}>
                             ⏹ Disconnect

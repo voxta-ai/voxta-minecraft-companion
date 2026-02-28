@@ -5,8 +5,8 @@ import { registerIpcHandlers } from './ipc-handlers';
 
 function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
-        width: 900,
-        height: 680,
+        width: 1500,
+        height: 1200,
         minWidth: 700,
         minHeight: 500,
         title: 'Voxta Minecraft Companion',

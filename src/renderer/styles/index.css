@@ -50,6 +50,25 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ---- Global Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-active);
+}
+
 /* ---- App Layout ---- */
 .app {
   display: flex;
@@ -649,6 +668,77 @@ body {
   transform: translateX(16px);
 }
 
+/* ---- Custom Dropdown ---- */
+.custom-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.custom-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--transition);
+}
+
+.custom-dropdown-trigger:hover,
+.custom-dropdown-trigger.open {
+  border-color: var(--border-active);
+}
+
+.custom-dropdown-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-dropdown-arrow {
+  font-size: 10px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.custom-dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  margin-top: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.custom-dropdown-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.custom-dropdown-item:hover {
+  background: var(--bg-hover);
+}
+
+.custom-dropdown-item.active {
+  background: var(--bg-hover);
+  color: var(--accent-green);
+  font-weight: 500;
+}
+
 /* ---- Vision Mode ---- */
 .vision-select {
   padding: 4px 8px;
@@ -695,6 +785,112 @@ body {
   color: var(--accent-blue);
   padding: 4px 0;
   opacity: 0.85;
+}
+
+/* ---- Chat List (Connection Panel) ---- */
+.chat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.chat-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.chat-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+
+.chat-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+  text-align: left;
+  width: 100%;
+}
+
+.chat-list-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-active);
+}
+
+.chat-list-item.selected {
+  background: var(--bg-hover);
+  border-color: var(--accent-green);
+}
+
+.chat-list-new {
+  border-style: dashed;
+}
+
+.chat-list-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.chat-list-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.chat-list-label {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-list-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.chat-list-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.chat-action-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all var(--transition);
+  padding: 0;
+}
+
+.chat-action-btn:hover {
+  background: var(--bg-surface);
+  color: var(--accent-amber);
+}
+
+.chat-action-delete:hover {
+  color: var(--accent-red);
 }
 
 /* ---- Status Bar ---- */

@@ -8,7 +8,7 @@ import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage, ServerVisionCaptureRequestMessage } from '../bot/voxta/types';
 import { handleVisionCaptureRequest } from './vision-capture';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ToastMessage, ToastType, McSettings } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ChatListItem, ToastMessage, ToastType, McSettings } from '../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
@@ -186,7 +186,7 @@ export class BotEngine extends EventEmitter {
     /** Push a game event into the context queue — AI sees it via updateContext, not as a user message */
     private pushEvent(text: string): void {
         this.recentEvents.push(text);
-        // Keep only latest 10 events
+        // Keep only the latest 10 events
         if (this.recentEvents.length > 10) {
             this.recentEvents.shift();
         }
@@ -281,6 +281,64 @@ export class BotEngine extends EventEmitter {
         }
     }
 
+    // ---- Load previous chats for a character ----
+
+    async loadChats(characterId: string): Promise<ChatListItem[]> {
+        if (!this.voxtaUrl) throw new Error('Must connect to Voxta first');
+        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
+        const headers: Record<string, string> = {};
+        if (this.voxtaApiKey) {
+            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
+        }
+        const res = await fetch(`${baseUrl}/api/chats?characterId=${characterId}`, { headers });
+        if (!res.ok) {
+            console.error(`[Voxta] Failed to load chats: ${res.status}`);
+            return [];
+        }
+        const data = await res.json() as { chats: Array<{ id: string; title?: string; created: string; lastSession?: string; lastSessionTimestamp?: string; createdTimestamp?: string; favorite?: boolean }> };
+        return data.chats.map((c) => ({
+            id: c.id,
+            title: c.title ?? null,
+            created: c.created,
+            lastSession: c.lastSession ?? null,
+            lastSessionTimestamp: c.lastSessionTimestamp ?? c.createdTimestamp ?? null,
+            favorite: c.favorite ?? false,
+        }));
+    }
+
+    async favoriteChat(chatId: string, favorite: boolean): Promise<void> {
+        if (!this.voxtaUrl) throw new Error('Must connect to Voxta first');
+        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (this.voxtaApiKey) {
+            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
+        }
+        const res = await fetch(`${baseUrl}/api/chats/${chatId}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ favorite }),
+        });
+        if (!res.ok) {
+            console.error(`[Voxta] Failed to toggle favorite: ${res.status}`);
+        }
+    }
+
+    async deleteChat(chatId: string): Promise<void> {
+        if (!this.voxtaUrl) throw new Error('Must connect to Voxta first');
+        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
+        const headers: Record<string, string> = {};
+        if (this.voxtaApiKey) {
+            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
+        }
+        const res = await fetch(`${baseUrl}/api/chats/${chatId}`, {
+            method: 'DELETE',
+            headers,
+        });
+        if (!res.ok) {
+            console.error(`[Voxta] Failed to delete chat: ${res.status}`);
+        }
+    }
+
     // ---- Phase 2: Launch MC bot + start chat ----
 
     async launchBot(uiConfig: BotConfig): Promise<void> {
@@ -362,7 +420,7 @@ export class BotEngine extends EventEmitter {
             this.names.register(this.assistantName, config.mc.username);
         }
 
-        await this.voxta.startChat(uiConfig.characterId);
+        await this.voxta.startChat(uiConfig.characterId, uiConfig.chatId ?? undefined);
 
         const chatStart = Date.now();
         while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
@@ -501,6 +559,7 @@ export class BotEngine extends EventEmitter {
             voxta: 'disconnected',
             position: null,
             health: null,
+            food: null,
             currentAction: null,
             assistantName: null,
             sessionId: null,
@@ -511,7 +570,8 @@ export class BotEngine extends EventEmitter {
 
     async sendMessage(text: string): Promise<void> {
         if (!this.voxta?.sessionId) return;
-        this.addChat('player', 'You', text);
+        const name = this.voxtaUserName ?? 'You';
+        this.addChat('player', `${name} (text)`, text);
         await this.voxta.sendMessage(text);
     }
 
@@ -625,7 +685,8 @@ export class BotEngine extends EventEmitter {
             case 'speechRecognitionEnd': {
                 const text = (message as { text?: string }).text;
                 if (text) {
-                    this.addChat('player', 'You (voice)', text);
+                    const playerName = this.voxtaUserName ?? 'You';
+                    this.addChat('player', `${playerName} (voice)`, text);
                     void this.voxta?.sendMessage(text);
                 }
                 break;

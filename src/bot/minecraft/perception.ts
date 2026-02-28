@@ -214,7 +214,7 @@ export function buildContextStrings(
     );
 
     lines.push(
-        `Health: ${state.health}/20 | Food: ${state.food}/20 | ` +
+        `${who}'s Health: ${state.health}/20 | ${who}'s Food: ${state.food}/20 | ` +
         `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${timeStr}) | ` +
         `Weather: ${state.isRaining ? 'Raining' : 'Clear'} | ` +
         `Location: ${state.shelter}`

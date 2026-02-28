@@ -25,6 +25,7 @@ export interface BotConfig {
     mcVersion: string;
     playerMcUsername: string;
     characterId: string;
+    chatId: string | null;
     perceptionIntervalMs: number;
     entityRange: number;
 }
@@ -107,6 +108,15 @@ export interface CharacterInfo {
     name: string;
 }
 
+export interface ChatListItem {
+    id: string;
+    title: string | null;
+    created: string;
+    lastSession: string | null;
+    lastSessionTimestamp: string | null;
+    favorite: boolean;
+}
+
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 export interface ToastMessage {
@@ -129,6 +139,9 @@ export const IPC_CHANNELS = {
     GET_ACTIONS: 'bot:get-actions',
     UPDATE_SETTINGS: 'bot:update-settings',
     CYCLE_VISION_WINDOW: 'bot:cycle-vision-window',
+    LOAD_CHATS: 'bot:load-chats',
+    FAVORITE_CHAT: 'bot:favorite-chat',
+    DELETE_CHAT: 'bot:delete-chat',
 
     // Main → Renderer
     STATUS_CHANGED: 'bot:status-changed',

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ToastMessage, McSettings } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ChatListItem, ToastMessage, McSettings } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
 export type ChatCallback = (message: ChatMessage) => void;
@@ -34,6 +34,15 @@ const api = {
 
     cycleVisionWindow: (): Promise<string | null> =>
         ipcRenderer.invoke(IPC_CHANNELS.CYCLE_VISION_WINDOW),
+
+    loadChats: (characterId: string): Promise<ChatListItem[]> =>
+        ipcRenderer.invoke(IPC_CHANNELS.LOAD_CHATS, characterId),
+
+    favoriteChat: (chatId: string, favorite: boolean): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.FAVORITE_CHAT, chatId, favorite),
+
+    deleteChat: (chatId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.DELETE_CHAT, chatId),
 
     onStatusChanged: (callback: StatusCallback): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, status: BotStatus): void => callback(status);
