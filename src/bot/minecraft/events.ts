@@ -182,6 +182,23 @@ export class McEventBridge {
         }) as (...args: never[]) => void);
 
         // ---- Inventory changes (item pickup) ----
+        // Batch pickup notes: accumulate items over a short window, then send
+        // a single aggregated note to Voxta (e.g. "Zom picked up 5 Dirt, 3 Leaf Litter").
+        const pendingPickups = new Map<string, number>(); // displayName → total gained
+        let pickupFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+        const flushPickups = (): void => {
+            pickupFlushTimer = null;
+            if (pendingPickups.size === 0) return;
+            const botName = this.callbacks.getAssistantName();
+            const parts: string[] = [];
+            for (const [name, count] of pendingPickups) {
+                parts.push(`${count} ${name}`);
+            }
+            pendingPickups.clear();
+            this.callbacks.onNote(`${botName} picked up ${parts.join(', ')}`);
+        };
+
         const updateSlotHandler = ((_slot: number, oldItem: { name: string; count: number } | null, newItem: { name: string; displayName: string; count: number } | null) => {
             const settings = this.callbacks.getSettings();
             if (!settings.enableTelemetryItemPickup) return;
@@ -193,7 +210,12 @@ export class McEventBridge {
             const name = newItem.displayName ?? newItem.name;
             const botName = this.callbacks.getAssistantName();
             this.callbacks.onChat('system', 'Telemetry', `${botName} picked up ${gained} ${name}`);
-            this.callbacks.onNote(`${botName} picked up ${gained} ${name}`);
+
+            // Accumulate for batched note
+            pendingPickups.set(name, (pendingPickups.get(name) ?? 0) + gained);
+            if (!pickupFlushTimer) {
+                pickupFlushTimer = setTimeout(flushPickups, 3000);
+            }
         });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.bot.inventory.on('updateSlot', updateSlotHandler as any);

@@ -58,7 +58,12 @@ export default function ChatView(props: ChatViewProps) {
                         {(msg) => (
                             <div class={`chat-msg ${msg.type}`}>
                                 <div class="sender">{msg.sender}</div>
-                                <div>{msg.text}</div>
+                                <div>
+                                    {msg.text}
+                                    {(msg.repeatCount ?? 0) > 1 && (
+                                        <span class="repeat-count"> (×{msg.repeatCount})</span>
+                                    )}
+                                </div>
                             </div>
                         )}
                     </For>

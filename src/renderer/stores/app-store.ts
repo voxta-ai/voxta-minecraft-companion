@@ -67,7 +67,19 @@ export { chatMessages };
 export function useChatListener(): void {
     onMount(() => {
         const cleanup = window.api.onChatMessage((msg) => {
-            setChatMessages('messages', (prev) => [...prev, msg]);
+            setChatMessages('messages', (prev) => {
+                const last = prev[prev.length - 1];
+                // Collapse consecutive identical messages into a repeat count
+                if (last && last.sender === msg.sender && last.text === msg.text) {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = {
+                        ...last,
+                        repeatCount: (last.repeatCount ?? 1) + 1,
+                    };
+                    return updated;
+                }
+                return [...prev, msg];
+            });
         });
         onCleanup(cleanup);
     });

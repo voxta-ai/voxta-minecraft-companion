@@ -49,6 +49,7 @@ export interface ChatMessage {
     type: 'player' | 'ai' | 'system' | 'action' | 'event';
     sender: string;
     text: string;
+    repeatCount?: number;
 }
 
 export interface ActionToggle {

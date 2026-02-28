@@ -377,8 +377,13 @@ async function mineBlock(
                 return pos.y - botY <= 2 && !failedPositions.has(key);
             })
             .sort((a, b) => {
-                const distA = bot.entity.position.distanceTo(a);
-                const distB = bot.entity.position.distanceTo(b);
+                // Strongly prefer same-level blocks to avoid digging straight down.
+                // Each level of Y difference adds a 16-block penalty to the sort score,
+                // so the bot mines horizontally first and only goes deeper when needed.
+                const yPenaltyA = Math.abs(a.y - botY) * 16;
+                const yPenaltyB = Math.abs(b.y - botY) * 16;
+                const distA = bot.entity.position.distanceTo(a) + yPenaltyA;
+                const distB = bot.entity.position.distanceTo(b) + yPenaltyB;
                 return distA - distB;
             });
 
