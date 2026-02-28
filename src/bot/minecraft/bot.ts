@@ -71,23 +71,57 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
         bot.pathfinder.setMovements(defaultMovements);
 
-        // Auto-open doors: when bot is within 1 block of a closed door, open it
+        // Auto-open doors: when bot is near a closed door while pathfinding,
+        // pause, look at the door, open it, and walk straight through.
+        // Track recently opened doors to avoid re-toggling (open→close→open spam).
         let lastDoorOpen = 0;
+        let doorWalkingThrough = false;
+        const recentlyOpened = new Map<string, number>(); // "x,y,z" → timestamp
+
         bot.on('physicsTick', () => {
             const now = performance.now();
-            if (now - lastDoorOpen < 200) return; // cooldown
+            if (doorWalkingThrough) return; // already handling a door
+            if (now - lastDoorOpen < 1000) return; // global cooldown
+            if (!bot.pathfinder.isMoving()) return; // only when navigating
 
             const pos = bot.entity.position;
             for (let dx = -1; dx <= 1; dx++) {
                 for (let dz = -1; dz <= 1; dz++) {
                     for (let dy = 0; dy <= 1; dy++) {
                         const block = bot.blockAt(pos.offset(dx, dy, dz));
-                        if (block && doorIds.has(block.type) && block.boundingBox === 'block') {
-                            // Door is closed — open it
-                            lastDoorOpen = now;
-                            bot.activateBlock(block).catch(() => { });
-                            return;
+                        if (!block || !doorIds.has(block.type)) continue;
+                        if (block.boundingBox !== 'block') continue; // already open
+
+                        // Skip if we recently opened this door
+                        const key = `${block.position.x},${block.position.y},${block.position.z}`;
+                        const lastOpen = recentlyOpened.get(key);
+                        if (lastOpen && now - lastOpen < 8000) continue;
+
+                        // Found a closed door — align, open, walk through
+                        doorWalkingThrough = true;
+                        lastDoorOpen = now;
+                        recentlyOpened.set(key, now);
+
+                        // Look at the center of the door, then open and walk through
+                        const doorCenter = block.position.offset(0.5, 1, 0.5);
+                        bot.lookAt(doorCenter, true).then(() => {
+                            return bot.activateBlock(block);
+                        }).then(() => {
+                            // Walk forward through the door
+                            bot.setControlState('forward', true);
+                            setTimeout(() => {
+                                bot.setControlState('forward', false);
+                                doorWalkingThrough = false;
+                            }, 600);
+                        }).catch(() => {
+                            doorWalkingThrough = false;
+                        });
+
+                        // Clean up old entries
+                        for (const [k, t] of recentlyOpened) {
+                            if (now - t > 15000) recentlyOpened.delete(k);
                         }
+                        return;
                     }
                 }
             }
