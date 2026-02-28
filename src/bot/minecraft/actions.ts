@@ -39,6 +39,20 @@ function getBestTool(bot: Bot, category: ToolCategory): { item: unknown; name: s
     return null;
 }
 
+/** Find the best weapon in inventory: swords first, then axes, then other tools as fallback */
+function getBestWeapon(bot: Bot): { item: unknown; name: string } | null {
+    const items = bot.inventory.items();
+    // Priority: swords (best damage) → axes → pickaxes → shovels
+    for (const weaponType of ['sword', 'axe', 'pickaxe', 'shovel']) {
+        for (const tier of TOOL_TIERS) {
+            const weaponName = `${tier}_${weaponType}`;
+            const found = items.find((item) => item.name === weaponName);
+            if (found) return { item: found, name: weaponName };
+        }
+    }
+    return null;
+}
+
 // ---- Argument helpers ----
 
 /** Strip type annotations, leading '=' and surrounding quotes from argument values.
@@ -484,6 +498,17 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
     if (!target) return `Cannot find ${names.resolveToVoxta(names.resolveToMc(entityName))} nearby`;
 
     const displayName = names.resolveToVoxta(names.resolveToMc(entityName));
+
+    // Auto-equip best weapon before fighting
+    const weapon = getBestWeapon(bot);
+    if (weapon) {
+        try {
+            await bot.equip(weapon.item as number, 'hand');
+            console.log(`[MC Action] Equipped ${weapon.name} for combat`);
+        } catch {
+            // Best effort — continue fighting regardless
+        }
+    }
 
     // Follow and attack until dead
     const goal = new goals.GoalFollow(target, 2);
