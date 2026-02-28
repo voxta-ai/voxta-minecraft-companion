@@ -115,7 +115,7 @@ export class VoxtaClient {
             clientVersion: this.config.voxta.clientVersion,
             scope: ['role:app'],
             capabilities: {
-                audioOutput: 'None',
+                audioOutput: 'Url',
                 audioInput: 'None',
                 visionCapture: 'PostImage',
                 visionSources: ['Screen'],
@@ -203,6 +203,45 @@ export class VoxtaClient {
             contextKey: 'minecraft',
             contexts,
             actions,
+        });
+    }
+
+    /** Tell the server we started playing a speech chunk */
+    async speechPlaybackStart(
+        messageId: string,
+        startIndex: number,
+        endIndex: number,
+        duration: number,
+        isNarration?: boolean,
+    ): Promise<void> {
+        if (!this._sessionId) return;
+        await this.send({
+            $type: 'speechPlaybackStart',
+            sessionId: this._sessionId,
+            messageId,
+            startIndex,
+            endIndex,
+            duration,
+            isNarration,
+        });
+    }
+
+    /** Tell the server we finished playing a speech chunk */
+    async speechPlaybackComplete(messageId: string): Promise<void> {
+        if (!this._sessionId) return;
+        await this.send({
+            $type: 'speechPlaybackComplete',
+            sessionId: this._sessionId,
+            messageId,
+        });
+    }
+
+    /** Tell the server to interrupt the currently playing reply */
+    async interrupt(): Promise<void> {
+        if (!this._sessionId) return;
+        await this.send({
+            $type: 'interrupt',
+            sessionId: this._sessionId,
         });
     }
 

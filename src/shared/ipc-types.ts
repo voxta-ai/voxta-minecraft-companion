@@ -127,6 +127,24 @@ export interface ToastMessage {
     durationMs?: number;
 }
 
+// ---- Audio Playback IPC ----
+
+export interface AudioChunk {
+    url: string;
+    messageId: string;
+    startIndex: number;
+    endIndex: number;
+    isNarration?: boolean;
+}
+
+export interface AudioPlaybackEvent {
+    messageId: string;
+    startIndex: number;
+    endIndex: number;
+    duration: number;
+    isNarration?: boolean;
+}
+
 // ---- IPC Channels ----
 
 export const IPC_CHANNELS = {
@@ -149,5 +167,11 @@ export const IPC_CHANNELS = {
     CHAT_MESSAGE: 'bot:chat-message',
     ACTION_TRIGGERED: 'bot:action-triggered',
     TOAST: 'bot:toast',
+    PLAY_AUDIO: 'bot:play-audio',
+    STOP_AUDIO: 'bot:stop-audio',
+
+    // Renderer → Main (audio ack)
+    AUDIO_STARTED: 'bot:audio-started',
+    AUDIO_COMPLETE: 'bot:audio-complete',
 } as const;
 

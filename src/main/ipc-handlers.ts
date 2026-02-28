@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
 import { cycleVisionWindow } from './vision-capture';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, BotConfig, BotStatus, ChatMessage, ToastMessage, McSettings } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, BotConfig, BotStatus, ChatMessage, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent } from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): void {
     const engine = new BotEngine();
@@ -22,6 +22,23 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
     engine.on('toast', (toast: ToastMessage) => {
         win.webContents.send(IPC_CHANNELS.TOAST, toast);
+    });
+
+    engine.on('play-audio', (chunk: AudioChunk) => {
+        win.webContents.send(IPC_CHANNELS.PLAY_AUDIO, chunk);
+    });
+
+    engine.on('stop-audio', () => {
+        win.webContents.send(IPC_CHANNELS.STOP_AUDIO);
+    });
+
+    // Audio ack from renderer
+    ipcMain.on(IPC_CHANNELS.AUDIO_STARTED, (_event, payload: AudioPlaybackEvent) => {
+        engine.handleAudioStarted(payload);
+    });
+
+    ipcMain.on(IPC_CHANNELS.AUDIO_COMPLETE, (_event, messageId: string) => {
+        engine.handleAudioComplete(messageId);
     });
 
     // Handle renderer requests

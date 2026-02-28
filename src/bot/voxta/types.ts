@@ -100,12 +100,36 @@ export interface ClientUpdateContextMessage {
     enableRoles?: Record<string, boolean>;
 }
 
+export interface ClientInterruptMessage {
+    $type: 'interrupt';
+    sessionId: string;
+}
+
+export interface ClientSpeechPlaybackStartMessage {
+    $type: 'speechPlaybackStart';
+    sessionId: string;
+    messageId: string;
+    startIndex: number;
+    endIndex: number;
+    duration: number;
+    isNarration?: boolean;
+}
+
+export interface ClientSpeechPlaybackCompleteMessage {
+    $type: 'speechPlaybackComplete';
+    sessionId: string;
+    messageId: string;
+}
+
 export type ClientMessage =
     | ClientAuthenticateMessage
     | ClientRegisterAppMessage
     | ClientStartChatMessage
     | ClientSendMessage
-    | ClientUpdateContextMessage;
+    | ClientUpdateContextMessage
+    | ClientInterruptMessage
+    | ClientSpeechPlaybackStartMessage
+    | ClientSpeechPlaybackCompleteMessage;
 
 // ---- Server → Client messages ----
 

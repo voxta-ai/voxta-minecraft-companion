@@ -8,7 +8,7 @@ import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage, ServerVisionCaptureRequestMessage } from '../bot/voxta/types';
 import { handleVisionCaptureRequest } from './vision-capture';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ChatListItem, ToastMessage, ToastType, McSettings } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ChatListItem, ToastMessage, ToastType, McSettings, AudioChunk, AudioPlaybackEvent } from '../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
@@ -18,7 +18,7 @@ import type { ScenarioAction } from '../bot/voxta/types';
 const CLIENT_NAME = 'Voxta.Minecraft';
 const CLIENT_VERSION = '0.2.0';
 
-type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered' | 'toast';
+type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered' | 'toast' | 'play-audio' | 'stop-audio';
 
 export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
@@ -44,6 +44,10 @@ export class BotEngine extends EventEmitter {
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
     private recentEvents: string[] = []; // Events injected into context on next perception tick
     private toastCounter = 0;
+    private pendingSpeechText: string | null = null; // Queued speech to send when server is ready
+    private serverReady = true; // Track whether the server is ready for new messages
+    private audioDownloadChain: Promise<void> = Promise.resolve(); // Ensures audio chunks emit in order
+    private audioEpoch = 0; // Bumped on interrupt — stale downloads are discarded
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -570,12 +574,40 @@ export class BotEngine extends EventEmitter {
 
     async sendMessage(text: string): Promise<void> {
         if (!this.voxta?.sessionId) return;
+        console.log(`[Msg] sendMessage - "${text}" (isReplying: ${this.isReplying})`);
         const name = this.voxtaUserName ?? 'You';
         this.addChat('player', `${name} (text)`, text);
         await this.voxta.sendMessage(text);
     }
 
+    /** Send queued speech text only when the server is idle */
+    private trySendPendingSpeech(): void {
+        if (!this.pendingSpeechText || !this.serverReady || this.isReplying) return;
+        const text = this.pendingSpeechText;
+        this.pendingSpeechText = null;
+        this.serverReady = false; // Prevent double-sends until next chatFlow idle
+        console.log(`[Msg] sendMessage (voice, queued) - "${text}"`);
+        void this.voxta?.sendMessage(text);
+    }
+
+    /** Renderer reports audio started playing — relay to server */
+    handleAudioStarted(event: AudioPlaybackEvent): void {
+        void this.voxta?.speechPlaybackStart(
+            event.messageId, event.startIndex, event.endIndex, event.duration, event.isNarration,
+        );
+    }
+
+    /** Renderer reports audio finished playing — relay to server */
+    handleAudioComplete(messageId: string): void {
+        void this.voxta?.speechPlaybackComplete(messageId);
+    }
+
     private handleVoxtaMessage(message: ServerMessage): void {
+        // Trace ALL incoming messages for debugging
+        const msgType = message.$type;
+        if (msgType !== 'replyChunk' && msgType !== 'speechRecognitionPartial') {
+            console.log(`[Msg] << ${msgType}`);
+        }
         switch (message.$type) {
             case 'welcome': {
                 const welcome = message as ServerWelcomeMessage;
@@ -589,12 +621,68 @@ export class BotEngine extends EventEmitter {
             case 'replyChunk': {
                 const chunk = message as ServerReplyChunkMessage;
                 this.currentReply += chunk.text;
+                // DEBUG: trace audio URL presence
+                console.log(`[Msg] replyChunk - text: "${chunk.text.substring(0, 40)}...", audioUrl: ${chunk.audioUrl ? chunk.audioUrl.substring(0, 60) : '(none)'}`);
+                // Forward audio URL to renderer for playback (same as Voxta Talk)
+                if (chunk.audioUrl) {
+                    // audioUrl is relative (e.g. /api/tts/gens/...) — download in main process
+                    // to avoid cross-origin issues (renderer is on a different port)
+                    const baseUrl = (this.voxtaUrl ?? 'http://localhost:5384').replace(/\/hub\/?$/, '');
+                    const fullUrl = chunk.audioUrl.startsWith('http') ? chunk.audioUrl : `${baseUrl}${chunk.audioUrl}`;
+                    const headers: Record<string, string> = {};
+                    if (this.voxtaApiKey) headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
+
+                    // Start download immediately (parallel) but emit in order via chain
+                    const epoch = this.audioEpoch;
+                    const downloadPromise = fetch(fullUrl, { headers })
+                        .then((res) => {
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            return res.arrayBuffer();
+                        });
+
+                    this.audioDownloadChain = this.audioDownloadChain
+                        .then(() => downloadPromise)
+                        .then((buf) => {
+                            // If audio was stopped since this chunk was queued, discard it
+                            if (this.audioEpoch !== epoch) return;
+                            const b64 = Buffer.from(buf).toString('base64');
+                            const dataUrl = `data:audio/wav;base64,${b64}`;
+                            const audioChunk: AudioChunk = {
+                                url: dataUrl,
+                                messageId: chunk.messageId,
+                                startIndex: chunk.startIndex,
+                                endIndex: chunk.endIndex,
+                                isNarration: chunk.isNarration,
+                            };
+                            this.emit('play-audio', audioChunk);
+                        })
+                        .catch((err) => {
+                            console.error(`[Audio] Failed to download ${fullUrl}:`, err);
+                            // Ack so server flow doesn't hang
+                            void this.voxta?.speechPlaybackStart(
+                                chunk.messageId, chunk.startIndex, chunk.endIndex, 0, chunk.isNarration,
+                            );
+                        });
+                } else {
+                    // No audio URL — immediately ack playback (matches Voxta Talk)
+                    void this.voxta?.speechPlaybackStart(
+                        chunk.messageId, chunk.startIndex, chunk.endIndex, 0, chunk.isNarration,
+                    );
+                }
+                break;
+            }
+            case 'replyStart': {
+                // Reset the download chain for the new reply
+                this.audioDownloadChain = Promise.resolve();
                 break;
             }
             case 'replyGenerating':
+                console.log('[Msg] replyGenerating - AI is generating a reply');
                 this.isReplying = true;
+                this.serverReady = false;
                 break;
             case 'replyEnd': {
+                console.log(`[Msg] replyEnd - reply complete, text length: ${this.currentReply.trim().length}`);
                 if (this.currentReply.trim()) {
                     const chatText = this.currentReply.trim();
                     this.addChat('ai', this.assistantName ?? 'AI', chatText);
@@ -612,9 +700,23 @@ export class BotEngine extends EventEmitter {
                 this.flushPendingNotes();
                 break;
             }
+            case 'replyCancelled': {
+                // Reply was interrupted (user spoke or typed while AI was talking).
+                // Reset state so the chat doesn't get stuck.
+                console.log(`[Msg] replyCancelled - reply aborted, had ${this.currentReply.length} chars buffered`);
+                if (this.currentReply.trim()) {
+                    // Show whatever partial text was received
+                    this.addChat('ai', this.assistantName ?? 'AI', this.currentReply.trim());
+                }
+                this.currentReply = '';
+                this.isReplying = false;
+                this.flushPendingNotes();
+                break;
+            }
             case 'action': {
                 const action = message as ServerActionMessage;
                 const actionName = action.value?.trim() ?? '';
+                console.log(`[Msg] action - ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
 
                 // Ignore empty actions (AI sometimes sends action () with no name)
                 if (!actionName) {
@@ -652,8 +754,7 @@ export class BotEngine extends EventEmitter {
                             && actionName !== 'mc_follow_player'
                             && actionName !== 'mc_stop'
                             && actionName !== 'mc_go_home'
-                            && actionName !== 'mc_go_to'
-                            && actionName !== 'mc_none';
+                            && actionName !== 'mc_go_to';
                         console.log(`[Bot] Action done: ${actionName}, followingPlayer: ${this.followingPlayer}, shouldResume: ${!!shouldResume}`);
                         if (actionName === 'mc_follow_player' && this.mcBot) {
                             console.log(`[Bot] Pathfinder goal after follow: ${!!this.mcBot.bot.pathfinder.goal}`);
@@ -682,12 +783,44 @@ export class BotEngine extends EventEmitter {
                 }
                 break;
             }
+            case 'interruptSpeech': {
+                // Server says stop playback — kill renderer audio and cancel pending downloads
+                console.log('[Msg] interruptSpeech - stopping audio playback');
+                this.audioEpoch++;
+                this.emit('stop-audio');
+                break;
+            }
+            case 'chatFlow': {
+                const state = (message as { state?: string }).state;
+                console.log(`[Msg] chatFlow - state: ${state}`);
+                if (state === 'WaitingForUserInput') {
+                    this.serverReady = true;
+                    this.trySendPendingSpeech();
+                }
+                break;
+            }
+            case 'speechRecognitionStart': {
+                // User started speaking — stop local audio playback immediately.
+                // NOTE: Do NOT send interrupt() to the server! The server already detects
+                // speech via its own STT and interrupts the reply automatically.
+                // Sending a duplicate interrupt jams the server's foreground command queue.
+                if (this.isReplying || !this.serverReady) {
+                    console.log(`[Msg] speechRecognitionStart - stopping local audio (isReplying: ${this.isReplying}, serverReady: ${this.serverReady})`);
+                    this.audioEpoch++;
+                    this.emit('stop-audio');
+                }
+                break;
+            }
             case 'speechRecognitionEnd': {
                 const text = (message as { text?: string }).text;
+                console.log(`[Msg] speechRecognitionEnd - "${text ?? '(empty)'}"`);
                 if (text) {
                     const playerName = this.voxtaUserName ?? 'You';
                     this.addChat('player', `${playerName} (voice)`, text);
-                    void this.voxta?.sendMessage(text);
+                    // Queue the speech text — it will be sent when the server is ready
+                    // (after chatFlow reports 'idle'). Latest text always overwrites.
+                    this.pendingSpeechText = text;
+                    this.trySendPendingSpeech();
                 }
                 break;
             }
@@ -702,6 +835,8 @@ export class BotEngine extends EventEmitter {
                 void handleVisionCaptureRequest(visionReq, baseUrl, this.voxtaApiKey, this.settings.visionMode);
                 break;
             }
+            default:
+                break;
         }
     }
 }

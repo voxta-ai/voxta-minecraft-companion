@@ -7,6 +7,7 @@ import ActionToggles from './components/ActionToggles';
 import StatusBar from './components/StatusBar';
 import Modal from './components/Modal';
 import ToastContainer from './components/ToastContainer';
+import AudioPlayer from './components/AudioPlayer';
 
 type Popup = 'connection' | 'actions' | 'settings' | null;
 
@@ -22,6 +23,7 @@ export default function App() {
 
     return (
         <div class="app">
+            <AudioPlayer />
             <header class="app-header">
                 <div class="header-left">
                     <span class="logo">⛏️</span>

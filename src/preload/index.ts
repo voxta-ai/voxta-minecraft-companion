@@ -1,11 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ChatListItem, ToastMessage, McSettings } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ChatListItem, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
 export type ChatCallback = (message: ChatMessage) => void;
 export type ActionCallback = (actionName: string) => void;
 export type ToastCallback = (toast: ToastMessage) => void;
+export type AudioChunkCallback = (chunk: AudioChunk) => void;
+export type AudioStopCallback = () => void;
 
 const api = {
     connectVoxta: (config: VoxtaConnectConfig): Promise<VoxtaInfo> =>
@@ -44,6 +46,13 @@ const api = {
     deleteChat: (chatId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.DELETE_CHAT, chatId),
 
+    // Audio: renderer → main (ack that playback started/completed)
+    audioStarted: (event: AudioPlaybackEvent): void =>
+        ipcRenderer.send(IPC_CHANNELS.AUDIO_STARTED, event),
+
+    audioComplete: (messageId: string): void =>
+        ipcRenderer.send(IPC_CHANNELS.AUDIO_COMPLETE, messageId),
+
     onStatusChanged: (callback: StatusCallback): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, status: BotStatus): void => callback(status);
         ipcRenderer.on(IPC_CHANNELS.STATUS_CHANGED, handler);
@@ -66,6 +75,19 @@ const api = {
         const handler = (_event: Electron.IpcRendererEvent, toast: ToastMessage): void => callback(toast);
         ipcRenderer.on(IPC_CHANNELS.TOAST, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.TOAST, handler);
+    },
+
+    // Audio: main → renderer (play/stop audio chunks)
+    onPlayAudio: (callback: AudioChunkCallback): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, chunk: AudioChunk): void => callback(chunk);
+        ipcRenderer.on(IPC_CHANNELS.PLAY_AUDIO, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.PLAY_AUDIO, handler);
+    },
+
+    onStopAudio: (callback: AudioStopCallback): (() => void) => {
+        const handler = (): void => callback();
+        ipcRenderer.on(IPC_CHANNELS.STOP_AUDIO, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.STOP_AUDIO, handler);
     },
 };
 
