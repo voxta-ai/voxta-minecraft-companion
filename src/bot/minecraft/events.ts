@@ -190,6 +190,38 @@ export class McEventBridge {
             }
         }) as (...args: never[]) => void);
 
+        // ---- Player protection: auto-defend nearby players ----
+        this.on('entityHurt', ((entity: Entity) => {
+            // Only react to players (not the bot itself — handled above)
+            if (entity.id === this.bot.entity.id) return;
+            if (entity.type !== 'player') return;
+
+            const settings = this.callbacks.getSettings();
+            if (!settings.enableAutoDefense || this.isAutoDefending) return;
+
+            // Only protect if the bot is within 16 blocks of the player
+            const distToPlayer = entity.position.distanceTo(this.bot.entity.position);
+            if (distToPlayer > 16) return;
+
+            // Find the hostile mob near the player that is likely attacking them
+            const attacker = Object.values(this.bot.entities).find(
+                (e) => e !== this.bot.entity
+                    && e.id !== entity.id
+                    && (e.type === 'mob' || e.type === 'hostile')
+                    && e.position.distanceTo(entity.position) < 8,
+            );
+            if (!attacker) return;
+
+            const mobName = attacker.name ?? 'unknown';
+            const playerName = entity.username ?? entity.displayName ?? 'player';
+            this.isAutoDefending = true;
+            const botName = this.callbacks.getAssistantName();
+            this.callbacks.onChat('action', 'Action', `${botName} protecting ${playerName} from ${mobName}!`);
+            this.callbacks.onNote(`${botName} is rushing to protect ${playerName} from a ${mobName}!`);
+            void this.onAutoDefenseAction(this.bot, mobName)
+                .finally(() => { this.isAutoDefending = false; });
+        }) as (...args: never[]) => void);
+
         // ---- Wake up ----
         this.on('wake', (() => {
             const botName = this.callbacks.getAssistantName();

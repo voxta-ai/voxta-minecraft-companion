@@ -388,10 +388,10 @@ async function mineBlock(
     }
 
     const count = countStr ? parseInt(countStr, 10) : 5;
-    const maxCount = Math.min(count, 16);
+    const maxCount = Math.min(count, 32);
     let dug = 0;
     let attempts = 0;
-    const MAX_ATTEMPTS = maxCount + 5;
+    const MAX_ATTEMPTS = maxCount + 10;
     const failedPositions = new Set<string>();
 
     // Build item name set for inventory matching — block names usually match
@@ -435,28 +435,43 @@ async function mineBlock(
 
     const signal = actionAbort.signal;
 
-    while (dug < maxCount && attempts < MAX_ATTEMPTS) {
+    while (attempts < MAX_ATTEMPTS) {
+        // Check if we've collected enough items
+        const collected = countInventory() - startCount;
+        if (collected >= maxCount) break;
         if (signal.aborted) break;
         attempts++;
 
-        // Find blocks within reach (max 2 blocks above bot — no pillaring needed)
+        // Find blocks nearby
         const candidates = bot.findBlocks({
             matching: blockIds,
-            maxDistance: 32,
-            count: 20,
+            maxDistance: 64,
+            count: 32,
         });
 
-        // Filter: reachable height + not already failed
+        // Trees (logs): 6 above, 3 below (handles terrain where base is lower).
+        // Other blocks: max 2 above, max 1 below (avoid digging straight down).
         const botY = bot.entity.position.y;
+        const isTreeBlock = resolvedName.includes('log');
+        const maxAbove = isTreeBlock ? 6 : 2;
+        const maxBelow = isTreeBlock ? 3 : 1;
         const reachable = candidates
             .filter((pos) => {
                 const key = `${pos.x},${pos.y},${pos.z}`;
-                return pos.y - botY <= 2 && !failedPositions.has(key);
+                const dy = pos.y - botY;
+                return dy <= maxAbove && dy >= -maxBelow && !failedPositions.has(key);
             })
             .sort((a, b) => {
-                // Strongly prefer same-level blocks to avoid digging straight down.
-                // Each level of Y difference adds a 16-block penalty to the sort score,
-                // so the bot mines horizontally first and only goes deeper when needed.
+                if (isTreeBlock) {
+                    const hDistA = Math.sqrt((a.x - bot.entity.position.x) ** 2 + (a.z - bot.entity.position.z) ** 2);
+                    const hDistB = Math.sqrt((b.x - bot.entity.position.x) ** 2 + (b.z - bot.entity.position.z) ** 2);
+                    const sameTreeA = hDistA <= 1.5;
+                    const sameTreeB = hDistB <= 1.5;
+                    if (sameTreeA && !sameTreeB) return -1;
+                    if (!sameTreeA && sameTreeB) return 1;
+                    if (sameTreeA && sameTreeB) return a.y - b.y;
+                    return hDistA - hDistB;
+                }
                 const yPenaltyA = Math.abs(a.y - botY) * 16;
                 const yPenaltyB = Math.abs(b.y - botY) * 16;
                 const distA = bot.entity.position.distanceTo(a) + yPenaltyA;
@@ -465,6 +480,16 @@ async function mineBlock(
             });
 
         if (reachable.length === 0) {
+            console.log(`[MC Action] No reachable ${displayName}: ${candidates.length} candidates found, all filtered (botY=${Math.floor(botY)}, maxAbove=${maxAbove}, maxBelow=${maxBelow}, failed=${failedPositions.size})`);
+            if (candidates.length > 0) {
+                // Log why the first few were filtered
+                const sample = candidates.slice(0, 3);
+                for (const pos of sample) {
+                    const dy = pos.y - botY;
+                    const key = `${pos.x},${pos.y},${pos.z}`;
+                    console.log(`[MC Action]   candidate at ${pos.x},${pos.y},${pos.z} dy=${dy.toFixed(1)} failed=${failedPositions.has(key)}`);
+                }
+            }
             if (dug === 0) return `Cannot find any reachable ${displayName} nearby`;
             break;
         }
@@ -475,9 +500,11 @@ async function mineBlock(
         if (!block) { failedPositions.add(posKey); continue; }
 
         try {
-            // Use GoalNear to get within 2 blocks, then dig
+            // Navigate to the block. For trees, stay at ground level and reach up
+            // (avoids pathfinder climbing on top of leaves to reach upper logs).
+            const goalY = isTreeBlock ? Math.floor(botY) : block.position.y;
             const pathPromise = bot.pathfinder.goto(
-                new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2),
+                new goals.GoalNear(block.position.x, goalY, block.position.z, 2),
             );
             const timeout = new Promise<never>((_, reject) =>
                 setTimeout(() => reject(new Error('timeout')), 15000),
@@ -487,10 +514,15 @@ async function mineBlock(
             await bot.dig(block);
             dug++;
 
-            // Walk to the dropped item and wait for collection
+            // Brief pause to let items fall and auto-collect
+            await new Promise((r) => setTimeout(r, 300));
+
+            // Walk to nearby dropped items (check near bot AND near block — items
+            // from upper tree blocks fall to ground level, far from block position)
             const droppedItem = Object.values(bot.entities).find(
                 (e) => e.name === 'item'
-                    && e.position.distanceTo(block.position) < 3,
+                    && (e.position.distanceTo(block.position) < 3
+                        || e.position.distanceTo(bot.entity.position) < 4),
             );
             if (droppedItem) {
                 // Wait for playerCollect or timeout
@@ -523,7 +555,7 @@ async function mineBlock(
                 await collectPromise;
             }
 
-            console.log(`[MC Action] Dug ${block.name} (${dug}/${maxCount})`);
+            console.log(`[MC Action] Dug ${block.name} (collected ${countInventory() - startCount}/${maxCount})`);
         } catch (err) {
             // If we were cancelled by a new action, exit cleanly without
             // touching pathfinder (the new action owns it now)
@@ -534,11 +566,14 @@ async function mineBlock(
         }
     }
 
-    // Report how many items were actually collected, not blocks broken
+    // Wait briefly for any remaining items to be auto-collected
+    await new Promise((r) => setTimeout(r, 1000));
+
     const collected = countInventory() - startCount;
     if (collected <= 0 && dug === 0) return `Failed to collect any ${displayName} (stuck or unreachable)`;
     if (collected <= 0) return `Broke ${dug} ${displayName} but couldn't pick any up`;
-    return `Collected ${collected} ${displayName}`;
+    const status = collected >= maxCount ? 'goal reached' : 'no more nearby';
+    return `Collected ${collected}/${maxCount} ${displayName} (${status})`;
 }
 
 async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {
