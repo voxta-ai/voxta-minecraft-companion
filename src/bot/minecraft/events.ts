@@ -39,6 +39,7 @@ export class McEventBridge {
     private lastSwingAttacker: string | null = null;
     private lastSwingTime = 0;
     private isAutoDefending = false;
+    private died = false;
     private autoLookLoop: ReturnType<typeof setInterval> | null = null;
 
     // Bound listener references for cleanup
@@ -94,9 +95,12 @@ export class McEventBridge {
                         const totalDmg = Math.round(this.pendingDamage * 10) / 10;
                         const hp = Math.round(this.bot.health * 10) / 10;
                         const name = this.callbacks.getAssistantName();
-                        this.callbacks.onEvent(
-                            `${name} took ${totalDmg} total damage from ${damageSource}! Health is now: ${hp}/20`,
-                        );
+                        const msg = `${name} took ${totalDmg} total damage from ${damageSource}! Health is now: ${hp}/20`;
+                        if (damageSource === 'starvation (no food)') {
+                            this.callbacks.onNote(msg);
+                        } else {
+                            this.callbacks.onEvent(msg);
+                        }
                         this.pendingDamage = 0;
                         this.damageTimer = null;
                     }, 3000);
@@ -109,12 +113,24 @@ export class McEventBridge {
         this.on('death', (() => {
             const settings = this.callbacks.getSettings();
             if (!settings.enableEventDeath) return;
+            this.died = true;
+            const killer = this.lastAttacker ?? 'unknown causes';
+            this.lastAttacker = null;
             this.lastHealth = 20;
             this.pendingDamage = 0;
             if (this.damageTimer) { clearTimeout(this.damageTimer); this.damageTimer = null; }
             const botName = this.callbacks.getAssistantName();
-            this.callbacks.onChat('event', 'Event', `${botName} died!`);
-            this.callbacks.onEvent(`${botName} has died and respawned!`);
+            this.callbacks.onChat('event', 'Event', `${botName} was killed by ${killer}!`);
+            this.callbacks.onNote(`${botName} was killed by ${killer}!`);
+        }) as (...args: never[]) => void);
+
+        // ---- Respawn ----
+        this.on('spawn', (() => {
+            if (!this.died) return;
+            this.died = false;
+            const botName = this.callbacks.getAssistantName();
+            this.callbacks.onChat('event', 'Event', `${botName} has respawned!`);
+            this.callbacks.onEvent(`${botName} has respawned and is back in the world.`);
         }) as (...args: never[]) => void);
 
         // ---- Entity swing arm (melee hit tracking) ----
@@ -153,7 +169,7 @@ export class McEventBridge {
             if (settings.enableEventUnderAttack && !isOnCooldown('underAttack') && this.lastAttacker) {
                 const botName = this.callbacks.getAssistantName();
                 this.callbacks.onChat('event', 'Event', `${botName} is under attack by ${this.lastAttacker}!`);
-                this.callbacks.onEvent(`${botName} is being attacked by ${this.lastAttacker}!`);
+                this.callbacks.onNote(`${botName} is being attacked by ${this.lastAttacker}!`);
             }
 
             // Auto self-defense

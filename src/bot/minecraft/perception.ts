@@ -2,6 +2,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import { BED_BLOCKS } from './action-definitions';
+import { getCurrentActivity } from './actions';
 
 export interface WorldState {
     position: { x: number; y: number; z: number };
@@ -20,6 +21,8 @@ export interface WorldState {
     inventorySummary: string[];
     nearbyBlocks: string[];
     shelter: string;
+    currentActivity: string | null;
+    isSleeping: boolean;
 }
 
 export interface NearbyEntity {
@@ -184,6 +187,8 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         inventorySummary,
         nearbyBlocks,
         shelter,
+        currentActivity: getCurrentActivity(),
+        isSleeping: bot.isSleeping,
     };
 }
 
@@ -219,6 +224,11 @@ export function buildContextStrings(
         `Weather: ${state.isRaining ? 'Raining' : 'Clear'} | ` +
         `Location: ${state.shelter}`
     );
+
+    // Current activity status
+    const activity = state.isSleeping ? 'sleeping in bed'
+        : state.currentActivity ?? 'idle (standing)';
+    lines.push(`${who}'s current activity: ${activity}`);
 
     // Survival status warnings — helps AI understand Minecraft mechanics
     const warnings: string[] = [];

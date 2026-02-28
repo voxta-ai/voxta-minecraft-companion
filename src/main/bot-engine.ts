@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
-import { executeAction, isActionBusy } from '../bot/minecraft/actions';
+import { executeAction, isActionBusy, setCurrentActivity } from '../bot/minecraft/actions';
 import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
@@ -44,10 +44,11 @@ export class BotEngine extends EventEmitter {
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
     private recentEvents: string[] = []; // Events injected into context on next perception tick
     private toastCounter = 0;
-    private pendingSpeechText: string | null = null; // Queued speech to send when server is ready
-    private serverReady = true; // Track whether the server is ready for new messages
+
     private audioDownloadChain: Promise<void> = Promise.resolve(); // Ensures audio chunks emit in order
     private audioEpoch = 0; // Bumped on interrupt — stale downloads are discarded
+    private currentReplyMessageId: string | null = null; // Track current reply for speechPlaybackComplete
+    private audioChunksEmitted = 0; // How many audio chunks were emitted for the current reply
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -580,15 +581,7 @@ export class BotEngine extends EventEmitter {
         await this.voxta.sendMessage(text);
     }
 
-    /** Send queued speech text only when the server is idle */
-    private trySendPendingSpeech(): void {
-        if (!this.pendingSpeechText || !this.serverReady || this.isReplying) return;
-        const text = this.pendingSpeechText;
-        this.pendingSpeechText = null;
-        this.serverReady = false; // Prevent double-sends until next chatFlow idle
-        console.log(`[Msg] sendMessage (voice, queued) - "${text}"`);
-        void this.voxta?.sendMessage(text);
-    }
+
 
     /** Renderer reports audio started playing — relay to server */
     handleAudioStarted(event: AudioPlaybackEvent): void {
@@ -632,6 +625,9 @@ export class BotEngine extends EventEmitter {
                     const headers: Record<string, string> = {};
                     if (this.voxtaApiKey) headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
 
+                    // Count queued chunks synchronously so replyEnd knows audio is pending
+                    this.audioChunksEmitted++;
+
                     // Start download immediately (parallel) but emit in order via chain
                     const epoch = this.audioEpoch;
                     const downloadPromise = fetch(fullUrl, { headers })
@@ -672,14 +668,16 @@ export class BotEngine extends EventEmitter {
                 break;
             }
             case 'replyStart': {
-                // Reset the download chain for the new reply
+                // Reset the download chain and track the message for speechPlaybackComplete
+                const replyStart = message as { messageId?: string };
                 this.audioDownloadChain = Promise.resolve();
+                this.currentReplyMessageId = replyStart.messageId ?? null;
+                this.audioChunksEmitted = 0;
                 break;
             }
             case 'replyGenerating':
                 console.log('[Msg] replyGenerating - AI is generating a reply');
                 this.isReplying = true;
-                this.serverReady = false;
                 break;
             case 'replyEnd': {
                 console.log(`[Msg] replyEnd - reply complete, text length: ${this.currentReply.trim().length}`);
@@ -698,6 +696,15 @@ export class BotEngine extends EventEmitter {
                 this.currentReply = '';
                 this.isReplying = false;
                 this.flushPendingNotes();
+
+                // If no audio chunks were emitted (interrupted or text-only reply),
+                // send speechPlaybackComplete so the server's foreground queue advances.
+                // Matches Voxta Talk's markChunksComplete() behavior.
+                if (this.audioChunksEmitted === 0 && this.currentReplyMessageId && this.voxta?.sessionId) {
+                    console.log(`[Msg] replyEnd - no audio played, acking speechPlaybackComplete for ${this.currentReplyMessageId}`);
+                    void this.voxta.speechPlaybackComplete(this.currentReplyMessageId);
+                }
+                this.currentReplyMessageId = null;
                 break;
             }
             case 'replyCancelled': {
@@ -711,6 +718,13 @@ export class BotEngine extends EventEmitter {
                 this.currentReply = '';
                 this.isReplying = false;
                 this.flushPendingNotes();
+
+                // Same as replyEnd — ack playback if no audio was emitted
+                if (this.audioChunksEmitted === 0 && this.currentReplyMessageId && this.voxta?.sessionId) {
+                    console.log(`[Msg] replyCancelled - no audio played, acking speechPlaybackComplete for ${this.currentReplyMessageId}`);
+                    void this.voxta.speechPlaybackComplete(this.currentReplyMessageId);
+                }
+                this.currentReplyMessageId = null;
                 break;
             }
             case 'action': {
@@ -773,12 +787,9 @@ export class BotEngine extends EventEmitter {
                         if (!this.settings.enableTelemetryActionResults) return;
                         if (actionDef?.isQuick) return;
 
-                        // Use sendEvent so AI responds without it appearing as user message
-                        if (this.isReplying) {
-                            this.queueNote(`${botName}: ${result}`);
-                        } else if (this.voxta?.sessionId) {
-                            void this.voxta.sendEvent(`${botName} finished: ${result}`);
-                        }
+                        // Send result as a note (not an event!) to prevent feedback loops.
+                        // An event would trigger a new AI response → new action → new result → loop.
+                        this.queueNote(`${botName}: ${result}`);
                     });
                 }
                 break;
@@ -793,10 +804,6 @@ export class BotEngine extends EventEmitter {
             case 'chatFlow': {
                 const state = (message as { state?: string }).state;
                 console.log(`[Msg] chatFlow - state: ${state}`);
-                if (state === 'WaitingForUserInput') {
-                    this.serverReady = true;
-                    this.trySendPendingSpeech();
-                }
                 break;
             }
             case 'speechRecognitionStart': {
@@ -804,23 +811,20 @@ export class BotEngine extends EventEmitter {
                 // NOTE: Do NOT send interrupt() to the server! The server already detects
                 // speech via its own STT and interrupts the reply automatically.
                 // Sending a duplicate interrupt jams the server's foreground command queue.
-                if (this.isReplying || !this.serverReady) {
-                    console.log(`[Msg] speechRecognitionStart - stopping local audio (isReplying: ${this.isReplying}, serverReady: ${this.serverReady})`);
-                    this.audioEpoch++;
-                    this.emit('stop-audio');
-                }
+                console.log('[Msg] speechRecognitionStart - stopping local audio');
+                this.audioEpoch++;
+                this.emit('stop-audio');
                 break;
             }
             case 'speechRecognitionEnd': {
+                // Send immediately — matches Voxta Talk. The server handles
+                // ordering internally via its command queue.
                 const text = (message as { text?: string }).text;
                 console.log(`[Msg] speechRecognitionEnd - "${text ?? '(empty)'}"`);
                 if (text) {
                     const playerName = this.voxtaUserName ?? 'You';
                     this.addChat('player', `${playerName} (voice)`, text);
-                    // Queue the speech text — it will be sent when the server is ready
-                    // (after chatFlow reports 'idle'). Latest text always overwrites.
-                    this.pendingSpeechText = text;
-                    this.trySendPendingSpeech();
+                    void this.voxta?.sendMessage(text);
                 }
                 break;
             }

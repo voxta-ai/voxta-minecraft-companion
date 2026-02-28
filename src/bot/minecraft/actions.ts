@@ -107,6 +107,11 @@ let actionAbort = new AbortController();
 let actionBusy = false;
 export function isActionBusy(): boolean { return actionBusy; }
 
+// Human-readable description of what the bot is currently doing
+let currentActivity: string | null = null;
+export function getCurrentActivity(): string | null { return currentActivity; }
+export function setCurrentActivity(activity: string | null): void { currentActivity = activity; }
+
 // Saved home/bed position — set when the bot sleeps in a bed
 let homePosition: { x: number; y: number; z: number } | null = null;
 export function getHomePosition(): { x: number; y: number; z: number } | null { return homePosition; }
@@ -133,35 +138,40 @@ export async function executeAction(
 
     try {
         switch (actionName) {
-            case 'mc_follow_player':
+            case 'mc_follow_player': {
+                const followTarget = getArg(args, 'player_name') ?? 'player';
+                currentActivity = `following ${followTarget}`;
                 return await followPlayer(bot, getArg(args, 'player_name'), names);
+            }
 
-            case 'mc_go_to':
-                return await goTo(
-                    bot,
-                    getArg(args, 'x'),
-                    getArg(args, 'y'),
-                    getArg(args, 'z'),
-                );
+            case 'mc_go_to': {
+                const gx = getArg(args, 'x'), gy = getArg(args, 'y'), gz = getArg(args, 'z');
+                currentActivity = `navigating to ${gx ?? '?'},${gy ?? '?'},${gz ?? '?'}`;
+                return await goTo(bot, gx, gy, gz);
+            }
 
             case 'mc_go_home':
+                currentActivity = 'heading home';
                 return await goHome(bot);
 
-            case 'mc_mine_block':
-                return await mineBlock(
-                    bot,
-                    getArg(args, 'block_type'),
-                    getArg(args, 'count'),
-                );
+            case 'mc_mine_block': {
+                const blockArg = getArg(args, 'block_type') ?? 'blocks';
+                currentActivity = `mining ${blockArg}`;
+                return await mineBlock(bot, getArg(args, 'block_type'), getArg(args, 'count'));
+            }
 
-            case 'mc_attack':
+            case 'mc_attack': {
+                const attackTarget = getArg(args, 'entity_name') ?? 'enemy';
+                currentActivity = `fighting ${attackTarget}`;
                 return await attackEntity(bot, getArg(args, 'entity_name'), names);
+            }
 
 
             case 'mc_look_at':
                 return await lookAtPlayer(bot, getArg(args, 'player_name'), names);
 
             case 'mc_stop':
+                currentActivity = null;
                 bot.pathfinder.stop();
                 try { bot.stopDigging(); } catch { /* may not be digging */ }
                 return 'Stopped current action';
@@ -173,15 +183,18 @@ export async function executeAction(
                 return await giveItem(bot, getArg(args, 'item_name'), getArg(args, 'player_name'), getArg(args, 'count'), names);
 
             case 'mc_collect_items':
+                currentActivity = 'collecting nearby items';
                 return await collectItems(bot);
 
             case 'mc_eat':
+                currentActivity = 'eating';
                 return await eatFood(bot, getArg(args, 'food_name'));
 
             case 'mc_none':
                 return ''; // No-op — AI acknowledged, nothing to do
 
             case 'mc_sleep':
+                currentActivity = 'going to sleep';
                 return await sleepInBed(bot);
 
             case 'mc_wake':
@@ -192,15 +205,21 @@ export async function executeAction(
                 return 'Not currently sleeping';
 
             case 'mc_cook':
+                currentActivity = 'cooking';
                 return await cookFood(bot, getArg(args, 'item_name'));
 
-            case 'mc_craft':
+            case 'mc_craft': {
+                const craftTarget = getArg(args, 'item_name') ?? 'item';
+                currentActivity = `crafting ${craftTarget}`;
                 return await craftItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
+            }
 
             case 'mc_store_item':
+                currentActivity = 'storing items in chest';
                 return await storeItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
 
             case 'mc_take_item':
+                currentActivity = 'taking items from chest';
                 return await takeItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
 
             case 'mc_inspect':
@@ -214,7 +233,15 @@ export async function executeAction(
         console.error(`[MC Action] Error executing ${actionName}:`, message);
         return `Failed to execute ${actionName}: ${message}`;
     } finally {
-        if (shouldTrackBusy) actionBusy = false;
+        if (shouldTrackBusy) {
+            actionBusy = false;
+            // Only clear activity for non-quick actions (they run to completion).
+            // Quick actions (follow, look_at) persist after returning — their
+            // activity is cleared when a new action starts or mc_stop is called.
+            if (!actionDef?.isQuick) {
+                currentActivity = null;
+            }
+        }
     }
 }
 
@@ -316,10 +343,20 @@ async function mineBlock(
         if (!blockInfo) return `Unknown block type: ${blockType}`;
         blockIds = [blockInfo.id];
         displayName = blockType;
+
+        // Also include deepslate ore variant (e.g. coal_ore → deepslate_coal_ore)
+        const matchedName = (blockInfo as { name: string }).name;
+        if (matchedName.endsWith('_ore') && !matchedName.startsWith('deepslate_')) {
+            const deepslateVariant = mcData.blocksByName[`deepslate_${matchedName}`];
+            if (deepslateVariant) {
+                blockIds.push(deepslateVariant.id);
+            }
+        }
     }
 
-    // Check tool requirements
-    const toolCategory = getToolCategory(blockType);
+    // Check tool requirements (use resolved block name, not raw input)
+    const resolvedName = (mcData.blocks[blockIds[0]] as { name?: string })?.name ?? blockType;
+    const toolCategory = getToolCategory(resolvedName);
     if (toolCategory !== 'none') {
         const tool = getBestTool(bot, toolCategory);
         if (!tool) {
@@ -347,6 +384,17 @@ async function mineBlock(
     const BLOCK_DROP_NAMES: Record<string, string> = {
         stone: 'cobblestone',
         grass_block: 'dirt',
+        coal_ore: 'coal',
+        deepslate_coal_ore: 'coal',
+        diamond_ore: 'diamond',
+        deepslate_diamond_ore: 'diamond',
+        emerald_ore: 'emerald',
+        deepslate_emerald_ore: 'emerald',
+        lapis_ore: 'lapis_lazuli',
+        deepslate_lapis_ore: 'lapis_lazuli',
+        redstone_ore: 'redstone',
+        deepslate_redstone_ore: 'redstone',
+        nether_quartz_ore: 'quartz',
     };
     const itemNames = new Set<string>();
     for (const id of blockIds) {
