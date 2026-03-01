@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ChatListItem, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ChatListItem, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
 export type ChatCallback = (message: ChatMessage) => void;
@@ -8,6 +8,8 @@ export type ActionCallback = (actionName: string) => void;
 export type ToastCallback = (toast: ToastMessage) => void;
 export type AudioChunkCallback = (chunk: AudioChunk) => void;
 export type AudioStopCallback = () => void;
+export type RecordingStartCallback = (event: RecordingStartEvent) => void;
+export type RecordingStopCallback = () => void;
 
 const api = {
     connectVoxta: (config: VoxtaConnectConfig): Promise<VoxtaInfo> =>
@@ -88,6 +90,19 @@ const api = {
         const handler = (): void => callback();
         ipcRenderer.on(IPC_CHANNELS.STOP_AUDIO, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.STOP_AUDIO, handler);
+    },
+
+    // Audio input: main → renderer (recording start/stop)
+    onRecordingStart: (callback: RecordingStartCallback): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, event: RecordingStartEvent): void => callback(event);
+        ipcRenderer.on(IPC_CHANNELS.RECORDING_START, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_START, handler);
+    },
+
+    onRecordingStop: (callback: RecordingStopCallback): (() => void) => {
+        const handler = (): void => callback();
+        ipcRenderer.on(IPC_CHANNELS.RECORDING_STOP, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_STOP, handler);
     },
 };
 

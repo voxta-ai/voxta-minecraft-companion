@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
 import { cycleVisionWindow } from './vision-capture';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, BotConfig, BotStatus, ChatMessage, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, BotConfig, BotStatus, ChatMessage, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent } from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): void {
     const engine = new BotEngine();
@@ -30,6 +30,14 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
     engine.on('stop-audio', () => {
         win.webContents.send(IPC_CHANNELS.STOP_AUDIO);
+    });
+
+    engine.on('recording-start', (event: RecordingStartEvent) => {
+        win.webContents.send(IPC_CHANNELS.RECORDING_START, event);
+    });
+
+    engine.on('recording-stop', () => {
+        win.webContents.send(IPC_CHANNELS.RECORDING_STOP);
     });
 
     // Audio ack from renderer

@@ -116,7 +116,7 @@ export class VoxtaClient {
             scope: ['role:app'],
             capabilities: {
                 audioOutput: 'Url',
-                audioInput: 'None',
+                audioInput: 'WebSocketStream',
                 visionCapture: 'PostImage',
                 visionSources: ['Screen'],
             },

@@ -201,6 +201,12 @@ export interface ServerVisionCaptureRequestMessage {
     source: string;
 }
 
+export interface ServerRecordingRequestMessage {
+    $type: 'recordingRequest';
+    sessionId: string;
+    enabled: boolean;
+}
+
 export type ServerMessage =
     | ServerWelcomeMessage
     | ServerAuthenticationRequiredMessage
@@ -212,4 +218,5 @@ export type ServerMessage =
     | ServerActionMessage
     | ServerErrorMessage
     | ServerVisionCaptureRequestMessage
+    | ServerRecordingRequestMessage
     | { $type: string;[key: string]: unknown };

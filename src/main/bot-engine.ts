@@ -6,9 +6,9 @@ import { executeAction, isActionBusy, setCurrentActivity } from '../bot/minecraf
 import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
-import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage, ServerVisionCaptureRequestMessage } from '../bot/voxta/types';
+import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage, ServerVisionCaptureRequestMessage, ServerRecordingRequestMessage } from '../bot/voxta/types';
 import { handleVisionCaptureRequest } from './vision-capture';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ChatListItem, ToastMessage, ToastType, McSettings, AudioChunk, AudioPlaybackEvent } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ChatListItem, ToastMessage, ToastType, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent } from '../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
@@ -18,7 +18,7 @@ import type { ScenarioAction } from '../bot/voxta/types';
 const CLIENT_NAME = 'Voxta.Minecraft';
 const CLIENT_VERSION = '0.2.0';
 
-type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered' | 'toast' | 'play-audio' | 'stop-audio';
+type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered' | 'toast' | 'play-audio' | 'stop-audio' | 'recording-start' | 'recording-stop';
 
 export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
@@ -47,8 +47,12 @@ export class BotEngine extends EventEmitter {
 
     private audioDownloadChain: Promise<void> = Promise.resolve(); // Ensures audio chunks emit in order
     private audioEpoch = 0; // Bumped on interrupt — stale downloads are discarded
-    private currentReplyMessageId: string | null = null; // Track current reply for speechPlaybackComplete
-    private audioChunksEmitted = 0; // How many audio chunks were emitted for the current reply
+
+    // Sentinel-based ack queue (matches Voxta Talk's AudioPlayback.complete() pattern).
+    // When replyEnd arrives, ackCallback is set. When all pending chunks complete
+    // (or on interrupt), the callback fires speechPlaybackComplete.
+    private ackPendingChunks = 0;
+    private ackCallback: (() => void) | null = null;
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -575,7 +579,8 @@ export class BotEngine extends EventEmitter {
 
     async sendMessage(text: string): Promise<void> {
         if (!this.voxta?.sessionId) return;
-        console.log(`[Msg] sendMessage - "${text}" (isReplying: ${this.isReplying})`);
+        console.log(`[Msg] sendMessage - "${text}"`);
+
         const name = this.voxtaUserName ?? 'You';
         this.addChat('player', `${name} (text)`, text);
         await this.voxta.sendMessage(text);
@@ -590,9 +595,25 @@ export class BotEngine extends EventEmitter {
         );
     }
 
-    /** Renderer reports audio finished playing — relay to server */
-    handleAudioComplete(messageId: string): void {
-        void this.voxta?.speechPlaybackComplete(messageId);
+    /** Renderer reports audio finished playing — dequeue and check sentinel */
+    handleAudioComplete(_messageId: string): void {
+        if (this.ackPendingChunks > 0) this.ackPendingChunks--;
+        this.tryFireAck();
+    }
+
+    /** Fire sentinel callback if all chunks are done (or queue is empty) */
+    private tryFireAck(): void {
+        if (this.ackPendingChunks === 0 && this.ackCallback) {
+            const cb = this.ackCallback;
+            this.ackCallback = null;
+            cb();
+        }
+    }
+
+    /** Immediately fire sentinel (interrupt/cancel) — like Voxta Talk's stop() */
+    private fireAckNow(): void {
+        this.ackPendingChunks = 0;
+        this.tryFireAck();
     }
 
     private handleVoxtaMessage(message: ServerMessage): void {
@@ -625,8 +646,8 @@ export class BotEngine extends EventEmitter {
                     const headers: Record<string, string> = {};
                     if (this.voxtaApiKey) headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
 
-                    // Count queued chunks synchronously so replyEnd knows audio is pending
-                    this.audioChunksEmitted++;
+                    // Track chunk in the ack queue
+                    this.ackPendingChunks++;
 
                     // Start download immediately (parallel) but emit in order via chain
                     const epoch = this.audioEpoch;
@@ -668,11 +689,8 @@ export class BotEngine extends EventEmitter {
                 break;
             }
             case 'replyStart': {
-                // Reset the download chain and track the message for speechPlaybackComplete
-                const replyStart = message as { messageId?: string };
+                // Reset the download chain for the new reply
                 this.audioDownloadChain = Promise.resolve();
-                this.currentReplyMessageId = replyStart.messageId ?? null;
-                this.audioChunksEmitted = 0;
                 break;
             }
             case 'replyGenerating':
@@ -697,14 +715,18 @@ export class BotEngine extends EventEmitter {
                 this.isReplying = false;
                 this.flushPendingNotes();
 
-                // If no audio chunks were emitted (interrupted or text-only reply),
-                // send speechPlaybackComplete so the server's foreground queue advances.
-                // Matches Voxta Talk's markChunksComplete() behavior.
-                if (this.audioChunksEmitted === 0 && this.currentReplyMessageId && this.voxta?.sessionId) {
-                    console.log(`[Msg] replyEnd - no audio played, acking speechPlaybackComplete for ${this.currentReplyMessageId}`);
-                    void this.voxta.speechPlaybackComplete(this.currentReplyMessageId);
+                // Sentinel: set callback that fires when all pending chunks complete.
+                // If no chunks are pending, tryFireAck fires it immediately.
+                // (Matches Voxta Talk's markChunksComplete() pattern.)
+                const endMsg = message as { messageId?: string; sessionId?: string };
+                const endMsgId = endMsg.messageId;
+                if (endMsgId && this.voxta?.sessionId) {
+                    this.ackCallback = () => {
+                        console.log(`[Msg] ack sentinel fired for ${endMsgId}`);
+                        void this.voxta?.speechPlaybackComplete(endMsgId);
+                    };
+                    this.tryFireAck();
                 }
-                this.currentReplyMessageId = null;
                 break;
             }
             case 'replyCancelled': {
@@ -719,12 +741,8 @@ export class BotEngine extends EventEmitter {
                 this.isReplying = false;
                 this.flushPendingNotes();
 
-                // Same as replyEnd — ack playback if no audio was emitted
-                if (this.audioChunksEmitted === 0 && this.currentReplyMessageId && this.voxta?.sessionId) {
-                    console.log(`[Msg] replyCancelled - no audio played, acking speechPlaybackComplete for ${this.currentReplyMessageId}`);
-                    void this.voxta.speechPlaybackComplete(this.currentReplyMessageId);
-                }
-                this.currentReplyMessageId = null;
+                // Cancel = stop: fire sentinel immediately
+                this.fireAckNow();
                 break;
             }
             case 'action': {
@@ -814,6 +832,8 @@ export class BotEngine extends EventEmitter {
                 console.log('[Msg] speechRecognitionStart - stopping local audio');
                 this.audioEpoch++;
                 this.emit('stop-audio');
+                // Stop = fire sentinel immediately (matches Voxta Talk's AudioPlayback.stop())
+                this.fireAckNow();
                 break;
             }
             case 'speechRecognitionEnd': {
@@ -837,6 +857,23 @@ export class BotEngine extends EventEmitter {
                 const baseUrl = (this.voxtaUrl ?? 'http://localhost:5384/hub').replace(/\/hub\/?$/, '');
                 console.log(`[Vision] Received capture request: ${visionReq.visionCaptureRequestId} (source: ${visionReq.source})`);
                 void handleVisionCaptureRequest(visionReq, baseUrl, this.voxtaApiKey, this.settings.visionMode);
+                break;
+            }
+            case 'recordingRequest': {
+                const req = message as ServerRecordingRequestMessage;
+                const baseUrl = (this.voxtaUrl ?? 'http://localhost:5384/hub').replace(/\/hub\/?$/, '');
+                if (req.enabled) {
+                    console.log('[Recording] Server requested recording START');
+                    const event: RecordingStartEvent = {
+                        sessionId: req.sessionId,
+                        voxtaBaseUrl: baseUrl,
+                        voxtaApiKey: this.voxtaApiKey,
+                    };
+                    this.emit('recording-start', event);
+                } else {
+                    console.log('[Recording] Server requested recording STOP');
+                    this.emit('recording-stop');
+                }
                 break;
             }
             default:

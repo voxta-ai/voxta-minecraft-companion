@@ -96,7 +96,7 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableTelemetryActionResults: true,
     enableTelemetryWeather: false,
     enableTelemetryTime: false,
-    enableTelemetryChat: true,
+    enableTelemetryChat: false,
 
     enableBotChatEcho: false,
     enableAutoLook: true,
@@ -145,6 +145,14 @@ export interface AudioPlaybackEvent {
     isNarration?: boolean;
 }
 
+// ---- Audio Input IPC ----
+
+export interface RecordingStartEvent {
+    sessionId: string;
+    voxtaBaseUrl: string;
+    voxtaApiKey: string | null;
+}
+
 // ---- IPC Channels ----
 
 export const IPC_CHANNELS = {
@@ -169,6 +177,8 @@ export const IPC_CHANNELS = {
     TOAST: 'bot:toast',
     PLAY_AUDIO: 'bot:play-audio',
     STOP_AUDIO: 'bot:stop-audio',
+    RECORDING_START: 'bot:recording-start',
+    RECORDING_STOP: 'bot:recording-stop',
 
     // Renderer → Main (audio ack)
     AUDIO_STARTED: 'bot:audio-started',

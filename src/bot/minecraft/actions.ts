@@ -330,13 +330,26 @@ async function mineBlock(
         displayName = 'wood';
         if (blockIds.length === 0) return 'Cannot find any wood block types in this Minecraft version';
     } else {
+        // Try alias mapping first (AI often sends simplified names)
+        const BLOCK_ALIASES: Record<string, string> = {
+            mushroom: 'brown_mushroom',
+            mushrooms: 'brown_mushroom',
+            red_mushroom_block: 'red_mushroom',
+            brown_mushroom_block: 'brown_mushroom',
+            flower: 'poppy',
+            flowers: 'poppy',
+            dirt: 'dirt',
+            sand: 'sand',
+        };
+        const resolvedType = BLOCK_ALIASES[blockType.toLowerCase()] ?? blockType;
+
         // Try exact match first
-        let blockInfo = mcData.blocksByName[blockType];
+        let blockInfo = mcData.blocksByName[resolvedType];
         // Fuzzy match: try common suffixes if exact fails
         if (!blockInfo) {
             const suffixes = ['_block', '_ore', '_log', '_planks', '_slab', '_stairs'];
             for (const suffix of suffixes) {
-                blockInfo = mcData.blocksByName[blockType + suffix];
+                blockInfo = mcData.blocksByName[resolvedType + suffix];
                 if (blockInfo) break;
             }
         }
