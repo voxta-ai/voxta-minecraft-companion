@@ -67,6 +67,12 @@ const api = {
         return () => ipcRenderer.removeListener(IPC_CHANNELS.CHAT_MESSAGE, handler);
     },
 
+    onClearChat: (callback: () => void): (() => void) => {
+        const handler = (): void => callback();
+        ipcRenderer.on(IPC_CHANNELS.CLEAR_CHAT, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.CLEAR_CHAT, handler);
+    },
+
     onActionTriggered: (callback: ActionCallback): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, name: string): void => callback(name);
         ipcRenderer.on(IPC_CHANNELS.ACTION_TRIGGERED, handler);

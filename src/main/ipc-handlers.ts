@@ -16,6 +16,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         win.webContents.send(IPC_CHANNELS.CHAT_MESSAGE, msg);
     });
 
+    engine.on('clear-chat', () => {
+        win.webContents.send(IPC_CHANNELS.CLEAR_CHAT);
+    });
+
     engine.on('action-triggered', (actionName: string) => {
         win.webContents.send(IPC_CHANNELS.ACTION_TRIGGERED, actionName);
     });

@@ -81,7 +81,13 @@ export function useChatListener(): void {
                 return [...prev, msg];
             });
         });
-        onCleanup(cleanup);
+        const cleanupClear = window.api.onClearChat(() => {
+            setChatMessages('messages', []);
+        });
+        onCleanup(() => {
+            cleanup();
+            cleanupClear();
+        });
     });
 }
 

@@ -18,7 +18,7 @@ import type { ScenarioAction } from '../bot/voxta/types';
 const CLIENT_NAME = 'Voxta.Minecraft';
 const CLIENT_VERSION = '0.2.0';
 
-type BotEngineEvent = 'status-changed' | 'chat-message' | 'action-triggered' | 'toast' | 'play-audio' | 'stop-audio' | 'recording-start' | 'recording-stop';
+type BotEngineEvent = 'status-changed' | 'chat-message' | 'clear-chat' | 'action-triggered' | 'toast' | 'play-audio' | 'stop-audio' | 'recording-start' | 'recording-stop';
 
 export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
@@ -629,6 +629,41 @@ export class BotEngine extends EventEmitter {
                 this.voxtaUserName = welcome.user?.name ?? null;
                 if (welcome.assistant) {
                     this.defaultAssistantId = welcome.assistant.id;
+                }
+                break;
+            }
+            case 'chatStarting': {
+                // New chat starting — clear old messages from the UI
+                this.emit('clear-chat');
+                break;
+            }
+            case 'chatStarted': {
+                // Load old chat messages when continuing an existing chat.
+                // The server sends the full history in chatStarted.messages[].
+                const started = message as {
+                    messages?: Array<{
+                        senderId: string;
+                        role: string;
+                        text: string;
+                        name?: string;
+                    }>;
+                    characters?: Array<{ id: string; name: string }>;
+                };
+                const characters = started.characters ?? this.characters;
+                if (started.messages && started.messages.length > 0) {
+                    for (const m of started.messages) {
+                        if (!m.text?.trim()) continue;
+                        const role = m.role; // 'User' | 'Assistant' | 'System' | 'Note'
+                        if (role === 'User') {
+                            const name = m.name ?? this.voxtaUserName ?? 'You';
+                            this.addChat('player', name, m.text);
+                        } else if (role === 'Assistant') {
+                            const char = characters.find((c) => c.id === m.senderId);
+                            this.addChat('ai', char?.name ?? this.assistantName ?? 'AI', m.text);
+                        }
+                        // Skip System/Note messages — they're internal context
+                    }
+                    console.log(`[Msg] chatStarted - loaded ${started.messages.length} old messages`);
                 }
                 break;
             }

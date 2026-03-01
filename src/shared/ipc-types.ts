@@ -173,6 +173,7 @@ export const IPC_CHANNELS = {
     // Main → Renderer
     STATUS_CHANGED: 'bot:status-changed',
     CHAT_MESSAGE: 'bot:chat-message',
+    CLEAR_CHAT: 'bot:clear-chat',
     ACTION_TRIGGERED: 'bot:action-triggered',
     TOAST: 'bot:toast',
     PLAY_AUDIO: 'bot:play-audio',
