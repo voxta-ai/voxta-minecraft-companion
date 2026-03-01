@@ -3,7 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
-import { executeAction, isActionBusy } from './actions';
+import { executeAction, isActionBusy, isPickupSuppressed } from './actions';
 
 // ---- Callback interface ----
 
@@ -252,6 +252,7 @@ export class McEventBridge {
         const updateSlotHandler = ((_slot: number, oldItem: { name: string; count: number } | null, newItem: { name: string; displayName: string; count: number } | null) => {
             const settings = this.callbacks.getSettings();
             if (!settings.enableTelemetryItemPickup) return;
+            if (isPickupSuppressed()) return; // Skip during crafting equip/unequip
             if (!newItem) return;
             const gained = oldItem && oldItem.name === newItem.name
                 ? newItem.count - oldItem.count

@@ -107,6 +107,10 @@ let actionAbort = new AbortController();
 let actionBusy = false;
 export function isActionBusy(): boolean { return actionBusy; }
 
+// Suppress pickup telemetry during inventory management (equip/unequip in crafting)
+let suppressPickups = false;
+export function isPickupSuppressed(): boolean { return suppressPickups; }
+
 // Human-readable description of what the bot is currently doing
 let currentActivity: string | null = null;
 export function getCurrentActivity(): string | null { return currentActivity; }
@@ -1109,8 +1113,20 @@ async function craftItem(bot: Bot, itemName: string | undefined, countStr: strin
     const itemInfo = mcData.itemsByName[resolved] as { id: number; displayName: string; name: string } | undefined;
     if (!itemInfo) return `Unknown item: ${itemName}`;
 
+    // Suppress pickup telemetry for the entire crafting process
+    // (equip/unequip/craft all trigger inventory slot changes)
+    suppressPickups = true;
+
+    // Move held item to inventory so recipesFor can find it as a material
+    const heldItemName = bot.heldItem?.name ?? null;
+    if (heldItemName) {
+        await bot.unequip('hand');
+    }
+
     // Try crafting without a table first (2x2 recipes like planks, sticks)
     let recipes = bot.recipesFor(itemInfo.id, null, 1, null);
+
+    let result: string;
 
     if (recipes.length === 0) {
         // Need a crafting table — find one nearby
@@ -1120,41 +1136,59 @@ async function craftItem(bot: Bot, itemName: string | undefined, countStr: strin
         });
 
         if (!craftingTable) {
-            return `Cannot craft ${itemInfo.displayName}: no crafting table nearby and recipe requires one`;
-        }
+            result = `Cannot craft ${itemInfo.displayName}: no crafting table nearby and recipe requires one`;
+        } else {
+            // Walk to crafting table
+            try {
+                await bot.pathfinder.goto(
+                    new goals.GoalNear(craftingTable.position.x, craftingTable.position.y, craftingTable.position.z, 2),
+                );
+            } catch {
+                result = 'Cannot reach the crafting table';
+                // Re-equip before returning
+                if (heldItemName) {
+                    const reequip = bot.inventory.items().find((i) => i.name === heldItemName);
+                    if (reequip) await bot.equip(reequip, 'hand');
+                }
+                return result;
+            }
 
-        // Walk to crafting table
+            recipes = bot.recipesFor(itemInfo.id, null, 1, craftingTable);
+            if (recipes.length === 0) {
+                result = `Cannot craft ${itemInfo.displayName}: missing materials`;
+            } else {
+                // Craft with table
+                try {
+                    await bot.craft(recipes[0], count, craftingTable);
+                    const outputCount = count * (recipes[0].result?.count ?? 1);
+                    result = `Crafted ${outputCount} ${itemInfo.displayName}`;
+                } catch (err) {
+                    const message = err instanceof Error ? err.message : String(err);
+                    result = `Failed to craft ${itemInfo.displayName}: ${message}`;
+                }
+            }
+        }
+    } else {
+        // Craft without table (2x2)
         try {
-            await bot.pathfinder.goto(
-                new goals.GoalNear(craftingTable.position.x, craftingTable.position.y, craftingTable.position.z, 2),
-            );
-        } catch {
-            return 'Cannot reach the crafting table';
-        }
-
-        recipes = bot.recipesFor(itemInfo.id, null, 1, craftingTable);
-        if (recipes.length === 0) {
-            return `Cannot craft ${itemInfo.displayName}: missing materials`;
-        }
-
-        // Craft with table
-        try {
-            await bot.craft(recipes[0], count, craftingTable);
-            return `Crafted ${count} ${itemInfo.displayName}`;
+            await bot.craft(recipes[0], count);
+            const outputCount = count * (recipes[0].result?.count ?? 1);
+            result = `Crafted ${outputCount} ${itemInfo.displayName}`;
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            return `Failed to craft ${itemInfo.displayName}: ${message}`;
+            result = `Failed to craft ${itemInfo.displayName}: ${message}`;
         }
     }
 
-    // Craft without table (2x2)
-    try {
-        await bot.craft(recipes[0], count);
-        return `Crafted ${count} ${itemInfo.displayName}`;
-    } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return `Failed to craft ${itemInfo.displayName}: ${message}`;
+    // Re-equip previously held item if it still exists
+    if (heldItemName) {
+        const reequip = bot.inventory.items().find((i) => i.name === heldItemName);
+        if (reequip) await bot.equip(reequip, 'hand');
     }
+
+    // Delay clearing so async slot events from equip/unequip are caught
+    setTimeout(() => { suppressPickups = false; }, 200);
+    return result;
 }
 
 async function equipItem(bot: Bot, itemName: string | undefined): Promise<string> {
