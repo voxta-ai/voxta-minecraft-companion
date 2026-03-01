@@ -8,6 +8,7 @@ import StatusBar from './components/StatusBar';
 import Modal from './components/Modal';
 import ToastContainer from './components/ToastContainer';
 import AudioPlayer from './components/AudioPlayer';
+import InspectorDrawer from './components/InspectorDrawer';
 
 type Popup = 'connection' | 'actions' | 'settings' | null;
 
@@ -16,6 +17,7 @@ export default function App() {
     useChatListener();
 
     const [activePopup, setActivePopup] = createSignal<Popup>(null);
+    const [inspectorOpen, setInspectorOpen] = createSignal(false);
 
     const togglePopup = (popup: Popup) => {
         setActivePopup(activePopup() === popup ? null : popup);
@@ -45,6 +47,13 @@ export default function App() {
                         🎮
                     </button>
                     <button
+                        class={`header-btn ${inspectorOpen() ? 'active' : ''}`}
+                        onClick={() => setInspectorOpen(!inspectorOpen())}
+                        title="Inspector"
+                    >
+                        🔍
+                    </button>
+                    <button
                         class={`header-btn ${activePopup() === 'settings' ? 'active' : ''}`}
                         onClick={() => togglePopup('settings')}
                         title="Settings"
@@ -58,6 +67,10 @@ export default function App() {
                 <div class="main-panel">
                     <ChatView onConnect={() => setActivePopup('connection')} />
                 </div>
+                <InspectorDrawer
+                    open={inspectorOpen()}
+                    onClose={() => setInspectorOpen(false)}
+                />
             </div>
 
             <StatusBar />

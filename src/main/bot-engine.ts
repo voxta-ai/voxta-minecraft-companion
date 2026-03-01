@@ -18,7 +18,7 @@ import type { ScenarioAction } from '../bot/voxta/types';
 const CLIENT_NAME = 'Voxta.Minecraft';
 const CLIENT_VERSION = '0.2.0';
 
-type BotEngineEvent = 'status-changed' | 'chat-message' | 'clear-chat' | 'action-triggered' | 'toast' | 'play-audio' | 'stop-audio' | 'recording-start' | 'recording-stop';
+type BotEngineEvent = 'status-changed' | 'chat-message' | 'clear-chat' | 'inspector-update' | 'action-triggered' | 'toast' | 'play-audio' | 'stop-audio' | 'recording-start' | 'recording-stop';
 
 export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
@@ -909,6 +909,19 @@ export class BotEngine extends EventEmitter {
                     console.log('[Recording] Server requested recording STOP');
                     this.emit('recording-stop');
                 }
+                break;
+            }
+            case 'contextUpdated': {
+                // Forward context + actions to the renderer for the inspector drawer
+                const ctx = message as {
+                    contexts?: Array<{ contextKey: string; name: string; text: string }>;
+                    actions?: Array<{ name: string; description: string; layer?: string }>;
+                };
+                const inspectorData: import('../shared/ipc-types').InspectorData = {
+                    contexts: (ctx.contexts ?? []).map((c) => ({ name: c.name, text: c.text })),
+                    actions: (ctx.actions ?? []).map((a) => ({ name: a.name, description: a.description, layer: a.layer })),
+                };
+                this.emit('inspector-update', inspectorData);
                 break;
             }
             default:

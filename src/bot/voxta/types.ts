@@ -121,6 +121,12 @@ export interface ClientSpeechPlaybackCompleteMessage {
     messageId: string;
 }
 
+export interface ClientInspectMessage {
+    $type: 'inspect';
+    enabled: boolean;
+    sessionId: string;
+}
+
 export type ClientMessage =
     | ClientAuthenticateMessage
     | ClientRegisterAppMessage
@@ -129,7 +135,8 @@ export type ClientMessage =
     | ClientUpdateContextMessage
     | ClientInterruptMessage
     | ClientSpeechPlaybackStartMessage
-    | ClientSpeechPlaybackCompleteMessage;
+    | ClientSpeechPlaybackCompleteMessage
+    | ClientInspectMessage;
 
 // ---- Server → Client messages ----
 

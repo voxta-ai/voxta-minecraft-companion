@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
 import { cycleVisionWindow } from './vision-capture';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, BotConfig, BotStatus, ChatMessage, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, BotConfig, BotStatus, ChatMessage, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent, InspectorData } from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): void {
     const engine = new BotEngine();
@@ -18,6 +18,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
     engine.on('clear-chat', () => {
         win.webContents.send(IPC_CHANNELS.CLEAR_CHAT);
+    });
+
+    engine.on('inspector-update', (data: InspectorData) => {
+        win.webContents.send(IPC_CHANNELS.INSPECTOR_UPDATE, data);
     });
 
     engine.on('action-triggered', (actionName: string) => {

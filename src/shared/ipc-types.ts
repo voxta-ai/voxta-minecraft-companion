@@ -153,6 +153,24 @@ export interface RecordingStartEvent {
     voxtaApiKey: string | null;
 }
 
+// ---- Inspector Data ----
+
+export interface InspectorAction {
+    name: string;
+    description: string;
+    layer?: string;
+}
+
+export interface InspectorContext {
+    name: string;
+    text: string;
+}
+
+export interface InspectorData {
+    contexts: InspectorContext[];
+    actions: InspectorAction[];
+}
+
 // ---- IPC Channels ----
 
 export const IPC_CHANNELS = {
@@ -174,6 +192,7 @@ export const IPC_CHANNELS = {
     STATUS_CHANGED: 'bot:status-changed',
     CHAT_MESSAGE: 'bot:chat-message',
     CLEAR_CHAT: 'bot:clear-chat',
+    INSPECTOR_UPDATE: 'bot:inspector-update',
     ACTION_TRIGGERED: 'bot:action-triggered',
     TOAST: 'bot:toast',
     PLAY_AUDIO: 'bot:play-audio',

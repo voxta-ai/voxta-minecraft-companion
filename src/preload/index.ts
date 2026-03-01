@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ChatListItem, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent } from '../shared/ipc-types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ChatListItem, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent, InspectorData } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
 export type ChatCallback = (message: ChatMessage) => void;
@@ -71,6 +71,12 @@ const api = {
         const handler = (): void => callback();
         ipcRenderer.on(IPC_CHANNELS.CLEAR_CHAT, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.CLEAR_CHAT, handler);
+    },
+
+    onInspectorUpdate: (callback: (data: InspectorData) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, data: InspectorData): void => callback(data);
+        ipcRenderer.on(IPC_CHANNELS.INSPECTOR_UPDATE, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.INSPECTOR_UPDATE, handler);
     },
 
     onActionTriggered: (callback: ActionCallback): (() => void) => {

@@ -10,6 +10,7 @@ export interface WorldState {
     food: number;
     experience: { level: number; points: number };
     biome: string;
+    biomeTemperature: number;
     dimension: string;
     timeOfDay: number;
     isDay: boolean;
@@ -57,8 +58,8 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
         if (entity.type === 'player') {
             nearbyPlayers.push(entry);
-        } else if (entity.type === 'mob' || entity.type === 'hostile') {
-            // Skip mobs that are more than 5 blocks above/below (likely underground or on different level)
+        } else if (entity.type !== 'orb' && entity.type !== 'projectile' && entity.type !== 'object' && entity.type !== 'global') {
+            // Include all living entities (mob, hostile, animal, passive, other, etc.)
             const yDiff = Math.abs(entity.position.y - pos.y);
             if (yDiff <= 5) {
                 nearbyMobs.push(entry);
@@ -76,12 +77,25 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         inventorySummary.push(`${item.name} x${item.count}`);
     }
 
-    // Biome
+    // Biome — prismarine-biome often returns empty name, so fall back to ID lookup
     let biome = 'unknown';
+    let biomeTemperature = 0.5; // default to temperate
     try {
         const block = bot.blockAt(pos);
-        if (block) {
-            biome = block.biome?.name ?? 'unknown';
+        if (block?.biome) {
+            const b = block.biome as { id?: number; displayName?: string; name?: string; temperature?: number };
+            biomeTemperature = b.temperature ?? 0.5;
+            let raw = b.displayName || b.name || '';
+            // If name is empty but we have an ID, look it up via minecraft-data
+            if (!raw && b.id != null) {
+                const mcData = require('minecraft-data')(bot.version);
+                const biomeData = mcData.biomes?.[b.id] ?? mcData.biomesByName?.[b.id];
+                raw = biomeData?.displayName || biomeData?.name || '';
+                if (biomeData?.temperature != null) biomeTemperature = biomeData.temperature;
+            }
+            biome = raw
+                .replace(/^minecraft:/, '')
+                .replace(/_/g, ' ') || 'unknown';
         }
     } catch {
         // biome read can fail before chunks load
@@ -171,6 +185,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
             points: bot.experience.points,
         },
         biome,
+        biomeTemperature,
         dimension: bot.game.dimension,
         timeOfDay: bot.time.timeOfDay,
         isDay: bot.time.isDay,
@@ -221,7 +236,7 @@ export function buildContextStrings(
     lines.push(
         `${who}'s Health: ${state.health}/20 | ${who}'s Food: ${state.food}/20 | ` +
         `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${timeStr}) | ` +
-        `Weather: ${state.isRaining ? 'Raining' : 'Clear'} | ` +
+        `Weather: ${state.isRaining ? (state.biomeTemperature < 0.15 ? 'Snowing' : 'Raining') : 'Clear'} | ` +
         `Location: ${state.shelter}`
     );
 

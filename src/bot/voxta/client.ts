@@ -79,6 +79,8 @@ export class VoxtaClient {
             const started = message as ServerChatStartedMessage;
             this._sessionId = started.sessionId;
             console.log(`[Voxta] Chat started (session: ${started.sessionId})`);
+            // Enable inspector so contextUpdated includes contexts & actions
+            void this.send({ $type: 'inspect', enabled: true, sessionId: started.sessionId });
         } else if (message.$type === 'error') {
             console.error(`[Voxta] Error: ${(message as { message: string }).message}`);
         }

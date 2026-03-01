@@ -1,6 +1,6 @@
 import { createStore } from 'solid-js/store';
 import { onCleanup, onMount } from 'solid-js';
-import type { BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings, VoxtaConnectConfig, VoxtaInfo } from '../../shared/ipc-types';
+import type { BotStatus, ChatMessage, ActionToggle, CharacterInfo, McSettings, VoxtaConnectConfig, VoxtaInfo, InspectorData } from '../../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../../shared/ipc-types';
 
 // ---- Connection / Status Store ----
@@ -146,4 +146,22 @@ export function updateSetting<K extends keyof McSettings>(key: K, value: McSetti
 
 export function getSettings(): McSettings {
     return { ...settings };
+}
+
+// ---- Inspector Store ----
+
+const [inspectorData, setInspectorData] = createStore<InspectorData>({
+    contexts: [],
+    actions: [],
+});
+
+export { inspectorData };
+
+export function useInspectorListener(): void {
+    onMount(() => {
+        const cleanup = window.api.onInspectorUpdate((data) => {
+            setInspectorData(data);
+        });
+        onCleanup(cleanup);
+    });
 }
