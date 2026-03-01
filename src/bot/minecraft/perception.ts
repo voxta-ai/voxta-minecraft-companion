@@ -183,8 +183,10 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         movement = 'in lava';
     } else if (ent.isInWater) {
         movement = 'swimming';
-    } else if (!bot.entity.onGround) {
-        movement = bot.entity.velocity.y > 0.1 ? 'jumping' : 'falling';
+    } else if (!bot.entity.onGround && bot.entity.velocity.y < -0.1) {
+        movement = 'falling';
+    } else if (!bot.entity.onGround && bot.entity.velocity.y > 0.1) {
+        movement = 'jumping';
     } else {
         const vel = bot.entity.velocity;
         const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);

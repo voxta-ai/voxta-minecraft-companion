@@ -98,15 +98,9 @@ export class McEventBridge {
                         const hp = Math.round(this.bot.health * 10) / 10;
                         const name = this.callbacks.getAssistantName();
                         const msg = `${name} took ${totalDmg} total damage from ${damageSource}! Health is now: ${hp}/20`;
-                        // Only trigger AI reply for mob attacks; environmental damage is a silent note
-                        const isEnvironmental = ['drowning', 'drowning (underwater)', 'lava', 'fire',
-                            'fall damage', 'falling into the void', 'suffocation',
-                            'environmental damage', 'starvation (no food)'].includes(damageSource);
-                        if (isEnvironmental) {
-                            this.callbacks.onNote(msg);
-                        } else {
-                            this.callbacks.onEvent(msg);
-                        }
+                        // Damage is always a silent note — AI sees health in context
+                        // and gets 'under attack' events separately for mob attacks
+                        this.callbacks.onNote(msg);
                         this.pendingDamage = 0;
                         this.damageTimer = null;
                     }, 3000);
@@ -333,6 +327,7 @@ export class McEventBridge {
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoLook) return;
             if (isActionBusy()) return;
+            if (this.getFollowingPlayer()) return; // Pathfinder handles looking during follow
 
             const nearestPlayer = Object.values(this.bot.entities).find(
                 (e) => e.type === 'player'
