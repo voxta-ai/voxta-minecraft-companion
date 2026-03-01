@@ -23,6 +23,8 @@ export interface WorldState {
     nearbyBlocks: string[];
     shelter: string;
     currentActivity: string | null;
+    movement: string;
+    oxygenLevel: number;
     isSleeping: boolean;
 }
 
@@ -172,6 +174,27 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         shelter = `near shelter (${shelterBlockLabels.join(', ')} nearby)`;
     }
 
+    // Movement state — physical body status
+    let movement = 'standing';
+    const ent = bot.entity as Entity & { isInWater?: boolean; isInLava?: boolean };
+    if (bot.isSleeping) {
+        movement = 'sleeping';
+    } else if (ent.isInLava) {
+        movement = 'in lava';
+    } else if (ent.isInWater) {
+        movement = 'swimming';
+    } else if (!bot.entity.onGround) {
+        movement = bot.entity.velocity.y > 0.1 ? 'jumping' : 'falling';
+    } else {
+        const vel = bot.entity.velocity;
+        const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
+        if (speed > 0.15) {
+            movement = 'sprinting';
+        } else if (speed > 0.05) {
+            movement = 'walking';
+        }
+    }
+
     return {
         position: {
             x: Math.round(pos.x),
@@ -203,6 +226,8 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         nearbyBlocks,
         shelter,
         currentActivity: getCurrentActivity(),
+        movement,
+        oxygenLevel: bot.oxygenLevel ?? 20,
         isSleeping: bot.isSleeping,
     };
 }
@@ -240,10 +265,12 @@ export function buildContextStrings(
         `Location: ${state.shelter}`
     );
 
-    // Current activity status
-    const activity = state.isSleeping ? 'sleeping in bed'
-        : state.currentActivity ?? 'idle (standing)';
+    // Current activity (task-level)
+    const activity = state.currentActivity ?? 'idle';
     lines.push(`${who}'s current activity: ${activity}`);
+
+    // Movement (physical state)
+    lines.push(`${who}'s movement: ${state.movement}`);
 
     // Survival status warnings — helps AI understand Minecraft mechanics
     const warnings: string[] = [];

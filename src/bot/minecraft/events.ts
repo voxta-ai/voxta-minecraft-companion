@@ -85,10 +85,12 @@ export class McEventBridge {
                 const damage = Math.round((this.lastHealth - currentHealth) * 10) / 10;
                 const source = this.getDamageSource();
                 this.pendingDamage += damage;
+
+                // Log each tick to chat (visible but doesn't trigger AI reply)
                 const botName = this.callbacks.getAssistantName();
                 this.callbacks.onChat('event', 'Event', `${botName} took ${damage} damage from ${source}! Health: ${currentHealth}/20`);
 
-                // Consolidate damage into one message after a short delay
+                // Consolidate damage into one AI message after a short delay
                 if (!this.damageTimer) {
                     const damageSource = source;
                     this.damageTimer = setTimeout(() => {
@@ -96,7 +98,11 @@ export class McEventBridge {
                         const hp = Math.round(this.bot.health * 10) / 10;
                         const name = this.callbacks.getAssistantName();
                         const msg = `${name} took ${totalDmg} total damage from ${damageSource}! Health is now: ${hp}/20`;
-                        if (damageSource === 'starvation (no food)') {
+                        // Only trigger AI reply for mob attacks; environmental damage is a silent note
+                        const isEnvironmental = ['drowning', 'drowning (underwater)', 'lava', 'fire',
+                            'fall damage', 'falling into the void', 'suffocation',
+                            'environmental damage', 'starvation (no food)'].includes(damageSource);
+                        if (isEnvironmental) {
                             this.callbacks.onNote(msg);
                         } else {
                             this.callbacks.onEvent(msg);
@@ -114,14 +120,14 @@ export class McEventBridge {
             const settings = this.callbacks.getSettings();
             if (!settings.enableEventDeath) return;
             this.died = true;
-            const killer = this.lastAttacker ?? 'unknown causes';
+            const killer = this.lastAttacker ?? this.getDamageSource();
             this.lastAttacker = null;
             this.lastHealth = 20;
             this.pendingDamage = 0;
             if (this.damageTimer) { clearTimeout(this.damageTimer); this.damageTimer = null; }
             const botName = this.callbacks.getAssistantName();
-            this.callbacks.onChat('event', 'Event', `${botName} was killed by ${killer}!`);
-            this.callbacks.onNote(`${botName} was killed by ${killer}!`);
+            this.callbacks.onChat('event', 'Event', `${botName} died from ${killer}!`);
+            this.callbacks.onNote(`${botName} died from ${killer}!`);
         }) as (...args: never[]) => void);
 
         // ---- Respawn ----
@@ -150,7 +156,7 @@ export class McEventBridge {
             // Priority 1: Check for nearby hostile mobs (handles explosions, ranged, AOE)
             const hostileMob = Object.values(this.bot.entities).find(
                 (e) => e !== this.bot.entity
-                    && (e.type === 'mob' || e.type === 'hostile')
+                    && e.type === 'hostile'
                     && e.position.distanceTo(this.bot.entity.position) < 16,
             );
             if (hostileMob) {
@@ -172,19 +178,21 @@ export class McEventBridge {
                 this.callbacks.onNote(`${botName} is being attacked by ${this.lastAttacker}!`);
             }
 
-            // Auto self-defense
+            // Auto self-defense — only if we were actually hit by a mob (not environmental damage)
+            // Case 1: hostile mob nearby (skeletons, zombies, etc.)
+            // Case 2: any entity that swung at us recently (provoked bears, wolves, etc.)
             if (settings.enableAutoDefense && !this.isAutoDefending) {
-                const attacker = Object.values(this.bot.entities).find(
-                    (e) => e !== this.bot.entity
-                        && (e.type === 'mob' || e.type === 'hostile')
-                        && e.position.distanceTo(this.bot.entity.position) < 8,
-                );
-                if (attacker) {
-                    const mobName = attacker.name ?? 'unknown';
+                let targetName: string | null = null;
+                if (hostileMob) {
+                    targetName = hostileMob.name ?? 'unknown';
+                } else if (this.lastAttacker && Date.now() - this.lastAttackerTime < 2000) {
+                    targetName = this.names.resolveToMc(this.lastAttacker);
+                }
+                if (targetName) {
                     this.isAutoDefending = true;
                     const botName = this.callbacks.getAssistantName();
-                    this.callbacks.onChat('action', 'Action', `${botName} auto-defending against ${mobName}!`);
-                    void this.onAutoDefenseAction(this.bot, mobName)
+                    this.callbacks.onChat('action', 'Action', `${botName} auto-defending against ${targetName}!`);
+                    void this.onAutoDefenseAction(this.bot, targetName)
                         .finally(() => { this.isAutoDefending = false; });
                 }
             }
@@ -207,7 +215,7 @@ export class McEventBridge {
             const attacker = Object.values(this.bot.entities).find(
                 (e) => e !== this.bot.entity
                     && e.id !== entity.id
-                    && (e.type === 'mob' || e.type === 'hostile')
+                    && e.type === 'hostile'
                     && e.position.distanceTo(entity.position) < 8,
             );
             if (!attacker) return;
@@ -293,16 +301,31 @@ export class McEventBridge {
 
     /** Guess damage source from bot state and recent attacker */
     private getDamageSource(): string {
+        // Check environmental causes first — these are unambiguous
+        if (this.bot.food === 0) return 'starvation (no food)';
+        const meta = this.bot.entity as unknown as Record<string, unknown>;
+        if (meta['isInWater'] && (this.bot.oxygenLevel ?? 20) <= 0) return 'drowning';
+        if (meta['isInWater'] && (this.bot.oxygenLevel ?? 400) < 100) return 'drowning (underwater)';
+        if (meta['isInLava']) return 'lava';
+        if (meta['isInFire'] || meta['onFire']) return 'fire';
+        if (this.bot.entity.position.y < -60) return 'falling into the void';
+
+        // Then check for a recent attacker (mob or player hit)
         if (this.lastAttacker && Date.now() - this.lastAttackerTime < 2000) {
             const source = this.lastAttacker;
             this.lastAttacker = null;
             return source;
         }
-        if (this.bot.food === 0) return 'starvation (no food)';
-        const meta = this.bot.entity as unknown as Record<string, unknown>;
-        if (meta['isInLava']) return 'lava';
-        if (meta['isInFire'] || meta['onFire']) return 'fire';
-        return 'falling or environment';
+
+        if (!this.bot.entity.onGround) return 'fall damage';
+        // Check if inside a block (suffocation)
+        try {
+            const headBlock = this.bot.blockAt(this.bot.entity.position.offset(0, 1.6, 0));
+            if (headBlock && headBlock.name !== 'air' && headBlock.name !== 'cave_air' && headBlock.name !== 'water') {
+                return 'suffocation';
+            }
+        } catch { /* chunk not loaded */ }
+        return 'environmental damage';
     }
 
     private startAutoLook(): void {

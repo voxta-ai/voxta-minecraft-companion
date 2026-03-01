@@ -12,6 +12,8 @@ function getContextIcon(text: string): string {
     if (text.includes('position:')) return '📍';
     if (text.includes('Health:') || text.includes('Food:')) return '❤️';
     if (text.includes('current activity:')) return '🏃';
+    if (text.includes('movement:')) return '🦶';
+    if (text.includes('oxygen:') || text.includes('drowning')) return '💨';
     if (text.includes('CRITICAL:') || text.includes('WARNING:')) return '⚠️';
     if (text.includes('Note:')) return '💡';
     if (text.includes('is holding:')) return '🤚';
@@ -28,6 +30,8 @@ function getContextLabel(text: string): string {
     if (text.includes('position:')) return 'Location';
     if (text.includes('Health:')) return 'Status';
     if (text.includes('current activity:')) return 'Activity';
+    if (text.includes('movement:')) return 'Movement';
+    if (text.includes('oxygen:') || text.includes('drowning')) return 'Oxygen';
     if (text.includes('CRITICAL:') || text.includes('WARNING:')) return 'Alert';
     if (text.includes('Note:')) return 'Note';
     if (text.includes('is holding:')) return 'Held Item';
