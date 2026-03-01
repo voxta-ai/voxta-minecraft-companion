@@ -62,8 +62,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
             nearbyPlayers.push(entry);
         } else if (entity.type !== 'orb' && entity.type !== 'projectile' && entity.type !== 'object' && entity.type !== 'global') {
             // Include all living entities (mob, hostile, animal, passive, other, etc.)
-            const yDiff = Math.abs(entity.position.y - pos.y);
-            if (yDiff <= 5) {
+            // Asymmetric Y: 10 above (flying mobs) but only 2 below (avoid sensing underground caves)
+            const yDiff = entity.position.y - pos.y;
+            if (yDiff >= -2 && yDiff <= 10) {
                 nearbyMobs.push(entry);
             }
         }

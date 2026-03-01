@@ -218,6 +218,12 @@ export async function executeAction(
                 return await craftItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
             }
 
+            case 'mc_place_block': {
+                const blockTarget = getArg(args, 'block_name') ?? 'block';
+                currentActivity = `placing ${blockTarget}`;
+                return await placeBlock(bot, getArg(args, 'block_name'));
+            }
+
             case 'mc_store_item':
                 currentActivity = 'storing items in chest';
                 return await storeItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
@@ -469,6 +475,8 @@ async function mineBlock(
         // Trees (logs): 6 above, 3 below (handles terrain where base is lower).
         // Other blocks: max 2 above, max 1 below (avoid digging straight down).
         const botY = bot.entity.position.y;
+        const botX = Math.floor(bot.entity.position.x);
+        const botZ = Math.floor(bot.entity.position.z);
         const isTreeBlock = resolvedName.includes('log');
         const maxAbove = isTreeBlock ? 6 : 2;
         const maxBelow = isTreeBlock ? 3 : 1;
@@ -476,7 +484,11 @@ async function mineBlock(
             .filter((pos) => {
                 const key = `${pos.x},${pos.y},${pos.z}`;
                 const dy = pos.y - botY;
-                return dy <= maxAbove && dy >= -maxBelow && !failedPositions.has(key);
+                if (dy > maxAbove || dy < -maxBelow) return false;
+                if (failedPositions.has(key)) return false;
+                // Don't mine directly below feet (safety: lava, void, etc.)
+                if (dy < 0 && pos.x === botX && pos.z === botZ) return false;
+                return true;
             })
             .sort((a, b) => {
                 if (isTreeBlock) {
@@ -489,6 +501,10 @@ async function mineBlock(
                     if (sameTreeA && sameTreeB) return a.y - b.y;
                     return hDistA - hDistB;
                 }
+                // Prioritize blocks at/above bot level over below
+                const belowA = a.y < botY ? 1 : 0;
+                const belowB = b.y < botY ? 1 : 0;
+                if (belowA !== belowB) return belowA - belowB;
                 const yPenaltyA = Math.abs(a.y - botY) * 16;
                 const yPenaltyB = Math.abs(b.y - botY) * 16;
                 const distA = bot.entity.position.distanceTo(a) + yPenaltyA;
@@ -528,6 +544,15 @@ async function mineBlock(
             );
             await Promise.race([pathPromise, timeout]);
             if (signal.aborted) break;
+
+            // Re-equip the correct tool before digging (pathfinder may change held item)
+            if (toolCategory !== 'none') {
+                const tool = getBestTool(bot, toolCategory);
+                if (tool) {
+                    try { await bot.equip(tool.item as number, 'hand'); } catch { /* best effort */ }
+                }
+            }
+
             await bot.dig(block);
             dug++;
 
@@ -858,6 +883,7 @@ async function inspectContainer(bot: Bot, target: string | undefined): Promise<s
         chest: (name) => name === 'chest' || name === 'trapped_chest',
         furnace: (name) => name === 'furnace' || name === 'smoker' || name === 'blast_furnace',
         barrel: (name) => name === 'barrel',
+        crafting_table: (name) => name === 'crafting_table',
     };
 
     const matcher = blockMatchers[t];
@@ -865,8 +891,20 @@ async function inspectContainer(bot: Bot, target: string | undefined): Promise<s
         // Try to match any container
         const allMatcher = (name: string): boolean =>
             name === 'chest' || name === 'trapped_chest' || name === 'barrel'
-            || name === 'furnace' || name === 'smoker' || name === 'blast_furnace';
+            || name === 'furnace' || name === 'smoker' || name === 'blast_furnace'
+            || name === 'crafting_table';
         return await doInspect(bot, allMatcher, target);
+    }
+
+    // Crafting table is not a container — just confirm it exists
+    if (t === 'crafting_table') {
+        const block = bot.findBlock({
+            matching: (b) => b.name === 'crafting_table',
+            maxDistance: 32,
+        });
+        if (!block) return 'No crafting table found nearby';
+        const dist = Math.round(block.position.distanceTo(bot.entity.position));
+        return `Crafting table found ${dist} blocks away (crafting tables don't store items)`;
     }
 
     return await doInspect(bot, matcher, t);
@@ -1126,6 +1164,11 @@ async function craftItem(bot: Bot, itemName: string | undefined, countStr: strin
     // Try crafting without a table first (2x2 recipes like planks, sticks)
     let recipes = bot.recipesFor(itemInfo.id, null, 1, null);
 
+    // Count items before crafting to calculate actual gain
+    const countBefore = bot.inventory.items()
+        .filter((i) => i.type === itemInfo.id)
+        .reduce((sum, i) => sum + i.count, 0);
+
     let result: string;
 
     if (recipes.length === 0) {
@@ -1160,8 +1203,10 @@ async function craftItem(bot: Bot, itemName: string | undefined, countStr: strin
                 // Craft with table
                 try {
                     await bot.craft(recipes[0], count, craftingTable);
-                    const outputCount = count * (recipes[0].result?.count ?? 1);
-                    result = `Crafted ${outputCount} ${itemInfo.displayName}`;
+                    const gained = bot.inventory.items()
+                        .filter((i) => i.type === itemInfo.id)
+                        .reduce((sum, i) => sum + i.count, 0) - countBefore;
+                    result = `Crafted ${gained} ${itemInfo.displayName}`;
                 } catch (err) {
                     const message = err instanceof Error ? err.message : String(err);
                     result = `Failed to craft ${itemInfo.displayName}: ${message}`;
@@ -1172,8 +1217,10 @@ async function craftItem(bot: Bot, itemName: string | undefined, countStr: strin
         // Craft without table (2x2)
         try {
             await bot.craft(recipes[0], count);
-            const outputCount = count * (recipes[0].result?.count ?? 1);
-            result = `Crafted ${outputCount} ${itemInfo.displayName}`;
+            const gained = bot.inventory.items()
+                .filter((i) => i.type === itemInfo.id)
+                .reduce((sum, i) => sum + i.count, 0) - countBefore;
+            result = `Crafted ${gained} ${itemInfo.displayName}`;
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             result = `Failed to craft ${itemInfo.displayName}: ${message}`;
@@ -1191,6 +1238,77 @@ async function craftItem(bot: Bot, itemName: string | undefined, countStr: strin
     return result;
 }
 
+// ---- Block Placement ----
+
+async function placeBlock(bot: Bot, blockName: string | undefined): Promise<string> {
+    if (!blockName) return 'No block name provided';
+
+    const resolved = blockName.toLowerCase().replace(/ /g, '_');
+
+    // Find the block in inventory
+    const item = bot.inventory.items().find(
+        (i) => i.name.toLowerCase().includes(resolved),
+    );
+    // Also check held item
+    const heldItem = bot.heldItem;
+    const isHeld = heldItem && heldItem.name.toLowerCase().includes(resolved);
+
+    if (!item && !isHeld) return `No ${blockName} found in inventory`;
+
+    const displayName = item?.displayName ?? heldItem?.displayName ?? blockName;
+
+    // Save currently held item to re-equip after
+    const previousHeld = (!isHeld && heldItem) ? heldItem.name : null;
+
+    // Equip the block if not already held
+    suppressPickups = true;
+    if (!isHeld && item) {
+        await bot.equip(item, 'hand');
+    }
+
+    // Find a reference block to place against (block at bot's feet level)
+    const pos = bot.entity.position;
+    const refBlock = bot.blockAt(pos.offset(0, -1, 0));
+    if (!refBlock || refBlock.name === 'air' || refBlock.name === 'cave_air') {
+        suppressPickups = false;
+        return `Cannot place ${displayName}: no solid ground nearby`;
+    }
+
+    // Try to place the block on top of the reference block
+    try {
+        const faceVector = new (require('vec3').Vec3)(0, 1, 0); // top face
+        await bot.placeBlock(refBlock, faceVector);
+        // Re-equip previous item
+        if (previousHeld) {
+            const reequip = bot.inventory.items().find((i) => i.name === previousHeld);
+            if (reequip) await bot.equip(reequip, 'hand');
+        }
+        setTimeout(() => { suppressPickups = false; }, 200);
+        return `Placed ${displayName}`;
+    } catch (err) {
+        // If placing at feet fails, try in front of the bot
+        try {
+            const yaw = bot.entity.yaw;
+            const dx = -Math.sin(yaw);
+            const dz = -Math.cos(yaw);
+            const frontRef = bot.blockAt(pos.offset(Math.round(dx), -1, Math.round(dz)));
+            if (frontRef && frontRef.name !== 'air') {
+                const faceVector = new (require('vec3').Vec3)(0, 1, 0);
+                await bot.placeBlock(frontRef, faceVector);
+                if (previousHeld) {
+                    const reequip = bot.inventory.items().find((i) => i.name === previousHeld);
+                    if (reequip) await bot.equip(reequip, 'hand');
+                }
+                setTimeout(() => { suppressPickups = false; }, 200);
+                return `Placed ${displayName}`;
+            }
+        } catch { /* fallback failed */ }
+        setTimeout(() => { suppressPickups = false; }, 200);
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to place ${displayName}: ${message}`;
+    }
+}
+
 async function equipItem(bot: Bot, itemName: string | undefined): Promise<string> {
     if (!itemName) return 'No item name provided';
 
@@ -1201,10 +1319,13 @@ async function equipItem(bot: Bot, itemName: string | undefined): Promise<string
 
     const slot = getEquipSlot(item.name);
     try {
+        suppressPickups = true;
         await bot.equip(item.type, slot);
+        setTimeout(() => { suppressPickups = false; }, 200);
         const slotLabel = slot === 'hand' ? 'hand' : `${slot} armor slot`;
         return `Equipped ${item.displayName ?? item.name} in ${slotLabel}`;
     } catch (err) {
+        setTimeout(() => { suppressPickups = false; }, 200);
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to equip ${item.name}: ${message}`;
     }

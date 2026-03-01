@@ -3,7 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
-import { executeAction, isActionBusy, isPickupSuppressed } from './actions';
+import { executeAction, isActionBusy } from './actions';
 
 // ---- Callback interface ----
 
@@ -41,6 +41,7 @@ export class McEventBridge {
     private isAutoDefending = false;
     private died = false;
     private autoLookLoop: ReturnType<typeof setInterval> | null = null;
+    private pickupCheckTimer: ReturnType<typeof setInterval> | null = null;
 
     // Bound listener references for cleanup
     // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
@@ -151,7 +152,8 @@ export class McEventBridge {
             const hostileMob = Object.values(this.bot.entities).find(
                 (e) => e !== this.bot.entity
                     && e.type === 'hostile'
-                    && e.position.distanceTo(this.bot.entity.position) < 16,
+                    && e.position.distanceTo(this.bot.entity.position) < 28
+                    && Math.abs(e.position.y - this.bot.entity.position.y) < 3,
             );
             if (hostileMob) {
                 const mcName = hostileMob.username ?? hostileMob.displayName ?? hostileMob.name ?? 'something';
@@ -210,7 +212,8 @@ export class McEventBridge {
                 (e) => e !== this.bot.entity
                     && e.id !== entity.id
                     && e.type === 'hostile'
-                    && e.position.distanceTo(entity.position) < 8,
+                    && e.position.distanceTo(entity.position) < 8
+                    && Math.abs(e.position.y - entity.position.y) < 3,
             );
             if (!attacker) return;
 
@@ -249,28 +252,56 @@ export class McEventBridge {
             this.callbacks.onNote(`${botName} picked up ${parts.join(', ')}`);
         };
 
-        const updateSlotHandler = ((_slot: number, oldItem: { name: string; count: number } | null, newItem: { name: string; displayName: string; count: number } | null) => {
-            const settings = this.callbacks.getSettings();
-            if (!settings.enableTelemetryItemPickup) return;
-            if (isPickupSuppressed()) return; // Skip during crafting equip/unequip
-            if (!newItem) return;
-            const gained = oldItem && oldItem.name === newItem.name
-                ? newItem.count - oldItem.count
-                : newItem.count;
-            if (gained <= 0) return;
-            const name = newItem.displayName ?? newItem.name;
-            const botName = this.callbacks.getAssistantName();
-            this.callbacks.onChat('system', 'Telemetry', `${botName} picked up ${gained} ${name}`);
-
-            // Accumulate for batched note
-            pendingPickups.set(name, (pendingPickups.get(name) ?? 0) + gained);
-            if (!pickupFlushTimer) {
-                pickupFlushTimer = setTimeout(flushPickups, 3000);
+        // Track pickups by comparing total inventory snapshots.
+        // Per-slot tracking fires false positives on equip/unequip (item moves between hand and inventory).
+        let lastInventorySnapshot = new Map<string, { count: number; displayName: string }>();
+        const takeSnapshot = (): Map<string, { count: number; displayName: string }> => {
+            const snap = new Map<string, { count: number; displayName: string }>();
+            for (const item of this.bot.inventory.items()) {
+                const prev = snap.get(item.name);
+                snap.set(item.name, {
+                    count: (prev?.count ?? 0) + item.count,
+                    displayName: item.displayName ?? item.name,
+                });
             }
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        this.bot.inventory.on('updateSlot', updateSlotHandler as any);
-        this.boundInventoryListeners.push({ event: 'updateSlot', fn: updateSlotHandler });
+            return snap;
+        };
+        lastInventorySnapshot = takeSnapshot();
+
+        let pickupCheckTimer: ReturnType<typeof setInterval> | null = null;
+        const startPickupCheck = (): void => {
+            if (pickupCheckTimer) return;
+            pickupCheckTimer = setInterval(() => {
+                const settings = this.callbacks.getSettings();
+                if (!settings.enableTelemetryItemPickup) return;
+
+                const current = takeSnapshot();
+                const botName = this.callbacks.getAssistantName();
+                const gains: string[] = [];
+
+                for (const [name, { count, displayName }] of current) {
+                    const prev = lastInventorySnapshot.get(name)?.count ?? 0;
+                    const gained = count - prev;
+                    if (gained > 0) {
+                        gains.push(`${gained} ${displayName}`);
+                        // Accumulate for batched note
+                        pendingPickups.set(displayName, (pendingPickups.get(displayName) ?? 0) + gained);
+                    }
+                }
+
+                if (gains.length > 0) {
+                    this.callbacks.onChat('system', 'Telemetry', `${botName} picked up ${gains.join(', ')}`);
+                    if (!pickupFlushTimer) {
+                        pickupFlushTimer = setTimeout(flushPickups, 3000);
+                    }
+                }
+
+                lastInventorySnapshot = current;
+            }, 500);
+        };
+        startPickupCheck();
+        // Store for cleanup
+        this.pickupCheckTimer = pickupCheckTimer;
 
         // ---- Chat bridging ----
         this.on('chat', ((username: string, message: string) => {

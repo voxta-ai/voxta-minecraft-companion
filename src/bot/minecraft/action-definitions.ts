@@ -219,6 +219,19 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         isPhysical: true,
     },
     {
+        name: 'mc_place_block',
+        description: 'Place a block from inventory at a nearby location. Automatically equips the block if not already held.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            { name: 'block_name', type: 'String', description: 'Block to place (e.g. crafting_table, furnace, torch, chest)', required: true },
+        ],
+        category: 'survival',
+        isQuick: false,
+        isPhysical: true,
+    },
+    {
         name: 'mc_store_item',
         description: 'Store/deposit items from inventory into a nearby chest. Use when asked to put items away, store items, or fill a chest.',
         disabled: false,
