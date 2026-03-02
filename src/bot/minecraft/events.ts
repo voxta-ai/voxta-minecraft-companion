@@ -241,12 +241,9 @@ export class McEventBridge {
 
         // ---- Auto-eat: eat when hunger drops below threshold ----
         let isAutoEating = false;
-        let lastAutoEatTime = 0;
 
-        this.on('health', (() => {
-            const now = Date.now();
+        const tryAutoEat = (): void => {
             if (isAutoEating) return;
-            if (now - lastAutoEatTime < 5000) return; // 5s cooldown between eats
             if (this.bot.food >= 14) return; // only eat when hungry (20 = full)
 
             // Find best food in inventory
@@ -258,7 +255,6 @@ export class McEventBridge {
             if (!foodItem) return; // no food available
 
             isAutoEating = true;
-            lastAutoEatTime = now;
             const prevHeldItem = this.bot.heldItem;
 
             console.log(`[MC] Auto-eating ${foodItem.displayName ?? foodItem.name} (hunger: ${this.bot.food}/20)`);
@@ -276,9 +272,19 @@ export class McEventBridge {
                     console.warn(`[MC] Auto-eat failed:`, err);
                 } finally {
                     isAutoEating = false;
+                    // Still hungry? Eat again after a short delay
+                    if (this.bot.food < 14) {
+                        setTimeout(() => tryAutoEat(), 2000);
+                    }
                 }
             })();
-        }) as (...args: never[]) => void);
+        };
+
+        // Trigger auto-eat when health/food changes
+        this.on('health', (() => tryAutoEat()) as (...args: never[]) => void);
+
+        // Also check on spawn (health event doesn't fire for initial values)
+        setTimeout(() => tryAutoEat(), 5000);
 
         // ---- Inventory changes (item pickup) ----
         // Batch pickup notes: accumulate items over a short window, then send

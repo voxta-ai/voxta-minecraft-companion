@@ -501,6 +501,11 @@ async function mineBlock(
         redstone_ore: 'redstone',
         deepslate_redstone_ore: 'redstone',
         nether_quartz_ore: 'quartz',
+        // Crops: block names are plural, item names are singular
+        carrots: 'carrot',
+        potatoes: 'potato',
+        beetroots: 'beetroot',
+        sweet_berry_bush: 'sweet_berries',
     };
     const itemNames = new Set<string>();
     for (const id of blockIds) {
@@ -527,9 +532,8 @@ async function mineBlock(
     const signal = actionAbort.signal;
 
     while (attempts < MAX_ATTEMPTS) {
-        // Check if we've collected enough items
-        const collected = countInventory() - startCount;
-        if (collected >= maxCount) break;
+        // Check if we've dug enough blocks
+        if (dug >= maxCount) break;
         if (signal.aborted) break;
         attempts++;
 
@@ -679,11 +683,9 @@ async function mineBlock(
     // Wait briefly for any remaining items to be auto-collected
     await new Promise((r) => setTimeout(r, 1000));
 
-    const collected = countInventory() - startCount;
-    if (collected <= 0 && dug === 0) return `Failed to collect any ${displayName} (stuck or unreachable)`;
-    if (collected <= 0) return `Broke ${dug} ${displayName} but couldn't pick any up`;
-    const status = collected >= maxCount ? 'goal reached' : 'no more nearby';
-    return `Collected ${collected}/${maxCount} ${displayName} (${status})`;
+    if (dug === 0) return `Failed to collect any ${displayName} (stuck or unreachable)`;
+    const status = dug >= maxCount ? 'goal reached' : 'no more nearby';
+    return `Collected ${dug} ${displayName} (${status})`;
 }
 
 async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {
