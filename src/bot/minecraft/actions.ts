@@ -3,6 +3,8 @@ import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Entity } from 'prismarine-entity';
 import type { ActionInvocationArgument } from '../voxta/types.js';
 import type { NameRegistry } from '../name-registry';
@@ -116,9 +118,47 @@ let currentActivity: string | null = null;
 export function getCurrentActivity(): string | null { return currentActivity; }
 export function setCurrentActivity(activity: string | null): void { currentActivity = activity; }
 
-// Saved home/bed position — set when the bot sleeps in a bed
+// Saved home/bed position — persisted to a JSON file keyed by server address
 let homePosition: { x: number; y: number; z: number } | null = null;
+let homeServerKey: string | null = null;
 export function getHomePosition(): { x: number; y: number; z: number } | null { return homePosition; }
+
+const HOME_FILE = join(process.cwd(), 'bot-home.json');
+
+interface HomeData {
+    [serverKey: string]: { x: number; y: number; z: number };
+}
+
+function loadHomeData(): HomeData {
+    try {
+        return JSON.parse(readFileSync(HOME_FILE, 'utf-8')) as HomeData;
+    } catch {
+        return {};
+    }
+}
+
+function saveHomeData(data: HomeData): void {
+    try {
+        mkdirSync(join(HOME_FILE, '..'), { recursive: true });
+        writeFileSync(HOME_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err) {
+        console.error('[MC Action] Failed to save home data:', err);
+    }
+}
+
+/** Call after bot connects to load any saved home position for this server */
+export function initHomePosition(host: string, port: number): void {
+    homeServerKey = `${host}:${port}`;
+    const data = loadHomeData();
+    const saved = data[homeServerKey];
+    if (saved) {
+        homePosition = saved;
+        console.log(`[MC Action] Loaded home position for ${homeServerKey}: ${saved.x}, ${saved.y}, ${saved.z}`);
+    } else {
+        homePosition = null;
+        console.log(`[MC Action] No saved home position for ${homeServerKey}`);
+    }
+}
 
 export async function executeAction(
     bot: Bot,
@@ -208,6 +248,10 @@ export async function executeAction(
                 }
                 return 'Not currently sleeping';
 
+            case 'mc_set_home':
+                currentActivity = 'setting home';
+                return await setHome(bot);
+
             case 'mc_cook':
                 currentActivity = 'cooking';
                 return await cookFood(bot, getArg(args, 'item_name'));
@@ -274,9 +318,34 @@ async function followPlayer(bot: Bot, playerName: string | undefined, names: Nam
         }
     }
 
+    // Flush any pending pathfinder stop — pathfinder.stop() sets an internal
+    // "stopPathing" flag. If we call setGoal() while that flag is true, resetPath()
+    // sees it and immediately nullifies our new goal. Setting null first clears it.
+    bot.pathfinder.setGoal(null);
+
     const goal = new goals.GoalFollow(player, 3);
     bot.pathfinder.setGoal(goal, true); // dynamic = true → keeps following
     console.log(`[MC Action] Follow goal set for ${displayName}, goal active: ${!!bot.pathfinder.goal}`);
+
+    return `Following ${displayName}`;
+}
+
+/**
+ * Resume following a player after auto-defense WITHOUT going through executeAction.
+ * executeAction's physical action handling (actionAbort.abort(), actionBusy) interferes
+ * with the pathfinder after combat. This function directly sets the goal.
+ */
+export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegistry): string {
+    const player = findPlayerEntity(bot, playerName, names);
+    const displayName = names.resolveToVoxta(names.resolveToMc(playerName));
+    if (!player) return `Cannot find player "${displayName}" nearby`;
+
+    // Flush pending stop flag (see comment in followPlayer above)
+    bot.pathfinder.setGoal(null);
+
+    const goal = new goals.GoalFollow(player, 3);
+    bot.pathfinder.setGoal(goal, true);
+    console.log(`[MC Action] Resume follow goal set for ${displayName}, goal active: ${!!bot.pathfinder.goal}`);
 
     return `Following ${displayName}`;
 }
@@ -301,18 +370,17 @@ async function goTo(
 }
 
 async function goHome(bot: Bot): Promise<string> {
-    const home = homePosition;
-    if (!home) return 'No home bed set yet. I need to sleep in a bed first to remember where home is.';
+    if (!homePosition) return 'No home bed set yet. I need to sleep in a bed first to remember where home is.';
 
-    const dx = bot.entity.position.x - home.x;
-    const dy = bot.entity.position.y - home.y;
-    const dz = bot.entity.position.z - home.z;
+    const dx = bot.entity.position.x - homePosition.x;
+    const dy = bot.entity.position.y - homePosition.y;
+    const dz = bot.entity.position.z - homePosition.z;
     const distance = Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz));
-    console.log(`[MC Action] Going home to bed at ${home.x}, ${home.y}, ${home.z} (${distance} blocks away)`);
+    console.log(`[MC Action] Going home to bed at ${homePosition.x}, ${homePosition.y}, ${homePosition.z} (${distance} blocks away)`);
 
-    const goal = new goals.GoalNear(home.x, home.y, home.z, 2);
+    const goal = new goals.GoalNear(homePosition.x, homePosition.y, homePosition.z, 2);
     bot.pathfinder.setGoal(goal);
-    return `Heading home to the shelter at ${home.x}, ${home.y}, ${home.z} (${distance} blocks away)`;
+    return `Heading home to the shelter at ${homePosition.x}, ${homePosition.y}, ${homePosition.z} (${distance} blocks away)`;
 }
 
 async function mineBlock(
@@ -1015,6 +1083,17 @@ async function eatFood(bot: Bot, foodName: string | undefined): Promise<string> 
     }
 }
 
+/** Shared helper: save bed position as home (memory + disk) */
+function saveHome(bedBlock: { position: { x: number; y: number; z: number } }): void {
+    homePosition = { x: bedBlock.position.x, y: bedBlock.position.y, z: bedBlock.position.z };
+    if (homeServerKey) {
+        const data = loadHomeData();
+        data[homeServerKey] = homePosition;
+        saveHomeData(data);
+    }
+    console.log(`[MC Action] Home position saved: ${homePosition.x}, ${homePosition.y}, ${homePosition.z}`);
+}
+
 async function sleepInBed(bot: Bot): Promise<string> {
     // Find nearest bed
     const bedBlock = bot.findBlock({
@@ -1036,16 +1115,54 @@ async function sleepInBed(bot: Bot): Promise<string> {
     // Try to sleep
     try {
         await bot.sleep(bedBlock);
-        // Save bed position as home
-        homePosition = { x: bedBlock.position.x, y: bedBlock.position.y, z: bedBlock.position.z };
-        console.log(`[MC Action] Home position saved: ${homePosition.x}, ${homePosition.y}, ${homePosition.z}`);
-        return 'Went to sleep in bed';
+        saveHome(bedBlock);
+        return 'Went to sleep in bed (home set)';
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        if (message.includes('not night')) return 'Cannot sleep, it is not night time yet';
-        if (message.includes('occupied')) return 'Cannot sleep, the bed is occupied';
-        if (message.includes('monsters')) return 'Cannot sleep, there are monsters nearby';
+
+        // Can't sleep but can still set spawn point by tapping the bed
+        if (message.includes('not night') || message.includes('occupied') || message.includes('monsters')) {
+            try {
+                await bot.activateBlock(bedBlock);
+                saveHome(bedBlock);
+            } catch {
+                // activateBlock can fail if too far — home not set
+            }
+        }
+
+        if (message.includes('not night')) return 'Cannot sleep during the day, but home has been set to this bed';
+        if (message.includes('occupied')) return 'Cannot sleep, the bed is occupied (home set to this bed)';
+        if (message.includes('monsters')) return 'Cannot sleep, there are monsters nearby (home set to this bed)';
         return `Cannot sleep: ${message}`;
+    }
+}
+
+async function setHome(bot: Bot): Promise<string> {
+    // Find nearest bed
+    const bedBlock = bot.findBlock({
+        matching: (block) => BED_BLOCKS.includes(block.name),
+        maxDistance: 32,
+    });
+
+    if (!bedBlock) return 'No bed found nearby to set as home';
+
+    // Walk to the bed
+    try {
+        await bot.pathfinder.goto(
+            new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2),
+        );
+    } catch {
+        return 'Cannot reach the bed';
+    }
+
+    // Tap the bed to set spawn point (works any time of day)
+    try {
+        await bot.activateBlock(bedBlock);
+        saveHome(bedBlock);
+        return `Home set to bed at ${bedBlock.position.x}, ${bedBlock.position.y}, ${bedBlock.position.z}`;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to set home: ${message}`;
     }
 }
 

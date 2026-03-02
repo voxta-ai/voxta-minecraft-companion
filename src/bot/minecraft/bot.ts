@@ -76,13 +76,14 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         // Track recently opened doors to avoid re-toggling (open→close→open spam).
         let lastDoorOpen = 0;
         let doorWalkingThrough = false;
-        const recentlyOpened = new Map<string, number>(); // "x,y,z" → timestamp
+        const recentlyOpened = new Map<string, number>(); // "x,z" → timestamp
 
         bot.on('physicsTick', () => {
             const now = performance.now();
             if (doorWalkingThrough) return; // already handling a door
             if (now - lastDoorOpen < 1000) return; // global cooldown
-            if (!bot.pathfinder.isMoving()) return; // only when navigating
+            // Fire when pathfinder is moving OR has a goal but is stuck
+            if (!bot.pathfinder.isMoving() && !bot.pathfinder.goal) return;
 
             const pos = bot.entity.position;
             for (let dx = -1; dx <= 1; dx++) {
@@ -92,34 +93,52 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                         if (!block || !doorIds.has(block.type)) continue;
                         if (block.boundingBox !== 'block') continue; // already open
 
-                        // Skip if we recently opened this door
-                        const key = `${block.position.x},${block.position.y},${block.position.z}`;
+                        // Use X,Z as key — both top and bottom halves share the same column.
+                        // This prevents the bot from opening the bottom half and then
+                        // immediately closing via the top half on the next tick.
+                        const key = `${block.position.x},${block.position.z}`;
                         const lastOpen = recentlyOpened.get(key);
-                        if (lastOpen && now - lastOpen < 8000) continue;
+                        if (lastOpen && now - lastOpen < 3000) continue;
+
+                        // Find the bottom half of the door for more reliable activation.
+                        // In Minecraft, doors have 'half' property: 'upper' or 'lower'.
+                        let doorBlock = block;
+                        try {
+                            const props = block.getProperties() as Record<string, string>;
+                            if (props['half'] === 'upper') {
+                                const below = bot.blockAt(block.position.offset(0, -1, 0));
+                                if (below && doorIds.has(below.type)) {
+                                    doorBlock = below;
+                                }
+                            }
+                        } catch { /* getProperties may not be available */ }
 
                         // Found a closed door — align, open, walk through
                         doorWalkingThrough = true;
                         lastDoorOpen = now;
                         recentlyOpened.set(key, now);
+                        console.log(`[MC] Door detected at ${key}, activating...`);
 
                         // Look at the center of the door, then open and walk through
-                        const doorCenter = block.position.offset(0.5, 1, 0.5);
+                        const doorCenter = doorBlock.position.offset(0.5, 0.5, 0.5);
                         bot.lookAt(doorCenter, true).then(() => {
-                            return bot.activateBlock(block);
+                            return bot.activateBlock(doorBlock);
                         }).then(() => {
+                            console.log(`[MC] Door opened at ${key}`);
                             // Walk forward through the door
                             bot.setControlState('forward', true);
                             setTimeout(() => {
                                 bot.setControlState('forward', false);
                                 doorWalkingThrough = false;
-                            }, 600);
-                        }).catch(() => {
+                            }, 800);
+                        }).catch((err) => {
+                            console.warn(`[MC] Door activation failed at ${key}:`, err);
                             doorWalkingThrough = false;
                         });
 
                         // Clean up old entries
                         for (const [k, t] of recentlyOpened) {
-                            if (now - t > 15000) recentlyOpened.delete(k);
+                            if (now - t > 10000) recentlyOpened.delete(k);
                         }
                         return;
                     }

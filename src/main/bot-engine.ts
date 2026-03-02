@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
-import { executeAction, isActionBusy, setCurrentActivity } from '../bot/minecraft/actions';
+import { executeAction, isActionBusy, setCurrentActivity, initHomePosition, resumeFollowPlayer } from '../bot/minecraft/actions';
 import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
@@ -383,6 +383,7 @@ export class BotEngine extends EventEmitter {
         try {
             this.mcBot = createMinecraftBot(config);
             await this.mcBot.connect();
+            initHomePosition(config.mc.host, config.mc.port);
             this.updateStatus({ mc: 'connected' });
             this.addChat('system', 'System', `Minecraft bot spawned as ${config.mc.username}`);
             this.toast('success', `Bot "${config.mc.username}" joined the Minecraft server!`);
@@ -507,20 +508,26 @@ export class BotEngine extends EventEmitter {
             () => this.followingPlayer,
             async (botInstance, mobName) => {
                 const botName = this.assistantName ?? 'Bot';
+                console.log(`[Bot] Auto-defense started against ${mobName}, followingPlayer=${this.followingPlayer}`);
                 try {
                     const result = await executeAction(botInstance, 'mc_attack', [{ name: 'entity_name', value: mobName }], this.names);
                     this.addChat('system', 'System', `${botName}: ${result}`);
-                    // Resume following if we were following before
+                    console.log(`[Bot] Auto-defense attack result: ${result}`);
+                } catch (err) {
+                    // Defense target may already be gone (e.g. creeper exploded)
+                    console.log(`[Bot] Auto-defense attack failed:`, err);
+                } finally {
+                    // Always resume following — even if the attack failed
+                    console.log(`[Bot] Auto-defense finished, followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`);
                     if (this.followingPlayer && this.mcBot) {
-                        const resumeResult = await executeAction(
-                            this.mcBot.bot, 'mc_follow_player',
-                            [{ name: 'player_name', value: this.followingPlayer }],
-                            this.names,
-                        );
+                        // Use resumeFollowPlayer instead of executeAction — the action
+                        // machinery (actionAbort/actionBusy) interferes with the pathfinder
+                        // after combat ends.
+                        const resumeResult = resumeFollowPlayer(this.mcBot.bot, this.followingPlayer, this.names);
                         console.log(`[Bot] Resumed following after defense: ${resumeResult}`);
+                    } else {
+                        console.log(`[Bot] NOT resuming follow — followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`);
                     }
-                } catch {
-                    // Defense failed, continue
                 }
             },
         );

@@ -378,6 +378,10 @@ export class McEventBridge {
             clearInterval(this.autoLookLoop);
             this.autoLookLoop = null;
         }
+        if (this.pickupCheckTimer) {
+            clearInterval(this.pickupCheckTimer);
+            this.pickupCheckTimer = null;
+        }
         if (this.damageTimer) {
             clearTimeout(this.damageTimer);
             this.damageTimer = null;

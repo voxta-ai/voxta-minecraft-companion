@@ -4,3 +4,5 @@ out/
 release/
 .idea/
 *.js.map
+
+bot-home.json

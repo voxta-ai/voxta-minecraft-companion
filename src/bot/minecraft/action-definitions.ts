@@ -192,6 +192,17 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         isPhysical: false,
     },
     {
+        name: 'mc_set_home',
+        description: 'Set a nearby bed as home/respawn point. Works at any time of day — does NOT require sleeping. Use when told to mark this as home, set home here, or remember this place.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [],
+        category: 'survival',
+        isQuick: false,
+        isPhysical: true,
+    },
+    {
         name: 'mc_cook',
         description: 'Cook raw food in a nearby furnace. Needs fuel (wood/coal) in inventory.',
         disabled: false,
