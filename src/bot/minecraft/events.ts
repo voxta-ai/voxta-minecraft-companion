@@ -4,6 +4,7 @@ import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
 import { executeAction, isActionBusy } from './actions';
+import { FOOD_ITEMS } from './action-definitions';
 
 // ---- Callback interface ----
 
@@ -148,6 +149,10 @@ export class McEventBridge {
         this.on('entityHurt', ((entity: { id: number }) => {
             if (entity.id !== this.bot.entity.id) return;
 
+            // Ignore environmental damage (starvation, drowning, fall, etc.)
+            // bot.food === 0 means starvation; no attacker to defend against.
+            if (this.bot.food === 0) return;
+
             // Priority 1: Check for nearby hostile mobs (handles explosions, ranged, AOE)
             const hostileMob = Object.values(this.bot.entities).find(
                 (e) => e !== this.bot.entity
@@ -232,6 +237,47 @@ export class McEventBridge {
             const botName = this.callbacks.getAssistantName();
             this.callbacks.onChat('event', 'Event', `${botName} woke up!`);
             this.callbacks.onEvent(`${botName} woke up. It is now morning.`);
+        }) as (...args: never[]) => void);
+
+        // ---- Auto-eat: eat when hunger drops below threshold ----
+        let isAutoEating = false;
+        let lastAutoEatTime = 0;
+
+        this.on('health', (() => {
+            const now = Date.now();
+            if (isAutoEating) return;
+            if (now - lastAutoEatTime < 5000) return; // 5s cooldown between eats
+            if (this.bot.food >= 14) return; // only eat when hungry (20 = full)
+
+            // Find best food in inventory
+            const items = this.bot.inventory.items();
+            const foodItems = items
+                .filter((i) => i.name in FOOD_ITEMS)
+                .sort((a, b) => (FOOD_ITEMS[b.name] ?? 0) - (FOOD_ITEMS[a.name] ?? 0));
+            const foodItem = foodItems[0];
+            if (!foodItem) return; // no food available
+
+            isAutoEating = true;
+            lastAutoEatTime = now;
+            const prevHeldItem = this.bot.heldItem;
+
+            console.log(`[MC] Auto-eating ${foodItem.displayName ?? foodItem.name} (hunger: ${this.bot.food}/20)`);
+
+            void (async () => {
+                try {
+                    await this.bot.equip(foodItem.type, 'hand');
+                    await this.bot.consume();
+                    console.log(`[MC] Auto-ate ${foodItem.displayName ?? foodItem.name}, hunger now: ${this.bot.food}/20`);
+                    // Re-equip previous item
+                    if (prevHeldItem && prevHeldItem.type !== foodItem.type) {
+                        try { await this.bot.equip(prevHeldItem.type, 'hand'); } catch { /* best effort */ }
+                    }
+                } catch (err) {
+                    console.warn(`[MC] Auto-eat failed:`, err);
+                } finally {
+                    isAutoEating = false;
+                }
+            })();
         }) as (...args: never[]) => void);
 
         // ---- Inventory changes (item pickup) ----

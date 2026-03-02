@@ -829,6 +829,8 @@ async function giveItem(
     const actualCount = Math.min(count, item.count);
 
     try {
+        // Look at the player so items are tossed toward them
+        await bot.lookAt(player.position.offset(0, 1, 0));
         await bot.toss(item.type, null, actualCount);
         return `Gave ${actualCount} ${itemName} to ${displayName}`;
     } catch (err) {
