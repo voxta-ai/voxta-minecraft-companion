@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from 'solid-js';
-import type { McSettings, VisionMode } from '../../shared/ipc-types';
+import type { McSettings, VisionMode, ActionInferenceTiming } from '../../shared/ipc-types';
 import { settings, updateSetting } from '../stores/app-store';
 
 interface ToggleItem {
@@ -156,6 +156,20 @@ export default function SettingsPanel() {
             <ToggleGroup title="📊 Telemetry" items={TELEMETRY_TOGGLES} />
             <SliderGroup title="🎲 Voice Chance" items={VOICE_CHANCE_SLIDERS} />
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
+            <div class="action-category">
+                <div class="action-category-title">🧠 Action Inference</div>
+                <div class="action-item">
+                    <label>timing</label>
+                    <select
+                        class="vision-select"
+                        value={settings.actionInferenceTiming}
+                        onChange={(e) => updateSetting('actionInferenceTiming', e.currentTarget.value as ActionInferenceTiming)}
+                    >
+                        <option value="user">On user message</option>
+                        <option value="afterChar">After character reply</option>
+                    </select>
+                </div>
+            </div>
             <VisionModeSelector />
         </div>
     );

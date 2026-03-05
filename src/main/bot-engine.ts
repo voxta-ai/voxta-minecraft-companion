@@ -155,7 +155,12 @@ export class BotEngine extends EventEmitter {
     }
 
     private getEnabledActions(): ScenarioAction[] {
-        return MINECRAFT_ACTIONS.filter((a) => this.actionToggles.get(a.name) !== false);
+        const timing = this.settings.actionInferenceTiming === 'user'
+            ? 'AfterUserMessage' as const
+            : 'AfterAssistantMessage' as const;
+        return MINECRAFT_ACTIONS
+            .filter((a) => this.actionToggles.get(a.name) !== false)
+            .map((a) => ({ ...a, timing }));
     }
 
     private pushActionsToVoxta(): void {
@@ -172,7 +177,11 @@ export class BotEngine extends EventEmitter {
     }
 
     updateSettings(newSettings: McSettings): void {
+        const timingChanged = this.settings.actionInferenceTiming !== newSettings.actionInferenceTiming;
         this.settings = { ...newSettings };
+        if (timingChanged) {
+            this.pushActionsToVoxta();
+        }
     }
 
     /** Get the voice chance (0-100) for an action category */
@@ -602,6 +611,7 @@ export class BotEngine extends EventEmitter {
 
         const name = this.voxtaUserName ?? 'You';
         this.addChat('player', `${name} (text)`, text);
+
         await this.voxta.sendMessage(text);
     }
 
@@ -904,6 +914,7 @@ export class BotEngine extends EventEmitter {
                 if (text) {
                     const playerName = this.voxtaUserName ?? 'You';
                     this.addChat('player', `${playerName} (voice)`, text);
+
                     void this.voxta?.sendMessage(text);
                 }
                 break;

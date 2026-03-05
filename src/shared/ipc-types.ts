@@ -62,6 +62,7 @@ export interface ActionToggle {
 // ---- Settings (Toggle Groups) ----
 
 export type VisionMode = 'off' | 'screen' | 'eyes';
+export type ActionInferenceTiming = 'user' | 'afterChar';
 
 export interface McSettings {
     // Events — AI reacts with a reply
@@ -88,6 +89,7 @@ export interface McSettings {
     enableAutoLook: boolean;
     enableAutoDefense: boolean;
     visionMode: VisionMode;
+    actionInferenceTiming: ActionInferenceTiming;
 }
 
 export const DEFAULT_SETTINGS: McSettings = {
@@ -111,6 +113,7 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableAutoLook: true,
     enableAutoDefense: true,
     visionMode: 'off',
+    actionInferenceTiming: 'afterChar',
 };
 
 export interface CharacterInfo {
