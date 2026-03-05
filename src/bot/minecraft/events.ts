@@ -321,6 +321,7 @@ export class McEventBridge {
         lastInventorySnapshot = takeSnapshot();
 
         let pickupCheckTimer: ReturnType<typeof setInterval> | null = null;
+        let inventoryFullNotified = false;
         const startPickupCheck = (): void => {
             if (pickupCheckTimer) return;
             pickupCheckTimer = setInterval(() => {
@@ -349,6 +350,18 @@ export class McEventBridge {
                 }
 
                 lastInventorySnapshot = current;
+
+                // ---- Inventory full detection ----
+                // Minecraft inventory has 36 slots (9 hotbar + 27 main)
+                const usedSlots = this.bot.inventory.items().length;
+                const maxSlots = 36;
+                if (usedSlots >= maxSlots && !inventoryFullNotified) {
+                    inventoryFullNotified = true;
+                    this.callbacks.onNote(`${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`);
+                } else if (usedSlots < maxSlots) {
+                    // Reset so we can notify again next time it fills up
+                    inventoryFullNotified = false;
+                }
             }, 500);
         };
         startPickupCheck();

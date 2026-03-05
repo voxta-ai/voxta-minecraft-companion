@@ -283,6 +283,33 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         isQuick: false,
         isPhysical: false,
     },
+    {
+        name: 'mc_toss',
+        description: 'Toss/drop items from inventory onto the ground. Use when told to throw away, discard, or drop items. Useful to free up inventory space.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            { name: 'item_name', type: 'String', description: 'Name of the item to toss (e.g. cobblestone, dirt, rotten_flesh). Use "all" to drop everything.', required: true },
+            { name: 'count', type: 'String', description: 'How many to drop (default: all of that item)', required: false },
+        ],
+        category: 'interaction',
+        isQuick: false,
+        isPhysical: false,
+    },
+    {
+        name: 'mc_fish',
+        description: 'Fish with a fishing rod. Must have a fishing rod in inventory and be near water. Will cast and wait for fish to bite.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            { name: 'count', type: 'String', description: 'How many fish to catch before stopping (default: 5)', required: false },
+        ],
+        category: 'survival',
+        isQuick: false,
+        isPhysical: true,
+    },
 ];
 
 // ---- Tool requirements ----

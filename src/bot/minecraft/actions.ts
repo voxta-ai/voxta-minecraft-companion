@@ -279,6 +279,13 @@ export async function executeAction(
             case 'mc_inspect':
                 return await inspectContainer(bot, getArg(args, 'target'));
 
+            case 'mc_toss':
+                return await tossItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
+
+            case 'mc_fish':
+                currentActivity = 'fishing';
+                return await fishAction(bot, getArg(args, 'count'));
+
             default:
                 return `Unknown action: ${actionName}`;
         }
@@ -1504,6 +1511,108 @@ async function cleanup(bot: Bot, heldItemName: string | null): Promise<void> {
     }
     // Delay clearing so async slot events from equip/unequip are caught
     setTimeout(() => { suppressPickups = false; }, 200);
+}
+
+// ---- Toss/Drop Items ----
+
+async function tossItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
+    if (!itemName) return 'No item name provided';
+
+    const resolved = itemName.toLowerCase().replace(/ /g, '_');
+
+    // Handle "all" — drop entire inventory
+    if (resolved === 'all') {
+        const items = bot.inventory.items();
+        if (items.length === 0) return 'Inventory is already empty';
+
+        let totalDropped = 0;
+        for (const item of items) {
+            await bot.tossStack(item);
+            totalDropped += item.count;
+        }
+        return `Dropped ${totalDropped} items (entire inventory)`;
+    }
+
+    // Find matching items in inventory
+    const matching = bot.inventory.items().filter((i) => i.name === resolved);
+    if (matching.length === 0) return `No ${itemName} in inventory`;
+
+    const totalHave = matching.reduce((sum, i) => sum + i.count, 0);
+    const toDrop = countStr ? Math.min(parseInt(countStr, 10), totalHave) : totalHave;
+
+    if (isNaN(toDrop) || toDrop <= 0) return `Invalid count: ${countStr}`;
+
+    // Use bot.toss() which accepts itemType, metadata, count
+    await bot.toss(matching[0].type, null, toDrop);
+
+    const displayName = matching[0].displayName ?? itemName;
+    return `Dropped ${toDrop} ${displayName}`;
+}
+
+// ---- Fishing ----
+
+async function fishAction(bot: Bot, countStr: string | undefined): Promise<string> {
+    // Find and equip a fishing rod
+    const rod = bot.inventory.items().find((i) => i.name === 'fishing_rod');
+    if (!rod) return 'No fishing rod in inventory';
+
+    try {
+        await bot.equip(rod, 'hand');
+    } catch {
+        return 'Failed to equip fishing rod';
+    }
+
+    const targetCount = countStr ? parseInt(countStr, 10) : 5;
+    if (isNaN(targetCount) || targetCount <= 0) return 'Invalid count';
+
+    const signal = actionAbort.signal;
+    const caught = new Map<string, number>(); // displayName → count
+    let totalCaught = 0;
+
+    // Snapshot inventory before each cast to detect what was caught
+    for (let i = 0; i < targetCount; i++) {
+        if (signal.aborted) break;
+
+        const beforeItems = new Map<string, number>();
+        for (const item of bot.inventory.items()) {
+            beforeItems.set(item.name, (beforeItems.get(item.name) ?? 0) + item.count);
+        }
+
+        try {
+            await bot.fish();
+        } catch {
+            // Fish can throw if interrupted or no water nearby
+            if (totalCaught === 0) return 'Failed to fish — make sure I\'m facing water';
+            break;
+        }
+
+        // Wait a moment for items to appear in inventory
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+        // Detect what was gained
+        for (const item of bot.inventory.items()) {
+            const prevCount = beforeItems.get(item.name) ?? 0;
+            const currentCount = bot.inventory.items()
+                .filter((i) => i.name === item.name)
+                .reduce((sum, i) => sum + i.count, 0);
+            const gained = currentCount - prevCount;
+            if (gained > 0) {
+                const display = item.displayName ?? item.name;
+                caught.set(display, (caught.get(display) ?? 0) + gained);
+                totalCaught += gained;
+            }
+            // Only count each item type once
+            beforeItems.set(item.name, currentCount);
+        }
+    }
+
+    if (totalCaught === 0) return 'Didn\'t catch anything';
+
+    const parts: string[] = [];
+    for (const [name, count] of caught) {
+        parts.push(`${count} ${name}`);
+    }
+    return `Caught ${totalCaught} items: ${parts.join(', ')}`;
 }
 
 // ---- Block Placement ----
