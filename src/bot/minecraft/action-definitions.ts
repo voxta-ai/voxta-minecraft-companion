@@ -204,7 +204,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_cook',
-        description: 'Cook raw food in a nearby furnace. Needs fuel (wood/coal) in inventory.',
+        description: 'Cook raw food or smelt ores in a nearby furnace. Needs fuel (wood/coal) in inventory. Works for raw meat, ores (iron, gold, copper), sand, clay, and more.',
         disabled: false,
         layer: '',
         effect: {},
@@ -350,6 +350,7 @@ export const FOOD_ITEMS: Record<string, number> = {
 
 /** Raw items that can be smelted in a furnace */
 export const COOKABLE_ITEMS: Record<string, string> = {
+    // Food
     beef: 'cooked_beef',
     porkchop: 'cooked_porkchop',
     chicken: 'cooked_chicken',
@@ -359,6 +360,21 @@ export const COOKABLE_ITEMS: Record<string, string> = {
     salmon: 'cooked_salmon',
     potato: 'baked_potato',
     kelp: 'dried_kelp',
+    // Ores & raw metals
+    raw_iron: 'iron_ingot',
+    raw_gold: 'gold_ingot',
+    raw_copper: 'copper_ingot',
+    iron_ore: 'iron_ingot',
+    gold_ore: 'gold_ingot',
+    copper_ore: 'copper_ingot',
+    // Other smeltables
+    sand: 'glass',
+    cobblestone: 'stone',
+    clay_ball: 'brick',
+    netherrack: 'nether_brick',
+    wet_sponge: 'sponge',
+    cactus: 'green_dye',
+    ancient_debris: 'netherite_scrap',
 };
 
 /** Items that work as furnace fuel, sorted by burn time (best first) */
