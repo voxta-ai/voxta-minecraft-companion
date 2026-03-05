@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
+import type { ActionCategory } from '../bot/minecraft/action-definitions';
 import { executeAction, isActionBusy, setCurrentActivity, initHomePosition, resumeFollowPlayer } from '../bot/minecraft/actions';
 import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
@@ -172,6 +173,17 @@ export class BotEngine extends EventEmitter {
 
     updateSettings(newSettings: McSettings): void {
         this.settings = { ...newSettings };
+    }
+
+    /** Get the voice chance (0-100) for an action category */
+    private getVoiceChance(category?: ActionCategory): number {
+        switch (category) {
+            case 'movement': return this.settings.voiceChanceMovement;
+            case 'survival': return this.settings.voiceChanceSurvival;
+            case 'combat': return this.settings.voiceChanceCombat;
+            case 'interaction': return this.settings.voiceChanceInteraction;
+            default: return 50;
+        }
     }
 
     /** Queue a note — sent immediately if AI is idle, queued if AI is speaking */
@@ -844,12 +856,18 @@ export class BotEngine extends EventEmitter {
 
                         // Look up action metadata to decide if we should report the result
                         const actionDef = MINECRAFT_ACTIONS.find((a) => a.name === actionName);
-                        if (!this.settings.enableTelemetryActionResults) return;
                         if (actionDef?.isQuick) return;
 
-                        // Send result as a note (not an event!) to prevent feedback loops.
-                        // An event would trigger a new AI response → new action → new result → loop.
-                        this.queueNote(`${botName}: ${result}`);
+                        // Voice chance roll — like Elite Dangerous probability system
+                        const voiceChance = this.getVoiceChance(actionDef?.category);
+                        const roll = Math.random() * 100;
+                        if (roll < voiceChance && !this.isReplying) {
+                            // Voiced: send as event so the AI replies about the result
+                            void this.voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
+                        } else {
+                            // Silent: AI sees it but stays quiet
+                            this.queueNote(`${botName}: ${result}`);
+                        }
                     });
                 }
                 break;

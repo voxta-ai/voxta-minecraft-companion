@@ -17,10 +17,21 @@ const EVENT_TOGGLES: ToggleItem[] = [
 
 const TELEMETRY_TOGGLES: ToggleItem[] = [
     { key: 'enableTelemetryItemPickup', label: 'item pickup' },
-    { key: 'enableTelemetryActionResults', label: 'action results' },
     { key: 'enableTelemetryWeather', label: 'weather change' },
     { key: 'enableTelemetryTime', label: 'time change' },
     { key: 'enableTelemetryChat', label: 'chat messages' },
+];
+
+interface SliderItem {
+    key: keyof McSettings;
+    label: string;
+}
+
+const VOICE_CHANCE_SLIDERS: SliderItem[] = [
+    { key: 'voiceChanceMovement', label: 'movement' },
+    { key: 'voiceChanceSurvival', label: 'survival' },
+    { key: 'voiceChanceCombat', label: 'combat' },
+    { key: 'voiceChanceInteraction', label: 'interaction' },
 ];
 
 interface ToggleGroupProps {
@@ -56,6 +67,37 @@ const BEHAVIOR_TOGGLES: ToggleItem[] = [
     { key: 'enableAutoLook', label: 'auto-look at nearby player' },
     { key: 'enableAutoDefense', label: 'auto-defend against mobs' },
 ];
+
+interface SliderGroupProps {
+    title: string;
+    items: SliderItem[];
+}
+
+function SliderGroup(props: SliderGroupProps) {
+    return (
+        <div class="action-category">
+            <div class="action-category-title">{props.title}</div>
+            <For each={props.items}>
+                {(item) => (
+                    <div class="action-item">
+                        <label>{item.label}</label>
+                        <div class="slider-control">
+                            <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                step="5"
+                                value={settings[item.key] as number}
+                                onInput={(e) => updateSetting(item.key, parseInt(e.currentTarget.value, 10))}
+                            />
+                            <span class="slider-value">{settings[item.key] as number}%</span>
+                        </div>
+                    </div>
+                )}
+            </For>
+        </div>
+    );
+}
 
 const VISION_OPTIONS: { value: VisionMode; label: string; description: string }[] = [
     { value: 'off', label: 'Off', description: 'No vision capture' },
@@ -112,6 +154,7 @@ export default function SettingsPanel() {
         <div class="action-toggles">
             <ToggleGroup title="📡 Events" items={EVENT_TOGGLES} />
             <ToggleGroup title="📊 Telemetry" items={TELEMETRY_TOGGLES} />
+            <SliderGroup title="🎲 Voice Chance" items={VOICE_CHANCE_SLIDERS} />
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
             <VisionModeSelector />
         </div>

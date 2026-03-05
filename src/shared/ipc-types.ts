@@ -73,10 +73,15 @@ export interface McSettings {
 
     // Telemetry — AI sees as notes, no reply
     enableTelemetryItemPickup: boolean;
-    enableTelemetryActionResults: boolean;
     enableTelemetryWeather: boolean;
     enableTelemetryTime: boolean;
     enableTelemetryChat: boolean;
+
+    // Voice chance (0-100%) — probability that action results trigger a voiced reply
+    voiceChanceMovement: number;
+    voiceChanceSurvival: number;
+    voiceChanceCombat: number;
+    voiceChanceInteraction: number;
 
     // Bot behavior
     enableBotChatEcho: boolean;
@@ -93,10 +98,14 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableEventMobNearby: false,
 
     enableTelemetryItemPickup: true,
-    enableTelemetryActionResults: true,
     enableTelemetryWeather: false,
     enableTelemetryTime: false,
     enableTelemetryChat: false,
+
+    voiceChanceMovement: 20,
+    voiceChanceSurvival: 50,
+    voiceChanceCombat: 80,
+    voiceChanceInteraction: 30,
 
     enableBotChatEcho: false,
     enableAutoLook: true,

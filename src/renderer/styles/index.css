@@ -668,6 +668,44 @@ body {
   transform: translateX(16px);
 }
 
+/* Range slider (voice chance) */
+.slider-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.slider-control input[type="range"] {
+  width: 100px;
+  height: 4px;
+  appearance: none;
+  background: var(--border-color);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.slider-control input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.slider-control input[type="range"]::-webkit-slider-thumb:hover {
+  background: #6ee7a0;
+}
+
+.slider-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-width: 32px;
+  text-align: right;
+}
 /* ---- Custom Dropdown ---- */
 .custom-dropdown {
   position: relative;
