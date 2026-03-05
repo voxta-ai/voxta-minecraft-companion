@@ -310,6 +310,19 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         isQuick: false,
         isPhysical: true,
     },
+    {
+        name: 'mc_use_item',
+        description: 'Use/activate an item (right-click). Works for potions, buckets, bonemeal, ender pearls, and other usable items.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            { name: 'item_name', type: 'String', description: 'Item to use (e.g. potion, water_bucket, bone_meal, ender_pearl). Will auto-equip if not already held.', required: true },
+        ],
+        category: 'interaction',
+        isQuick: true,
+        isPhysical: false,
+    },
 ];
 
 // ---- Tool requirements ----

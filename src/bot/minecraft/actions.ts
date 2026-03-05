@@ -286,6 +286,9 @@ export async function executeAction(
                 currentActivity = 'fishing';
                 return await fishAction(bot, getArg(args, 'count'));
 
+            case 'mc_use_item':
+                return await useHeldItem(bot, getArg(args, 'item_name'));
+
             default:
                 return `Unknown action: ${actionName}`;
         }
@@ -727,6 +730,19 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
         }
     }
 
+    // Auto-equip shield in off-hand if available
+    let hasShield = false;
+    const shield = bot.inventory.items().find((i) => i.name === 'shield');
+    if (shield) {
+        try {
+            await bot.equip(shield, 'off-hand');
+            hasShield = true;
+            console.log('[MC Action] Equipped shield for combat');
+        } catch {
+            // Best effort
+        }
+    }
+
     // Follow and attack until dead
     const goal = new goals.GoalFollow(target, 2);
     bot.pathfinder.setGoal(goal, true);
@@ -764,7 +780,16 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
             // Attack if in range
             const dist = target.position.distanceTo(bot.entity.position);
             if (dist < 3.5) {
+                // Lower shield briefly to attack
+                if (hasShield) bot.deactivateItem();
                 bot.attack(target);
+                // Raise shield again after swing
+                if (hasShield) {
+                    setTimeout(() => { bot.activateItem(true); }, 100);
+                }
+            } else if (hasShield) {
+                // Keep shield raised while approaching
+                bot.activateItem(true);
             }
         }, 500); // MC attack cooldown is ~500ms
     });
@@ -1547,6 +1572,33 @@ async function tossItem(bot: Bot, itemName: string | undefined, countStr: string
 
     const displayName = matching[0].displayName ?? itemName;
     return `Dropped ${toDrop} ${displayName}`;
+}
+
+// ---- Use Held Item ----
+
+async function useHeldItem(bot: Bot, itemName: string | undefined): Promise<string> {
+    if (!itemName) return 'No item name provided';
+
+    const resolved = itemName.toLowerCase().replace(/ /g, '_');
+
+    // Find the item in inventory
+    const item = bot.inventory.items().find((i) => i.name === resolved || i.displayName?.toLowerCase() === itemName.toLowerCase());
+    if (!item) return `No ${itemName} in inventory`;
+
+    // Auto-equip if not already held
+    if (bot.heldItem?.name !== item.name) {
+        try {
+            await bot.equip(item, 'hand');
+        } catch {
+            return `Failed to equip ${item.displayName ?? itemName}`;
+        }
+    }
+
+    const name = item.displayName ?? item.name;
+
+    // Activate the item (right-click)
+    bot.activateItem();
+    return `Used ${name}`;
 }
 
 // ---- Fishing ----
