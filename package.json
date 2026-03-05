@@ -14,6 +14,7 @@
     "build": {
         "appId": "com.voxta.minecraft-companion",
         "productName": "Voxta Minecraft Companion",
+        "icon": "resources/icon.png",
         "directories": {
             "output": "release"
         },
@@ -25,11 +26,15 @@
             "node_modules/mineflayer-pathfinder/**"
         ],
         "win": {
-            "target": "nsis"
+            "target": "nsis",
+            "icon": "resources/icon.png"
         },
         "nsis": {
             "oneClick": false,
-            "allowToChangeInstallationDirectory": true
+            "allowToChangeInstallationDirectory": true,
+            "installerIcon": "resources/icon.ico",
+            "uninstallerIcon": "resources/icon.ico",
+            "installerHeaderIcon": "resources/icon.ico"
         }
     },
     "dependencies": {

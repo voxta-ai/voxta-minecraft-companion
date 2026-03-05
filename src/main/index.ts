@@ -1,7 +1,8 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, shell, nativeImage } from 'electron';
 import { join } from 'path';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { registerIpcHandlers } from './ipc-handlers';
+import icon from '../../resources/icon.png?asset';
 
 function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
@@ -11,6 +12,7 @@ function createWindow(): BrowserWindow {
         minHeight: 500,
         title: 'Voxta Minecraft Companion',
         backgroundColor: '#1a1a2e',
+        icon: nativeImage.createFromPath(icon),
         show: false,
         autoHideMenuBar: true,
         webPreferences: {
