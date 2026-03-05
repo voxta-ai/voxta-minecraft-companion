@@ -18,12 +18,12 @@ export interface McAction extends ScenarioAction {
 export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_follow_player',
-        description: 'Follow a player and stay near them',
+        description: 'Follow a player and stay near them. The bot walks behind the specified player. player_name must be the OTHER player (the human), never the {{ char }} itself.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'player_name', type: 'String', description: 'Name of the player to follow', required: true },
+            { name: 'player_name', type: 'String', description: 'Name of the human player to follow (NOT the bot name)', required: true },
         ],
         category: 'movement',
         isQuick: true,

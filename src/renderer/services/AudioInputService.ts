@@ -47,10 +47,13 @@ export class AudioInputService {
                 // Same session — just resume if paused
                 if (this.paused) {
                     this.resumeStreaming();
+                } else {
+                    console.log('[AudioInput] startStreaming called but already active (same session, not paused)');
                 }
                 return;
             }
             // Different session — restart
+            console.log(`[AudioInput] Session changed (${this.sessionId} → ${sessionId}), restarting`);
             this.stopStreaming();
         }
 
@@ -76,14 +79,16 @@ export class AudioInputService {
             });
 
             this.mediaRecorder.ondataavailable = (event: BlobEvent) => {
-                if (
-                    !this.paused &&
-                    this.readyToSend &&
-                    event.data.size > 0 &&
-                    this.socket?.readyState === WebSocket.OPEN
-                ) {
-                    this.socket.send(event.data);
+                if (this.paused) return;
+                if (!this.readyToSend) {
+                    return;
                 }
+                if (event.data.size === 0) return;
+                if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+                    console.warn(`[AudioInput] Data available but socket not open (state: ${this.socket?.readyState ?? 'null'})`);
+                    return;
+                }
+                this.socket.send(event.data);
             };
 
             // Build WebSocket URL with auth token
@@ -98,7 +103,23 @@ export class AudioInputService {
 
             // Start recording
             this.mediaRecorder.start(TIMESLICE_MS);
-            console.log('[AudioInput] Started streaming');
+
+            // Monitor mic track for unexpected stops
+            const track = this.stream.getAudioTracks()[0];
+            if (track) {
+                track.addEventListener('ended', () => {
+                    console.error('[AudioInput] Mic track ended unexpectedly!');
+                });
+                track.addEventListener('mute', () => {
+                    console.warn('[AudioInput] Mic track muted');
+                });
+                track.addEventListener('unmute', () => {
+                    console.log('[AudioInput] Mic track unmuted');
+                });
+                console.log(`[AudioInput] Started streaming (track state: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted})`);
+            } else {
+                console.error('[AudioInput] No audio track found after getUserMedia!');
+            }
         } catch (error) {
             console.error('[AudioInput] Error starting:', error);
             this.stopStreaming();
@@ -142,9 +163,11 @@ export class AudioInputService {
         this.keepAliveInterval = setInterval(() => {
             if (this.socket?.readyState === WebSocket.OPEN) {
                 this.socket.send(JSON.stringify({ type: 'keepalive' }));
+            } else {
+                console.warn(`[AudioInput] Keepalive skipped — socket state: ${this.socket?.readyState ?? 'null'}`);
             }
         }, KEEP_ALIVE_MS);
-        console.log('[AudioInput] Paused streaming');
+        console.log(`[AudioInput] Paused streaming (socket state: ${this.socket?.readyState ?? 'null'})`);
     }
 
     /** Resume mic streaming — called when AI stops speaking */
@@ -191,15 +214,17 @@ export class AudioInputService {
                 resolve();
             };
 
-            ws.onerror = () => {
+            ws.onerror = (event) => {
                 if (this.socket !== ws) return;
+                console.error('[AudioInput] WebSocket error:', event);
                 ws.onerror = () => { /* noop */ };
                 ws.onclose = () => { /* noop */ };
                 this.handleReconnect(url, resolve, reject);
             };
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 if (this.socket !== ws) return;
+                console.warn(`[AudioInput] WebSocket closed (code: ${event.code}, reason: "${event.reason}", clean: ${event.wasClean})`);
                 ws.onerror = () => { /* noop */ };
                 ws.onclose = () => { /* noop */ };
                 this.handleReconnect(url, resolve, reject);
