@@ -15,11 +15,11 @@ const EVENT_TOGGLES: ToggleItem[] = [
     { key: 'enableEventMobNearby', label: 'mob nearby' },
 ];
 
-const TELEMETRY_TOGGLES: ToggleItem[] = [
-    { key: 'enableTelemetryItemPickup', label: 'item pickup' },
-    { key: 'enableTelemetryWeather', label: 'weather change' },
-    { key: 'enableTelemetryTime', label: 'time change' },
-    { key: 'enableTelemetryChat', label: 'chat messages' },
+const NOTE_TOGGLES: ToggleItem[] = [
+    { key: 'enableNoteItemPickup', label: 'item pickup' },
+    { key: 'enableNoteWeather', label: 'weather change' },
+    { key: 'enableNoteTime', label: 'time change' },
+    { key: 'enableNoteChat', label: 'chat messages' },
 ];
 
 interface SliderItem {
@@ -153,7 +153,7 @@ export default function SettingsPanel() {
     return (
         <div class="action-toggles">
             <ToggleGroup title="📡 Events" items={EVENT_TOGGLES} />
-            <ToggleGroup title="📊 Telemetry" items={TELEMETRY_TOGGLES} />
+            <ToggleGroup title="📋 Notes" items={NOTE_TOGGLES} />
             <SliderGroup title="🎲 Voice Chance" items={VOICE_CHANCE_SLIDERS} />
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
             <div class="action-category">

@@ -312,7 +312,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_use_item',
-        description: 'Use/activate an item (right-click). Works for potions, buckets, bonemeal, ender pearls, and other usable items.',
+        description: 'Use/activate an item (right-click). Works for potions, buckets, bonemeal, ender pearls, and other usable items. Do NOT use for fishing rods — use mc_fish instead.',
         disabled: false,
         layer: '',
         effect: {},

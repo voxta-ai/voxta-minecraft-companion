@@ -109,7 +109,7 @@ let actionAbort = new AbortController();
 let actionBusy = false;
 export function isActionBusy(): boolean { return actionBusy; }
 
-// Suppress pickup telemetry during inventory management (equip/unequip in crafting)
+// Suppress pickup notes during inventory management (equip/unequip in crafting)
 let suppressPickups = false;
 export function isPickupSuppressed(): boolean { return suppressPickups; }
 
@@ -117,6 +117,17 @@ export function isPickupSuppressed(): boolean { return suppressPickups; }
 let currentActivity: string | null = null;
 export function getCurrentActivity(): string | null { return currentActivity; }
 export function setCurrentActivity(activity: string | null): void { currentActivity = activity; }
+
+// Current combat target — used to prevent duplicate mc_attack from cancelling
+// an ongoing fight (e.g. auto-defense + AI action both targeting the same mob)
+let currentCombatTarget: string | null = null;
+export function getCurrentCombatTarget(): string | null { return currentCombatTarget; }
+
+// Fishing progress callback — called per catch so bot-engine can send voice chance notifications
+let onFishCaught: ((itemName: string, count: number) => void) | null = null;
+export function setFishCaughtCallback(cb: ((itemName: string, count: number) => void) | null): void {
+    onFishCaught = cb;
+}
 
 // Saved home/bed position — persisted to a JSON file keyed by server address
 let homePosition: { x: number; y: number; z: number } | null = null;
@@ -169,11 +180,24 @@ export async function executeAction(
     // Look up action metadata to decide behavior
     const actionDef = MINECRAFT_ACTIONS.find((a) => a.name === actionName);
 
+    // If we're already fighting this exact target (e.g. auto-defense), skip entirely
+    // — don't abort the ongoing fight just to restart the same attack.
+    if (actionName === 'mc_attack') {
+        const attackTarget = (getArg(args, 'entity_name') ?? 'enemy').toLowerCase();
+        if (currentCombatTarget && currentCombatTarget === attackTarget) {
+            return `Already fighting ${attackTarget}`;
+        }
+    }
+
     if (actionDef?.isPhysical) {
         // Cancel any running action before starting a new one
         actionAbort.abort();
         actionAbort = new AbortController();
         try { bot.stopDigging(); } catch { /* may not be digging */ }
+        // Retract fishing rod if actively fishing
+        if (currentActivity === 'fishing' && bot.heldItem?.name === 'fishing_rod') {
+            bot.activateItem();
+        }
     }
 
     // Track busy state for physical actions (except stop which clears it)
@@ -215,9 +239,18 @@ export async function executeAction(
                 return await lookAtPlayer(bot, getArg(args, 'player_name'), names);
 
             case 'mc_stop':
-                currentActivity = null;
+                // mc_stop is not isPhysical (so it doesn't trigger the generic abort above),
+                // but it MUST abort any running action's signal explicitly
+                actionAbort.abort();
+                actionAbort = new AbortController();
                 bot.pathfinder.stop();
                 try { bot.stopDigging(); } catch { /* may not be digging */ }
+                try { bot.deactivateItem(); } catch { /* may not be using an item */ }
+                // Retract fishing rod if actively fishing (check BEFORE clearing activity)
+                if (currentActivity === 'fishing' && bot.heldItem?.name === 'fishing_rod') {
+                    bot.activateItem();
+                }
+                currentActivity = null;
                 return 'Stopped current action';
 
             case 'mc_equip':
@@ -441,7 +474,38 @@ async function mineBlock(
                 if (blockInfo) break;
             }
         }
-        if (!blockInfo) return `Unknown block type: ${blockType}`;
+        if (!blockInfo) {
+            // Helpful hints for common items that aren't blocks
+            const ITEM_HINTS: Record<string, string> = {
+                string: 'String is not a block. Kill spiders to get string, or mine cobwebs with a sword.',
+                stick: 'Sticks are not a block. Craft sticks from wooden planks (mc_craft item_name=stick).',
+                sticks: 'Sticks are not a block. Craft sticks from wooden planks (mc_craft item_name=stick).',
+                plank: 'Use mc_craft to make planks from logs (mc_craft item_name=oak_planks).',
+                planks: 'Use mc_craft to make planks from logs (mc_craft item_name=oak_planks).',
+                leather: 'Leather is not a block. Kill cows to get leather.',
+                feather: 'Feathers are not blocks. Kill chickens to get feathers.',
+                feathers: 'Feathers are not blocks. Kill chickens to get feathers.',
+                bone: 'Bones are not blocks. Kill skeletons to get bones.',
+                bones: 'Bones are not blocks. Kill skeletons to get bones.',
+                gunpowder: 'Gunpowder is not a block. Kill creepers to get gunpowder.',
+                ender_pearl: 'Ender pearls are not blocks. Kill endermen to get ender pearls.',
+                blaze_rod: 'Blaze rods are not blocks. Kill blazes in the Nether to get blaze rods.',
+                iron_ingot: 'Iron ingots are not blocks. Mine iron_ore and smelt it in a furnace.',
+                gold_ingot: 'Gold ingots are not blocks. Mine gold_ore and smelt it in a furnace.',
+                diamond: 'Diamonds are not blocks. Mine diamond_ore with an iron pickaxe or better.',
+                coal: 'Coal is not a block. Mine coal_ore to get coal.',
+                flint: 'Flint is not a block. Mine gravel — it has a chance to drop flint.',
+                ink_sac: 'Ink sacs are not blocks. Kill squids to get ink sacs.',
+                slime_ball: 'Slime balls are not blocks. Kill slimes to get slime balls.',
+                spider_eye: 'Spider eyes are not blocks. Kill spiders to get spider eyes.',
+                rotten_flesh: 'Rotten flesh is not a block. Kill zombies to get rotten flesh.',
+                wool: 'Use mc_mine_block with the block name "white_wool" or kill sheep.',
+                paper: 'Paper is not a block. Craft paper from sugar cane (mc_craft item_name=paper).',
+            };
+            const hint = ITEM_HINTS[blockType.toLowerCase()];
+            if (hint) return hint;
+            return `Unknown block type: ${blockType}. This may be an item, not a block. Only blocks in the world can be mined.`;
+        }
         blockIds = [blockInfo.id];
         displayName = blockType;
 
@@ -693,6 +757,9 @@ async function mineBlock(
     // Wait briefly for any remaining items to be auto-collected
     await new Promise((r) => setTimeout(r, 1000));
 
+    // If aborted (e.g. mc_stop), don't report a result — the stop already did
+    if (signal.aborted) return '';
+
     if (dug === 0) return `Failed to collect any ${displayName} (stuck or unreachable)`;
     const status = dug >= maxCount ? 'goal reached' : 'no more nearby';
     return `Collected ${dug} ${displayName} (${status})`;
@@ -743,6 +810,10 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
         }
     }
 
+    // Track combat target to prevent duplicate attacks from cancelling this fight
+    const normalizedTarget = (entityName ?? 'unknown').toLowerCase();
+    currentCombatTarget = normalizedTarget;
+
     // Follow and attack until dead
     const goal = new goals.GoalFollow(target, 2);
     bot.pathfinder.setGoal(goal, true);
@@ -756,6 +827,7 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
             // Check if cancelled
             if (signal.aborted) {
                 clearInterval(attackLoop);
+                if (currentCombatTarget === normalizedTarget) currentCombatTarget = null;
                 // Don't call pathfinder.stop() — the new action owns it now
                 resolve(`Stopped attacking ${displayName}`);
                 return;
@@ -764,6 +836,7 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
             // Check if target is dead (entity removed from world)
             if (!bot.entities[target.id]) {
                 clearInterval(attackLoop);
+                currentCombatTarget = null;
                 bot.pathfinder.stop();
                 resolve(`Killed ${displayName}`);
                 return;
@@ -772,6 +845,7 @@ async function attackEntity(bot: Bot, entityName: string | undefined, names: Nam
             // Timeout — stop chasing
             if (Date.now() - startTime > TIMEOUT_MS) {
                 clearInterval(attackLoop);
+                currentCombatTarget = null;
                 bot.pathfinder.stop();
                 resolve(`Stopped attacking ${displayName} (timeout)`);
                 return;
@@ -1469,7 +1543,7 @@ async function craftItem(bot: Bot, itemName: string | undefined, countStr: strin
     const itemInfo = mcData.itemsByName[resolved];
     if (!itemInfo) return `Unknown item: ${itemName}`;
 
-    // Suppress pickup telemetry for the entire crafting process
+    // Suppress pickup notes for the entire crafting process
     // (equip/unequip/craft all trigger inventory slot changes)
     suppressPickups = true;
 
@@ -1519,7 +1593,37 @@ async function craftItem(bot: Bot, itemName: string | undefined, countStr: strin
             message = `Crafted ${totalGained} ${itemInfo.displayName}`;
         }
     } else if (result.missing.length > 0) {
-        message = `Cannot craft ${itemInfo.displayName}: need ${result.missing.join(', ')}`;
+        // Check if the missing items are raw materials with known gathering hints
+        const RAW_MATERIAL_HINTS: Record<string, string> = {
+            string: 'Kill spiders to get string, or mine cobwebs with a sword.',
+            leather: 'Kill cows to get leather.',
+            feather: 'Kill chickens to get feathers.',
+            bone: 'Kill skeletons to get bones.',
+            gunpowder: 'Kill creepers to get gunpowder.',
+            ender_pearl: 'Kill endermen to get ender pearls.',
+            blaze_rod: 'Kill blazes in the Nether.',
+            slime_ball: 'Kill slimes to get slime balls.',
+            spider_eye: 'Kill spiders to get spider eyes.',
+            ink_sac: 'Kill squids to get ink sacs.',
+            flint: 'Mine gravel — it has a chance to drop flint.',
+            diamond: 'Mine diamond_ore with an iron pickaxe or better.',
+            coal: 'Mine coal_ore to get coal.',
+            iron_ingot: 'Mine iron_ore and smelt it in a furnace.',
+            gold_ingot: 'Mine gold_ore and smelt it in a furnace.',
+            rotten_flesh: 'Kill zombies to get rotten flesh.',
+        };
+        // If a missing item matches a raw material hint, use that instead
+        const missingHints = result.missing.map((m) => {
+            // Extract item name from "N ItemName (no recipe, must be gathered)"
+            const match = m.match(/^\d+\s+(.+?)\s*\(no recipe/);
+            if (match) {
+                const rawName = match[1].toLowerCase().replace(/ /g, '_');
+                const hint = RAW_MATERIAL_HINTS[rawName];
+                if (hint) return hint;
+            }
+            return m;
+        });
+        message = `Cannot craft ${itemInfo.displayName}: ${missingHints.join('; ')}`;
     } else {
         message = `Cannot craft ${itemInfo.displayName}: missing materials`;
     }
@@ -1581,6 +1685,11 @@ async function useHeldItem(bot: Bot, itemName: string | undefined): Promise<stri
 
     const resolved = itemName.toLowerCase().replace(/ /g, '_');
 
+    // Redirect fishing rod to the proper fishing action (cast + wait + reel in)
+    if (resolved === 'fishing_rod') {
+        return fishAction(bot, '1');
+    }
+
     // Find the item in inventory
     const item = bot.inventory.items().find((i) => i.name === resolved || i.displayName?.toLowerCase() === itemName.toLowerCase());
     if (!item) return `No ${itemName} in inventory`;
@@ -1621,27 +1730,69 @@ async function fishAction(bot: Bot, countStr: string | undefined): Promise<strin
     const caught = new Map<string, number>(); // displayName → count
     let totalCaught = 0;
 
-    // Snapshot inventory before each cast to detect what was caught
+    const CAST_TIMEOUT_MS = 30_000; // 30s max wait per cast
+
     for (let i = 0; i < targetCount; i++) {
         if (signal.aborted) break;
 
+        console.log(`[Fish] Cast ${i + 1}/${targetCount} — snapshotting inventory`);
+
+        // Snapshot inventory before cast
         const beforeItems = new Map<string, number>();
         for (const item of bot.inventory.items()) {
             beforeItems.set(item.name, (beforeItems.get(item.name) ?? 0) + item.count);
         }
 
+        const castTime = Date.now();
+
+        // Use Mineflayer's bot.fish() (particle-based bite detection) with a timeout
+        // bot.fish() handles: cast → detect bite via world_particles → reel in
+        // But it can hang forever if particle detection fails, so we race it with a timeout
+        let catchResult: 'caught' | 'timeout' | 'aborted';
         try {
-            await bot.fish();
-        } catch {
-            // Fish can throw if interrupted or no water nearby
-            if (totalCaught === 0) return 'Failed to fish — make sure I\'m facing water';
-            break;
+            console.log(`[Fish] Calling bot.fish() (timeout: ${CAST_TIMEOUT_MS / 1000}s)...`);
+            await Promise.race([
+                bot.fish(),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('timeout')), CAST_TIMEOUT_MS),
+                ),
+                new Promise<never>((_, reject) => {
+                    if (signal.aborted) reject(new Error('aborted'));
+                    signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+                }),
+            ]);
+            const elapsed = ((Date.now() - castTime) / 1000).toFixed(1);
+            console.log(`[Fish] bot.fish() completed — caught after ${elapsed}s`);
+            catchResult = 'caught';
+        } catch (err) {
+            const elapsed = ((Date.now() - castTime) / 1000).toFixed(1);
+            const msg = err instanceof Error ? err.message : String(err);
+            console.log(`[Fish] bot.fish() failed after ${elapsed}s — ${msg}`);
+            if (msg === 'aborted' || signal.aborted) {
+                catchResult = 'aborted';
+            } else if (msg === 'timeout') {
+                catchResult = 'timeout';
+                // Reel in the rod since bot.fish() was interrupted
+                console.log(`[Fish] Reeling in after timeout (activateItem)...`);
+                bot.activateItem();
+                await new Promise((resolve) => setTimeout(resolve, 500));
+            } else {
+                // Other errors (e.g. "Fishing cancelled", no water nearby)
+                catchResult = 'timeout';
+            }
         }
 
-        // Wait a moment for items to appear in inventory
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (catchResult === 'aborted') break;
+        if (catchResult === 'timeout') {
+            console.log(`[Fish] Timeout — recast next loop`);
+            continue;
+        }
+
+        // Wait for item to appear in inventory
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
         // Detect what was gained
+        let gainedAny = false;
         for (const item of bot.inventory.items()) {
             const prevCount = beforeItems.get(item.name) ?? 0;
             const currentCount = bot.inventory.items()
@@ -1650,15 +1801,24 @@ async function fishAction(bot: Bot, countStr: string | undefined): Promise<strin
             const gained = currentCount - prevCount;
             if (gained > 0) {
                 const display = item.displayName ?? item.name;
+                console.log(`[Fish] Gained: ${gained}x ${display}`);
                 caught.set(display, (caught.get(display) ?? 0) + gained);
                 totalCaught += gained;
+                gainedAny = true;
+                // Notify per-catch so the voice chance system can react
+                onFishCaught?.(display, gained);
             }
-            // Only count each item type once
             beforeItems.set(item.name, currentCount);
+        }
+        if (!gainedAny) {
+            console.log(`[Fish] bot.fish() resolved but no new items in inventory`);
         }
     }
 
-    if (totalCaught === 0) return 'Didn\'t catch anything';
+    // If aborted (e.g. mc_stop), don't report a result — the stop already did
+    if (signal.aborted) return '';
+
+    if (totalCaught === 0) return 'Didn\'t catch anything — make sure I\'m facing open water';
 
     const parts: string[] = [];
     for (const [name, count] of caught) {

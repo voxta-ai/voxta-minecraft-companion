@@ -3,7 +3,7 @@ import { createMinecraftBot } from '../bot/minecraft/bot';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import type { ActionCategory } from '../bot/minecraft/action-definitions';
-import { executeAction, isActionBusy, setCurrentActivity, initHomePosition, resumeFollowPlayer } from '../bot/minecraft/actions';
+import { executeAction, isActionBusy, setCurrentActivity, initHomePosition, resumeFollowPlayer, setFishCaughtCallback } from '../bot/minecraft/actions';
 import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
@@ -198,8 +198,10 @@ export class BotEngine extends EventEmitter {
     /** Queue a note — sent immediately if AI is idle, queued if AI is speaking */
     private queueNote(text: string): void {
         if (this.isReplying) {
+            console.log(`[Bot >>] note (queued): "${text.substring(0, 80)}"`);
             this.pendingNotes.push(text);
         } else {
+            console.log(`[Bot >>] note: "${text.substring(0, 80)}"`);
             void this.voxta?.sendNote(text);
         }
     }
@@ -516,6 +518,7 @@ export class BotEngine extends EventEmitter {
                 },
                 onEvent: (text) => {
                     if (!this.voxta?.sessionId) return;
+                    this.addChat('event', 'Event', text);
                     if (this.isReplying) {
                         this.queueNote(text);
                     } else {
@@ -607,7 +610,7 @@ export class BotEngine extends EventEmitter {
 
     async sendMessage(text: string): Promise<void> {
         if (!this.voxta?.sessionId) return;
-        console.log(`[Msg] sendMessage - "${text}"`);
+        console.log(`[User >>] sendMessage: "${text}"`);
 
         const name = this.voxtaUserName ?? 'You';
         this.addChat('player', `${name} (text)`, text);
@@ -646,10 +649,11 @@ export class BotEngine extends EventEmitter {
     }
 
     private handleVoxtaMessage(message: ServerMessage): void {
-        // Trace ALL incoming messages for debugging
+        // Trace ALL incoming server messages for debugging
         const msgType = message.$type;
-        if (msgType !== 'replyChunk' && msgType !== 'speechRecognitionPartial') {
-            console.log(`[Msg] << ${msgType}`);
+        if (msgType !== 'replyChunk' && msgType !== 'speechRecognitionPartial'
+            && msgType !== 'memoryUpdated' && msgType !== 'contextUpdated') {
+            console.log(`[Server] ${msgType}`);
         }
         switch (message.$type) {
             case 'welcome': {
@@ -692,7 +696,7 @@ export class BotEngine extends EventEmitter {
                         }
                         // Skip System/Note messages — they're internal context
                     }
-                    console.log(`[Msg] chatStarted - loaded ${started.messages.length} old messages`);
+                    console.log(`[Server] chatStarted — loaded ${started.messages.length} old messages`);
                 }
                 break;
             }
@@ -700,7 +704,7 @@ export class BotEngine extends EventEmitter {
                 const chunk = message as ServerReplyChunkMessage;
                 this.currentReply += chunk.text;
                 // DEBUG: trace audio URL presence
-                console.log(`[Msg] replyChunk - text: "${chunk.text.substring(0, 40)}...", audioUrl: ${chunk.audioUrl ? chunk.audioUrl.substring(0, 60) : '(none)'}`);
+                console.log(`[<< AI] "${chunk.text.substring(0, 60)}..."`);
                 // Forward audio URL to renderer for playback (same as Voxta Talk)
                 if (chunk.audioUrl) {
                     // audioUrl is relative (e.g. /api/tts/gens/...) — download in main process
@@ -758,11 +762,11 @@ export class BotEngine extends EventEmitter {
                 break;
             }
             case 'replyGenerating':
-                console.log('[Msg] replyGenerating - AI is generating a reply');
+                console.log('[<< AI] generating reply...');
                 this.isReplying = true;
                 break;
             case 'replyEnd': {
-                console.log(`[Msg] replyEnd - reply complete, text length: ${this.currentReply.trim().length}`);
+                console.log(`[<< AI] reply complete (${this.currentReply.trim().length} chars)`);
                 if (this.currentReply.trim()) {
                     const chatText = this.currentReply.trim();
                     this.addChat('ai', this.assistantName ?? 'AI', chatText);
@@ -786,7 +790,7 @@ export class BotEngine extends EventEmitter {
                 const endMsgId = endMsg.messageId;
                 if (endMsgId && this.voxta?.sessionId) {
                     this.ackCallback = () => {
-                        console.log(`[Msg] ack sentinel fired for ${endMsgId}`);
+                        console.log(`[<< AI] playback complete for ${endMsgId}`);
                         void this.voxta?.speechPlaybackComplete(endMsgId);
                     };
                     this.tryFireAck();
@@ -796,7 +800,7 @@ export class BotEngine extends EventEmitter {
             case 'replyCancelled': {
                 // Reply was interrupted (user spoke or typed while AI was talking).
                 // Reset state so the chat doesn't get stuck.
-                console.log(`[Msg] replyCancelled - reply aborted, had ${this.currentReply.length} chars buffered`);
+                console.log(`[<< AI] reply cancelled (${this.currentReply.length} chars buffered)`);
                 if (this.currentReply.trim()) {
                     // Show whatever partial text was received
                     this.addChat('ai', this.assistantName ?? 'AI', this.currentReply.trim());
@@ -812,7 +816,7 @@ export class BotEngine extends EventEmitter {
             case 'action': {
                 const action = message as ServerActionMessage;
                 const actionName = action.value?.trim() ?? '';
-                console.log(`[Msg] action - ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
+                console.log(`[<< AI] action: ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
 
                 // Ignore empty actions (AI sometimes sends action () with no name)
                 if (!actionName) {
@@ -837,6 +841,27 @@ export class BotEngine extends EventEmitter {
                         this.followingPlayer = null;
                     }
 
+                    // Notify AI about long-running actions so it knows what's happening
+                    if (actionName === 'mc_fish') {
+                        const botName = this.assistantName ?? 'Bot';
+                        const fishMsg = `${botName} is now casting the fishing rod and fishing.`;
+                        this.addChat('note', 'Note', fishMsg);
+                        this.queueNote(`${fishMsg} ${botName} is the one holding the rod and waiting for a bite.`);
+                        // Set per-catch callback using the survival voice chance slider
+                        setFishCaughtCallback((itemName, count) => {
+                            const fishBotName = this.assistantName ?? 'Bot';
+                            const msg = `${fishBotName} caught ${count} ${itemName} while fishing!`;
+                            const voiceChance = this.getVoiceChance('survival');
+                            const roll = Math.random() * 100;
+                            if (roll < voiceChance && !this.isReplying) {
+                                void this.voxta?.sendEvent(msg);
+                            } else {
+                                this.queueNote(msg);
+                            }
+                            this.addChat('note', 'Note', msg);
+                        });
+                    }
+
                     void executeAction(this.mcBot.bot, actionName, action.arguments, this.names).then(async (result) => {
                         const botName = this.assistantName ?? 'Bot';
                         // Don't show empty results (e.g. mc_acknowledge)
@@ -844,6 +869,11 @@ export class BotEngine extends EventEmitter {
                             this.addChat('system', 'System', `${botName}: ${result}`);
                         }
                         this.updateStatus({ currentAction: null });
+
+                        // Clear fishing callback when done
+                        if (actionName === 'mc_fish') {
+                            setFishCaughtCallback(null);
+                        }
 
                         // Resume following if we were following before this action (silent — UI only)
                         const shouldResume = this.followingPlayer
@@ -867,16 +897,29 @@ export class BotEngine extends EventEmitter {
                         // Look up action metadata to decide if we should report the result
                         const actionDef = MINECRAFT_ACTIONS.find((a) => a.name === actionName);
                         if (actionDef?.isQuick) return;
+                        if (!result) return; // Aborted actions return empty — nothing to report
 
-                        // Voice chance roll — like Elite Dangerous probability system
-                        const voiceChance = this.getVoiceChance(actionDef?.category);
-                        const roll = Math.random() * 100;
-                        if (roll < voiceChance && !this.isReplying) {
-                            // Voiced: send as event so the AI replies about the result
-                            void this.voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
+                        // Detect action failures — these must always trigger an AI reply
+                        // so the AI acknowledges the error instead of hallucinating success
+                        const failureKeywords = ['cannot', 'failed', 'unknown', 'no ', 'not a block', 'not a ', 'need ', 'missing'];
+                        const isFailure = failureKeywords.some((kw) => result.toLowerCase().includes(kw));
+
+                        if (isFailure && !this.isReplying) {
+                            // Failures always voiced — AI must acknowledge what went wrong
+                            // Disable action inference so hints like "kill spiders" don't auto-trigger actions
+                            void this.voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
                         } else {
-                            // Silent: AI sees it but stays quiet
-                            this.queueNote(`${botName}: ${result}`);
+                            // Voice chance roll — like Elite Dangerous probability system
+                            const voiceChance = this.getVoiceChance(actionDef?.category);
+                            const roll = Math.random() * 100;
+                            if (roll < voiceChance && !this.isReplying) {
+                                // Voiced: send as event so the AI replies about the result
+                                void this.voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
+                            } else {
+                                // Silent: AI sees it but stays quiet
+                                this.addChat('note', 'Note', `${botName}: ${result}`);
+                                this.queueNote(`${botName}: ${result}`);
+                            }
                         }
                     });
                 }
@@ -884,14 +927,14 @@ export class BotEngine extends EventEmitter {
             }
             case 'interruptSpeech': {
                 // Server says stop playback — kill renderer audio and cancel pending downloads
-                console.log('[Msg] interruptSpeech - stopping audio playback');
+                console.log('[Server] interruptSpeech — stopping audio playback');
                 this.audioEpoch++;
                 this.emit('stop-audio');
                 break;
             }
             case 'chatFlow': {
                 const state = (message as { state?: string }).state;
-                console.log(`[Msg] chatFlow - state: ${state}`);
+                console.log(`[Server] chatFlow: ${state}`);
                 break;
             }
             case 'speechRecognitionStart': {
@@ -899,7 +942,7 @@ export class BotEngine extends EventEmitter {
                 // NOTE: Do NOT send interrupt() to the server! The server already detects
                 // speech via its own STT and interrupts the reply automatically.
                 // Sending a duplicate interrupt jams the server's foreground command queue.
-                console.log('[Msg] speechRecognitionStart - stopping local audio');
+                console.log('[User >>] speaking... (stopping audio)');
                 this.audioEpoch++;
                 this.emit('stop-audio');
                 // Stop = fire sentinel immediately (matches Voxta Talk's AudioPlayback.stop())
@@ -910,7 +953,7 @@ export class BotEngine extends EventEmitter {
                 // Send immediately — matches Voxta Talk. The server handles
                 // ordering internally via its command queue.
                 const text = (message as { text?: string }).text;
-                console.log(`[Msg] speechRecognitionEnd - "${text ?? '(empty)'}"`);
+                console.log(`[User >>] said: "${text ?? '(empty)'}"`);
                 if (text) {
                     const playerName = this.voxtaUserName ?? 'You';
                     this.addChat('player', `${playerName} (voice)`, text);

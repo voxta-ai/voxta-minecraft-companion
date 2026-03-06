@@ -46,7 +46,7 @@ export interface BotStatus {
 export interface ChatMessage {
     id: string;
     timestamp: number;
-    type: 'player' | 'ai' | 'system' | 'action' | 'event';
+    type: 'player' | 'ai' | 'system' | 'action' | 'event' | 'note';
     sender: string;
     text: string;
     repeatCount?: number;
@@ -72,11 +72,11 @@ export interface McSettings {
     enableEventPlayerNearby: boolean;
     enableEventMobNearby: boolean;
 
-    // Telemetry — AI sees as notes, no reply
-    enableTelemetryItemPickup: boolean;
-    enableTelemetryWeather: boolean;
-    enableTelemetryTime: boolean;
-    enableTelemetryChat: boolean;
+    // Notes — AI sees as context, no reply
+    enableNoteItemPickup: boolean;
+    enableNoteWeather: boolean;
+    enableNoteTime: boolean;
+    enableNoteChat: boolean;
 
     // Voice chance (0-100%) — probability that action results trigger a voiced reply
     voiceChanceMovement: number;
@@ -99,10 +99,10 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableEventPlayerNearby: false,
     enableEventMobNearby: false,
 
-    enableTelemetryItemPickup: true,
-    enableTelemetryWeather: false,
-    enableTelemetryTime: false,
-    enableTelemetryChat: false,
+    enableNoteItemPickup: true,
+    enableNoteWeather: false,
+    enableNoteTime: false,
+    enableNoteChat: false,
 
     voiceChanceMovement: 20,
     voiceChanceSurvival: 50,

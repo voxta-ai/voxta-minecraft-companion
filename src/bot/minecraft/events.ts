@@ -3,7 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
-import { executeAction, isActionBusy } from './actions';
+import { executeAction, isActionBusy, getCurrentActivity } from './actions';
 import { FOOD_ITEMS } from './action-definitions';
 
 // ---- Callback interface ----
@@ -11,7 +11,7 @@ import { FOOD_ITEMS } from './action-definitions';
 export interface McEventCallbacks {
     /** Add a message to the chat log */
     onChat(type: ChatMessage['type'], sender: string, text: string): void;
-    /** Send a note (telemetry — AI sees it but does not reply) */
+    /** Send a note — AI sees it but does not reply */
     onNote(text: string): void;
     /** Send an event (critical — AI replies) */
     onEvent(text: string): void;
@@ -41,6 +41,7 @@ export class McEventBridge {
     private lastSwingTime = 0;
     private isAutoDefending = false;
     private died = false;
+    private deathCause: string | null = null;
     private autoLookLoop: ReturnType<typeof setInterval> | null = null;
     private pickupCheckTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -90,7 +91,7 @@ export class McEventBridge {
 
                 // Log each tick to chat (visible but doesn't trigger AI reply)
                 const botName = this.callbacks.getAssistantName();
-                this.callbacks.onChat('event', 'Event', `${botName} took ${damage} damage from ${source}! Health: ${currentHealth}/20`);
+                this.callbacks.onChat('note', 'Note', `${botName} took ${damage} damage from ${source}! Health: ${currentHealth}/20`);
 
                 // Consolidate damage into one AI message after a short delay
                 if (!this.damageTimer) {
@@ -102,6 +103,7 @@ export class McEventBridge {
                         const msg = `${name} took ${totalDmg} total damage from ${damageSource}! Health is now: ${hp}/20`;
                         // Damage is always a silent note — AI sees health in context
                         // and gets 'under attack' events separately for mob attacks
+                        this.callbacks.onChat('note', 'Note', msg);
                         this.callbacks.onNote(msg);
                         this.pendingDamage = 0;
                         this.damageTimer = null;
@@ -117,12 +119,13 @@ export class McEventBridge {
             if (!settings.enableEventDeath) return;
             this.died = true;
             const killer = this.lastAttacker ?? this.getDamageSource();
+            this.deathCause = killer;
             this.lastAttacker = null;
             this.lastHealth = 20;
             this.pendingDamage = 0;
             if (this.damageTimer) { clearTimeout(this.damageTimer); this.damageTimer = null; }
             const botName = this.callbacks.getAssistantName();
-            this.callbacks.onChat('event', 'Event', `${botName} died from ${killer}!`);
+            this.callbacks.onChat('note', 'Note', `${botName} died from ${killer}!`);
             this.callbacks.onNote(`${botName} died from ${killer}!`);
         }) as (...args: never[]) => void);
 
@@ -131,8 +134,12 @@ export class McEventBridge {
             if (!this.died) return;
             this.died = false;
             const botName = this.callbacks.getAssistantName();
+            const cause = this.deathCause ?? 'unknown causes';
+            this.deathCause = null;
             this.callbacks.onChat('event', 'Event', `${botName} has respawned!`);
-            this.callbacks.onEvent(`${botName} has respawned and is back in the world.`);
+            this.callbacks.onEvent(
+                `${botName} was killed by ${cause} and lost all items, but has respawned with full health (20/20) and full food (20/20). ${botName} should acknowledge that they died and came back.`,
+            );
         }) as (...args: never[]) => void);
 
         // ---- Entity swing arm (melee hit tracking) ----
@@ -175,7 +182,7 @@ export class McEventBridge {
             const settings = this.callbacks.getSettings();
             if (settings.enableEventUnderAttack && !isOnCooldown('underAttack') && this.lastAttacker) {
                 const botName = this.callbacks.getAssistantName();
-                this.callbacks.onChat('event', 'Event', `${botName} is under attack by ${this.lastAttacker}!`);
+                this.callbacks.onChat('note', 'Note', `${botName} is under attack by ${this.lastAttacker}!`);
                 this.callbacks.onNote(`${botName} is being attacked by ${this.lastAttacker}!`);
             }
 
@@ -226,7 +233,7 @@ export class McEventBridge {
             const playerName = entity.username ?? entity.displayName ?? 'player';
             this.isAutoDefending = true;
             const botName = this.callbacks.getAssistantName();
-            this.callbacks.onChat('action', 'Action', `${botName} protecting ${playerName} from ${mobName}!`);
+            this.callbacks.onChat('note', 'Note', `${botName} protecting ${playerName} from ${mobName}!`);
             this.callbacks.onNote(`${botName} is rushing to protect ${playerName} from a ${mobName}!`);
             void this.onAutoDefenseAction(this.bot, mobName)
                 .finally(() => { this.isAutoDefending = false; });
@@ -301,6 +308,9 @@ export class McEventBridge {
                 parts.push(`${count} ${name}`);
             }
             pendingPickups.clear();
+            // During fishing, the fishing callback handles catch notifications
+            if (getCurrentActivity() === 'fishing') return;
+            this.callbacks.onChat('note', 'Note', `${botName} picked up ${parts.join(', ')}`);
             this.callbacks.onNote(`${botName} picked up ${parts.join(', ')}`);
         };
 
@@ -326,7 +336,7 @@ export class McEventBridge {
             if (pickupCheckTimer) return;
             pickupCheckTimer = setInterval(() => {
                 const settings = this.callbacks.getSettings();
-                if (!settings.enableTelemetryItemPickup) return;
+                if (!settings.enableNoteItemPickup) return;
 
                 const current = takeSnapshot();
                 const botName = this.callbacks.getAssistantName();
@@ -343,7 +353,6 @@ export class McEventBridge {
                 }
 
                 if (gains.length > 0) {
-                    this.callbacks.onChat('system', 'Telemetry', `${botName} picked up ${gains.join(', ')}`);
                     if (!pickupFlushTimer) {
                         pickupFlushTimer = setTimeout(flushPickups, 3000);
                     }
@@ -357,6 +366,7 @@ export class McEventBridge {
                 const maxSlots = 36;
                 if (usedSlots >= maxSlots && !inventoryFullNotified) {
                     inventoryFullNotified = true;
+                    this.callbacks.onChat('note', 'Note', `${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`);
                     this.callbacks.onNote(`${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`);
                 } else if (usedSlots < maxSlots) {
                     // Reset so we can notify again next time it fills up
@@ -372,7 +382,23 @@ export class McEventBridge {
         this.on('chat', ((username: string, message: string) => {
             if (!username || username === this.bot.username) return;
             const settings = this.callbacks.getSettings();
-            if (!settings.enableTelemetryChat) return;
+            if (!settings.enableNoteChat) return;
+
+            // Skip Minecraft command output (cheat codes like /give, /tp, /gamemode, etc.)
+            // These come through chat but aren't actual player messages
+            const commandPatterns = [
+                /^Gave \d+/i,              // /give command output
+                /^Teleported /i,           // /tp command output
+                /^Set own game mode/i,     // /gamemode command output
+                /^Set the time to/i,       // /time command output
+                /^Set the weather to/i,    // /weather command output
+                /^\[Server\]/i,            // Server broadcast messages
+            ];
+            if (commandPatterns.some((p) => p.test(message))) {
+                this.callbacks.onChat('system', 'System', message);
+                return; // Don't forward to AI
+            }
+
             const voxtaName = this.names.resolveToVoxta(username);
             const resolvedMsg = this.names.resolveNamesInText(message);
             this.callbacks.onChat('player', voxtaName, resolvedMsg);
@@ -382,7 +408,7 @@ export class McEventBridge {
         this.on('whisper', ((username: string, message: string) => {
             if (username === this.bot.username) return;
             const settings = this.callbacks.getSettings();
-            if (!settings.enableTelemetryChat) return;
+            if (!settings.enableNoteChat) return;
             const voxtaName = this.names.resolveToVoxta(username);
             const resolvedMsg = this.names.resolveNamesInText(message);
             this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);

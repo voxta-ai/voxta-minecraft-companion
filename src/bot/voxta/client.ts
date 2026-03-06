@@ -180,7 +180,7 @@ export class VoxtaClient {
     }
 
     /** Send an event that triggers the AI to reply, not shown as user message */
-    async sendEvent(text: string): Promise<void> {
+    async sendEvent(text: string, doActionInference = true): Promise<void> {
         if (!this._sessionId) return;
         await this.send({
             $type: 'send',
@@ -188,7 +188,7 @@ export class VoxtaClient {
             text: `/event ${text}`,
             doReply: true,
             doUserActionInference: false,
-            doCharacterActionInference: true,
+            doCharacterActionInference: doActionInference,
         });
     }
 
