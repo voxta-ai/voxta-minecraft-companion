@@ -60,7 +60,12 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
         if (entity.type === 'player') {
             nearbyPlayers.push(entry);
-        } else if (entity.type !== 'orb' && entity.type !== 'projectile' && entity.type !== 'object' && entity.type !== 'global') {
+        } else if (
+            entity.type !== 'orb' &&
+            entity.type !== 'projectile' &&
+            entity.type !== 'object' &&
+            entity.type !== 'global'
+        ) {
             // Include all living entities (mob, hostile, animal, passive, other, etc.)
             // Asymmetric Y: 10 above (flying mobs) but only 2 below (avoid sensing underground caves)
             const yDiff = entity.position.y - pos.y;
@@ -96,9 +101,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
                 raw = biomeData?.displayName || biomeData?.name || '';
                 if (biomeData?.temperature != null) biomeTemperature = biomeData.temperature;
             }
-            biome = raw
-                .replace(/^minecraft:/, '')
-                .replace(/_/g, ' ') || 'unknown';
+            biome = raw.replace(/^minecraft:/, '').replace(/_/g, ' ') || 'unknown';
         }
     } catch {
         // biome read can fail before chunks load
@@ -109,24 +112,44 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         // Beds (from a shared BED_BLOCKS list)
         ...Object.fromEntries(BED_BLOCKS.map((b) => [b, 'bed'])),
         // Crafting & Smelting
-        crafting_table: 'crafting table', furnace: 'furnace', blast_furnace: 'blast furnace',
-        smoker: 'smoker', campfire: 'campfire', soul_campfire: 'soul campfire',
+        crafting_table: 'crafting table',
+        furnace: 'furnace',
+        blast_furnace: 'blast furnace',
+        smoker: 'smoker',
+        campfire: 'campfire',
+        soul_campfire: 'soul campfire',
         // Storage
-        chest: 'chest', trapped_chest: 'trapped chest', barrel: 'barrel',
-        ender_chest: 'ender chest', shulker_box: 'shulker box',
+        chest: 'chest',
+        trapped_chest: 'trapped chest',
+        barrel: 'barrel',
+        ender_chest: 'ender chest',
+        shulker_box: 'shulker box',
         // Enchanting & Brewing
-        enchanting_table: 'enchanting table', brewing_stand: 'brewing stand',
-        anvil: 'anvil', chipped_anvil: 'anvil', damaged_anvil: 'anvil',
-        grindstone: 'grindstone', smithing_table: 'smithing table',
-        loom: 'loom', cartography_table: 'cartography table', stonecutter: 'stonecutter',
+        enchanting_table: 'enchanting table',
+        brewing_stand: 'brewing stand',
+        anvil: 'anvil',
+        chipped_anvil: 'anvil',
+        damaged_anvil: 'anvil',
+        grindstone: 'grindstone',
+        smithing_table: 'smithing table',
+        loom: 'loom',
+        cartography_table: 'cartography table',
+        stonecutter: 'stonecutter',
         // Lighting
-        torch: 'torch', wall_torch: 'torch', lantern: 'lantern', soul_lantern: 'soul lantern',
+        torch: 'torch',
+        wall_torch: 'torch',
+        lantern: 'lantern',
+        soul_lantern: 'soul lantern',
         // Redstone
-        note_block: 'note block', jukebox: 'jukebox',
+        note_block: 'note block',
+        jukebox: 'jukebox',
         // Farming
-        composter: 'composter', beehive: 'beehive', bee_nest: 'bee nest',
+        composter: 'composter',
+        beehive: 'beehive',
+        bee_nest: 'bee nest',
         // Decoration
-        flower_pot: 'flower pot', bookshelf: 'bookshelf',
+        flower_pot: 'flower pot',
+        bookshelf: 'bookshelf',
     };
 
     let hasRoof = false;
@@ -138,7 +161,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
                 break;
             }
         }
-    } catch { /* chunk not loaded */ }
+    } catch {
+        /* chunk not loaded */
+    }
 
     // Scan for notable blocks within a radius
     const blockCounts = new Map<string, number>();
@@ -159,12 +184,14 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
                 }
             }
         }
-    } catch { /* chunk not loaded */ }
+    } catch {
+        /* chunk not loaded */
+    }
 
     // Build nearby blocks summary (skip torches — too noisy)
     const nearbyBlocks = Array.from(blockCounts.entries())
         .filter(([label]) => label !== 'torch')
-        .map(([label, count]) => count > 1 ? `${label} x${count}` : label);
+        .map(([label, count]) => (count > 1 ? `${label} x${count}` : label));
 
     let shelter = 'outdoors';
     if (hasRoof && shelterBlockLabels.length > 0) {
@@ -218,10 +245,10 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         isRaining: bot.isRaining,
         heldItem: bot.heldItem?.name ?? null,
         armor: [
-            bot.inventory.slots[5]?.name,  // head
-            bot.inventory.slots[6]?.name,  // chest
-            bot.inventory.slots[7]?.name,  // legs
-            bot.inventory.slots[8]?.name,  // feet
+            bot.inventory.slots[5]?.name, // head
+            bot.inventory.slots[6]?.name, // chest
+            bot.inventory.slots[7]?.name, // legs
+            bot.inventory.slots[8]?.name, // feet
         ].filter((name): name is string => !!name),
         nearbyPlayers,
         nearbyMobs,
@@ -247,25 +274,21 @@ function ticksToTime(ticks: number): string {
     return `${hours12}:${String(minutes).padStart(2, '0')} ${period}`;
 }
 
-export function buildContextStrings(
-    state: WorldState,
-    names: NameRegistry,
-    characterName: string | null,
-): string[] {
+export function buildContextStrings(state: WorldState, names: NameRegistry, characterName: string | null): string[] {
     const lines: string[] = [];
     const who = characterName ?? 'Bot';
     const timeStr = ticksToTime(state.timeOfDay);
 
     lines.push(
         `${who}'s position: ${state.position.x}, ${state.position.y}, ${state.position.z} | ` +
-        `Biome: ${state.biome} | Dimension: ${state.dimension}`
+            `Biome: ${state.biome} | Dimension: ${state.dimension}`,
     );
 
     lines.push(
         `${who}'s Health: ${state.health}/20 | ${who}'s Food: ${state.food}/20 | ` +
-        `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${timeStr}) | ` +
-        `Weather: ${state.isRaining ? (state.biomeTemperature < 0.15 ? 'Snowing' : 'Raining') : 'Clear'} | ` +
-        `Location: ${state.shelter}`
+            `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${timeStr}) | ` +
+            `Weather: ${state.isRaining ? (state.biomeTemperature < 0.15 ? 'Snowing' : 'Raining') : 'Clear'} | ` +
+            `Location: ${state.shelter}`,
     );
 
     // Current activity (task-level)

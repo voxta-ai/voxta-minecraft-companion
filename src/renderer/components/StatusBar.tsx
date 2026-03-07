@@ -13,9 +13,7 @@ export default function StatusBar() {
                 Voxta: {status.voxta}
             </div>
             <Show when={status.assistantName}>
-                <div class="status-bar-item">
-                    🤖 {status.assistantName}
-                </div>
+                <div class="status-bar-item">🤖 {status.assistantName}</div>
             </Show>
             <Show when={status.position}>
                 <div class="status-bar-item">
@@ -23,19 +21,13 @@ export default function StatusBar() {
                 </div>
             </Show>
             <Show when={status.health !== null}>
-                <div class="status-bar-item">
-                    ❤️ {status.health}/20
-                </div>
+                <div class="status-bar-item">❤️ {status.health}/20</div>
             </Show>
             <Show when={status.food !== null}>
-                <div class="status-bar-item">
-                    🍗 {status.food}/20
-                </div>
+                <div class="status-bar-item">🍗 {status.food}/20</div>
             </Show>
             <Show when={status.currentAction}>
-                <div class="status-bar-item">
-                    ⚡ {status.currentAction}
-                </div>
+                <div class="status-bar-item">⚡ {status.currentAction}</div>
             </Show>
         </div>
     );

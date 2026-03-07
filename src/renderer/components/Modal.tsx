@@ -19,11 +19,11 @@ export default function Modal(props: ModalProps) {
                 <div class="modal-content">
                     <div class="modal-header">
                         <h2>{props.title}</h2>
-                        <button class="modal-close" onClick={() => props.onClose()}>✕</button>
+                        <button class="modal-close" onClick={() => props.onClose()}>
+                            ✕
+                        </button>
                     </div>
-                    <div class="modal-body">
-                        {props.children}
-                    </div>
+                    <div class="modal-body">{props.children}</div>
                 </div>
             </div>
         </Show>

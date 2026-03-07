@@ -85,7 +85,9 @@ export class AudioInputService {
                 }
                 if (event.data.size === 0) return;
                 if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-                    console.warn(`[AudioInput] Data available but socket not open (state: ${this.socket?.readyState ?? 'null'})`);
+                    console.warn(
+                        `[AudioInput] Data available but socket not open (state: ${this.socket?.readyState ?? 'null'})`,
+                    );
                     return;
                 }
                 this.socket.send(event.data);
@@ -116,7 +118,9 @@ export class AudioInputService {
                 track.addEventListener('unmute', () => {
                     console.log('[AudioInput] Mic track unmuted');
                 });
-                console.log(`[AudioInput] Started streaming (track state: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted})`);
+                console.log(
+                    `[AudioInput] Started streaming (track state: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted})`,
+                );
             } else {
                 console.error('[AudioInput] No audio track found after getUserMedia!');
             }
@@ -147,8 +151,12 @@ export class AudioInputService {
         this.mediaRecorder = null;
 
         if (this.socket) {
-            this.socket.onerror = () => { /* noop */ };
-            this.socket.onclose = () => { /* noop */ };
+            this.socket.onerror = () => {
+                /* noop */
+            };
+            this.socket.onclose = () => {
+                /* noop */
+            };
             this.socket.close();
         }
         this.socket = null;
@@ -185,8 +193,12 @@ export class AudioInputService {
         this.readyToSend = false;
 
         if (this.socket) {
-            this.socket.onerror = () => { /* noop */ };
-            this.socket.onclose = () => { /* noop */ };
+            this.socket.onerror = () => {
+                /* noop */
+            };
+            this.socket.onclose = () => {
+                /* noop */
+            };
             if (this.socket.readyState === WebSocket.OPEN) this.socket.close();
             this.socket = null;
         }
@@ -202,13 +214,15 @@ export class AudioInputService {
                 }
 
                 // Send audio specs as the first message (same as Voxta Talk)
-                ws.send(JSON.stringify({
-                    contentType: 'audio/wav',
-                    sampleRate: 16_000,
-                    channels: 1,
-                    bitsPerSample: 16,
-                    bufferMilliseconds: TIMESLICE_MS,
-                }));
+                ws.send(
+                    JSON.stringify({
+                        contentType: 'audio/wav',
+                        sampleRate: 16_000,
+                        channels: 1,
+                        bitsPerSample: 16,
+                        bufferMilliseconds: TIMESLICE_MS,
+                    }),
+                );
                 this.readyToSend = true;
                 console.log('[AudioInput] WebSocket connected');
                 resolve();
@@ -217,26 +231,32 @@ export class AudioInputService {
             ws.onerror = (event) => {
                 if (this.socket !== ws) return;
                 console.error('[AudioInput] WebSocket error:', event);
-                ws.onerror = () => { /* noop */ };
-                ws.onclose = () => { /* noop */ };
+                ws.onerror = () => {
+                    /* noop */
+                };
+                ws.onclose = () => {
+                    /* noop */
+                };
                 this.handleReconnect(url, resolve, reject);
             };
 
             ws.onclose = (event) => {
                 if (this.socket !== ws) return;
-                console.warn(`[AudioInput] WebSocket closed (code: ${event.code}, reason: "${event.reason}", clean: ${event.wasClean})`);
-                ws.onerror = () => { /* noop */ };
-                ws.onclose = () => { /* noop */ };
+                console.warn(
+                    `[AudioInput] WebSocket closed (code: ${event.code}, reason: "${event.reason}", clean: ${event.wasClean})`,
+                );
+                ws.onerror = () => {
+                    /* noop */
+                };
+                ws.onclose = () => {
+                    /* noop */
+                };
                 this.handleReconnect(url, resolve, reject);
             };
         });
     }
 
-    private handleReconnect(
-        url: string,
-        resolve: () => void,
-        reject: (e: Error) => void,
-    ): void {
+    private handleReconnect(url: string, resolve: () => void, reject: (e: Error) => void): void {
         if (!this.shouldRetry) return;
 
         console.log('[AudioInput] WebSocket disconnected, retrying...');

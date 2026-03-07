@@ -81,7 +81,9 @@ export async function goHome(bot: Bot): Promise<string> {
     const dy = bot.entity.position.y - homePosition.y;
     const dz = bot.entity.position.z - homePosition.z;
     const distance = Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz));
-    console.log(`[MC Action] Going home to bed at ${homePosition.x}, ${homePosition.y}, ${homePosition.z} (${distance} blocks away)`);
+    console.log(
+        `[MC Action] Going home to bed at ${homePosition.x}, ${homePosition.y}, ${homePosition.z} (${distance} blocks away)`,
+    );
 
     const goal = new goals.GoalNear(homePosition.x, homePosition.y, homePosition.z, 2);
     await bot.pathfinder.goto(goal);
@@ -90,7 +92,7 @@ export async function goHome(bot: Bot): Promise<string> {
 
 export async function collectItems(bot: Bot): Promise<string> {
     const items = Object.values(bot.entities).filter(
-        (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < 32
+        (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < 32,
     );
 
     if (items.length === 0) return 'No dropped items nearby';
@@ -100,11 +102,13 @@ export async function collectItems(bot: Bot): Promise<string> {
     for (const item of items.slice(0, 5)) {
         if (signal.aborted) break;
         try {
-            await bot.pathfinder.goto(new goals.GoalBlock(
-                Math.floor(item.position.x),
-                Math.floor(item.position.y),
-                Math.floor(item.position.z),
-            ));
+            await bot.pathfinder.goto(
+                new goals.GoalBlock(
+                    Math.floor(item.position.x),
+                    Math.floor(item.position.y),
+                    Math.floor(item.position.z),
+                ),
+            );
             collected++;
         } catch {
             // Item may have despawned

@@ -30,7 +30,12 @@ async function getMinecraftWindows(): Promise<Electron.DesktopCapturerSource[]> 
 
     return sources.filter((s) => {
         const name = s.name.toLowerCase();
-        return name.startsWith('minecraft') && !name.includes('companion') && !name.includes('voxta') && !name.includes('launcher');
+        return (
+            name.startsWith('minecraft') &&
+            !name.includes('companion') &&
+            !name.includes('voxta') &&
+            !name.includes('launcher')
+        );
     });
 }
 
@@ -70,9 +75,10 @@ async function captureMinecraftWindow(mode: VisionMode): Promise<Buffer | null> 
         mcSource = mcWindows[0];
     } else {
         // Eyes mode: use the preferred index, default to the last window (spectator launched second)
-        const idx = preferredWindowIndex >= 0 && preferredWindowIndex < mcWindows.length
-            ? preferredWindowIndex
-            : mcWindows.length - 1;
+        const idx =
+            preferredWindowIndex >= 0 && preferredWindowIndex < mcWindows.length
+                ? preferredWindowIndex
+                : mcWindows.length - 1;
         mcSource = mcWindows[idx];
     }
 
@@ -151,10 +157,10 @@ async function cancelVisionRequest(
     headers: Record<string, string>,
 ): Promise<void> {
     try {
-        await fetch(
-            `${baseUrl}/api/vision/requests/${visionCaptureRequestId}?sessionId=${sessionId}`,
-            { method: 'DELETE', headers },
-        );
+        await fetch(`${baseUrl}/api/vision/requests/${visionCaptureRequestId}?sessionId=${sessionId}`, {
+            method: 'DELETE',
+            headers,
+        });
         console.log('[Vision] Canceled vision request');
     } catch (err) {
         console.error('[Vision] Failed to cancel vision request:', err);

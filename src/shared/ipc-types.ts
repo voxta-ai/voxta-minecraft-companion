@@ -216,4 +216,3 @@ export const IPC_CHANNELS = {
     AUDIO_STARTED: 'bot:audio-started',
     AUDIO_COMPLETE: 'bot:audio-complete',
 } as const;
-

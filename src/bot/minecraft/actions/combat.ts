@@ -12,14 +12,14 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
     const mcName = names.resolveToMc(entityName);
 
     const target = bot.nearestEntity(
-        (e) => e !== bot.entity && (
-            e.username?.toLowerCase() === mcName.toLowerCase() ||
-            e.name?.toLowerCase() === mcName.toLowerCase() ||
-            e.displayName?.toLowerCase() === mcName.toLowerCase() ||
-            e.username?.toLowerCase() === entityName.toLowerCase() ||
-            e.name?.toLowerCase() === entityName.toLowerCase() ||
-            e.displayName?.toLowerCase() === entityName.toLowerCase()
-        )
+        (e) =>
+            e !== bot.entity &&
+            (e.username?.toLowerCase() === mcName.toLowerCase() ||
+                e.name?.toLowerCase() === mcName.toLowerCase() ||
+                e.displayName?.toLowerCase() === mcName.toLowerCase() ||
+                e.username?.toLowerCase() === entityName.toLowerCase() ||
+                e.name?.toLowerCase() === entityName.toLowerCase() ||
+                e.displayName?.toLowerCase() === entityName.toLowerCase()),
     );
 
     if (!target) return `Cannot find ${names.resolveToVoxta(names.resolveToMc(entityName))} nearby`;
@@ -99,7 +99,9 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 bot.attack(target);
                 // Raise shield again after swing
                 if (hasShield) {
-                    setTimeout(() => { bot.activateItem(true); }, 100);
+                    setTimeout(() => {
+                        bot.activateItem(true);
+                    }, 100);
                 }
             } else if (hasShield) {
                 // Keep the shield raised while approaching

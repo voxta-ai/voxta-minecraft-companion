@@ -1,6 +1,20 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, ChatListItem, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent, InspectorData } from '../shared/ipc-types';
+import type {
+    VoxtaConnectConfig,
+    VoxtaInfo,
+    BotConfig,
+    BotStatus,
+    ChatMessage,
+    ActionToggle,
+    ChatListItem,
+    ToastMessage,
+    McSettings,
+    AudioChunk,
+    AudioPlaybackEvent,
+    RecordingStartEvent,
+    InspectorData,
+} from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
 export type ChatCallback = (message: ChatMessage) => void;
@@ -15,29 +29,22 @@ const api = {
     connectVoxta: (config: VoxtaConnectConfig): Promise<VoxtaInfo> =>
         ipcRenderer.invoke(IPC_CHANNELS.CONNECT_VOXTA, config),
 
-    launchBot: (config: BotConfig): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.LAUNCH_BOT, config),
+    launchBot: (config: BotConfig): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.LAUNCH_BOT, config),
 
-    disconnect: (): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.DISCONNECT),
+    disconnect: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.DISCONNECT),
 
-    sendMessage: (text: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.SEND_MESSAGE, text),
+    sendMessage: (text: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.SEND_MESSAGE, text),
 
-    getStatus: (): Promise<BotStatus> =>
-        ipcRenderer.invoke(IPC_CHANNELS.GET_STATUS),
+    getStatus: (): Promise<BotStatus> => ipcRenderer.invoke(IPC_CHANNELS.GET_STATUS),
 
-    getActions: (): Promise<ActionToggle[]> =>
-        ipcRenderer.invoke(IPC_CHANNELS.GET_ACTIONS),
+    getActions: (): Promise<ActionToggle[]> => ipcRenderer.invoke(IPC_CHANNELS.GET_ACTIONS),
 
     toggleAction: (name: string, enabled: boolean): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.TOGGLE_ACTION, name, enabled),
 
-    updateSettings: (settings: McSettings): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.UPDATE_SETTINGS, settings),
+    updateSettings: (settings: McSettings): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.UPDATE_SETTINGS, settings),
 
-    cycleVisionWindow: (): Promise<string | null> =>
-        ipcRenderer.invoke(IPC_CHANNELS.CYCLE_VISION_WINDOW),
+    cycleVisionWindow: (): Promise<string | null> => ipcRenderer.invoke(IPC_CHANNELS.CYCLE_VISION_WINDOW),
 
     loadChats: (characterId: string): Promise<ChatListItem[]> =>
         ipcRenderer.invoke(IPC_CHANNELS.LOAD_CHATS, characterId),
@@ -45,15 +52,12 @@ const api = {
     favoriteChat: (chatId: string, favorite: boolean): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.FAVORITE_CHAT, chatId, favorite),
 
-    deleteChat: (chatId: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.DELETE_CHAT, chatId),
+    deleteChat: (chatId: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.DELETE_CHAT, chatId),
 
     // Audio: renderer → main (ack that playback started/completed)
-    audioStarted: (event: AudioPlaybackEvent): void =>
-        ipcRenderer.send(IPC_CHANNELS.AUDIO_STARTED, event),
+    audioStarted: (event: AudioPlaybackEvent): void => ipcRenderer.send(IPC_CHANNELS.AUDIO_STARTED, event),
 
-    audioComplete: (messageId: string): void =>
-        ipcRenderer.send(IPC_CHANNELS.AUDIO_COMPLETE, messageId),
+    audioComplete: (messageId: string): void => ipcRenderer.send(IPC_CHANNELS.AUDIO_COMPLETE, messageId),
 
     onStatusChanged: (callback: StatusCallback): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, status: BotStatus): void => callback(status);

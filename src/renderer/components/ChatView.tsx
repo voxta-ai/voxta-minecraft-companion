@@ -80,10 +80,7 @@ export default function ChatView(props: ChatViewProps) {
                     onKeyDown={handleKeyDown}
                     disabled={!isConnected()}
                 />
-                <button
-                    onClick={handleSend}
-                    disabled={!isConnected() || !inputText().trim()}
-                >
+                <button onClick={handleSend} disabled={!isConnected() || !inputText().trim()}>
                     Send
                 </button>
             </div>

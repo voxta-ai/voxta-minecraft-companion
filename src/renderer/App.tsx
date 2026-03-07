@@ -67,37 +67,22 @@ export default function App() {
                 <div class="main-panel">
                     <ChatView onConnect={() => setActivePopup('connection')} />
                 </div>
-                <InspectorDrawer
-                    open={inspectorOpen()}
-                    onClose={() => setInspectorOpen(false)}
-                />
+                <InspectorDrawer open={inspectorOpen()} onClose={() => setInspectorOpen(false)} />
             </div>
 
             <StatusBar />
             <ToastContainer />
 
             {/* Popup modals */}
-            <Modal
-                open={activePopup() === 'connection'}
-                title="🔗 Connection"
-                onClose={() => setActivePopup(null)}
-            >
+            <Modal open={activePopup() === 'connection'} title="🔗 Connection" onClose={() => setActivePopup(null)}>
                 <ConnectionPanel onClose={() => setActivePopup(null)} />
             </Modal>
 
-            <Modal
-                open={activePopup() === 'actions'}
-                title="🎮 Actions"
-                onClose={() => setActivePopup(null)}
-            >
+            <Modal open={activePopup() === 'actions'} title="🎮 Actions" onClose={() => setActivePopup(null)}>
                 <ActionToggles />
             </Modal>
 
-            <Modal
-                open={activePopup() === 'settings'}
-                title="⚙️ Settings"
-                onClose={() => setActivePopup(null)}
-            >
+            <Modal open={activePopup() === 'settings'} title="⚙️ Settings" onClose={() => setActivePopup(null)}>
                 <SettingsPanel />
             </Modal>
         </div>

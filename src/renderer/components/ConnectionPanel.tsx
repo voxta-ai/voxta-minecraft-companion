@@ -76,7 +76,11 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                     map[char.id] = chats[0].lastSessionTimestamp ?? '';
                 }
             });
-            Promise.all(promises).then(() => setCharLastChat(map)).catch(() => { /* ignore */ });
+            Promise.all(promises)
+                .then(() => setCharLastChat(map))
+                .catch(() => {
+                    /* ignore */
+                });
         }
     });
 
@@ -124,13 +128,17 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         const charId = selectedCharacterId();
         if (!charId) return;
         setLoadingChats(true);
-        window.api.loadChats(charId).then((chats) => {
-            setPreviousChats(chats);
-        }).catch((err) => {
-            console.error('[UI] Failed to load chats:', err);
-        }).finally(() => {
-            setLoadingChats(false);
-        });
+        window.api
+            .loadChats(charId)
+            .then((chats) => {
+                setPreviousChats(chats);
+            })
+            .catch((err) => {
+                console.error('[UI] Failed to load chats:', err);
+            })
+            .finally(() => {
+                setLoadingChats(false);
+            });
     };
 
     createEffect(() => {
@@ -243,11 +251,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
                 <Show when={!isVoxtaConnected()}>
                     <div class="connection-actions">
-                        <button
-                            class="btn btn-connect"
-                            onClick={handleConnectVoxta}
-                            disabled={isVoxtaConnecting()}
-                        >
+                        <button class="btn btn-connect" onClick={handleConnectVoxta} disabled={isVoxtaConnecting()}>
                             {isVoxtaConnecting() ? '⏳ Connecting...' : '🔗 Connect to Voxta'}
                         </button>
                     </div>
@@ -302,9 +306,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                                 >
                                                     <span class="chat-list-icon">{chat.favorite ? '⭐' : '💬'}</span>
                                                     <div class="chat-list-info">
-                                                        <span class="chat-list-label">
-                                                            {displayName}
-                                                        </span>
+                                                        <span class="chat-list-label">{displayName}</span>
                                                         <span class="chat-list-meta">
                                                             {chat.lastSession ?? chat.created}
                                                         </span>
@@ -396,7 +398,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
             {/* Disconnect button (shown when connected but Phase 2 is not visible) */}
             <Show when={(isVoxtaConnected() || isMcConnected()) && (!hasCharacters() || hasSession())}>
-                <div class="connection-actions" style={{ "margin-top": "12px" }}>
+                <div class="connection-actions" style={{ 'margin-top': '12px' }}>
                     <button class="btn btn-disconnect" onClick={handleDisconnect}>
                         ⏹ Disconnect
                     </button>

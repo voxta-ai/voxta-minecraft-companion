@@ -31,7 +31,9 @@ export function handleActionMessage(
     callbacks: ActionOrchestratorCallbacks,
 ): void {
     const actionName = action.value?.trim() ?? '';
-    console.log(`[<< AI] action: ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
+    console.log(
+        `[<< AI] action: ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`,
+    );
 
     // Ignore empty actions (AI sometimes sends action () with no name)
     if (!actionName) {
@@ -40,7 +42,11 @@ export function handleActionMessage(
     }
 
     callbacks.updateCurrentAction(actionName);
-    callbacks.addChat('action', 'Action', `${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
+    callbacks.addChat(
+        'action',
+        'Action',
+        `${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`,
+    );
 
     // Track follow state
     if (actionName === 'mc_follow_player') {
@@ -91,18 +97,22 @@ export function handleActionMessage(
 
         // Resume the following if we were following before this action (silent — UI only)
         const followingPlayer = callbacks.getFollowingPlayer();
-        const shouldResume = followingPlayer
-            && actionName !== 'mc_follow_player'
-            && actionName !== 'mc_stop'
-            && actionName !== 'mc_go_home'
-            && actionName !== 'mc_go_to';
-        console.log(`[Bot] Action done: ${actionName}, followingPlayer: ${followingPlayer}, shouldResume: ${!!shouldResume}`);
+        const shouldResume =
+            followingPlayer &&
+            actionName !== 'mc_follow_player' &&
+            actionName !== 'mc_stop' &&
+            actionName !== 'mc_go_home' &&
+            actionName !== 'mc_go_to';
+        console.log(
+            `[Bot] Action done: ${actionName}, followingPlayer: ${followingPlayer}, shouldResume: ${!!shouldResume}`,
+        );
         if (actionName === 'mc_follow_player') {
             console.log(`[Bot] Pathfinder goal after follow: ${!!bot.pathfinder.goal}`);
         }
         if (shouldResume) {
             const resumeResult = await executeAction(
-                bot, 'mc_follow_player',
+                bot,
+                'mc_follow_player',
                 [{ name: 'player_name', value: followingPlayer ?? '' }],
                 names,
             );
@@ -143,10 +153,15 @@ export function handleActionMessage(
 /** Get the voice chance (0-100) for an action category */
 function getVoiceChance(settings: McSettings, category?: ActionCategory): number {
     switch (category) {
-        case 'movement': return settings.voiceChanceMovement;
-        case 'survival': return settings.voiceChanceSurvival;
-        case 'combat': return settings.voiceChanceCombat;
-        case 'interaction': return settings.voiceChanceInteraction;
-        default: return 50;
+        case 'movement':
+            return settings.voiceChanceMovement;
+        case 'survival':
+            return settings.voiceChanceSurvival;
+        case 'combat':
+            return settings.voiceChanceCombat;
+        case 'interaction':
+            return settings.voiceChanceInteraction;
+        default:
+            return 50;
     }
 }

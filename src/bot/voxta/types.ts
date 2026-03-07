@@ -28,7 +28,13 @@ export interface ActionEffect {
     clearFlags?: string[];
 }
 
-export type FunctionTiming = 'AfterUserMessage' | 'BeforeAssistantMessage' | 'AfterAssistantMessage' | 'Manual' | 'Button' | 'AfterAnyMessage';
+export type FunctionTiming =
+    | 'AfterUserMessage'
+    | 'BeforeAssistantMessage'
+    | 'AfterAssistantMessage'
+    | 'Manual'
+    | 'Button'
+    | 'AfterAnyMessage';
 
 export interface ScenarioAction {
     name: string;
@@ -226,4 +232,4 @@ export type ServerMessage =
     | ServerErrorMessage
     | ServerVisionCaptureRequestMessage
     | ServerRecordingRequestMessage
-    | { $type: string;[key: string]: unknown };
+    | { $type: string; [key: string]: unknown };

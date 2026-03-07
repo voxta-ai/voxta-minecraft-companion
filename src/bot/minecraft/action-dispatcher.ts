@@ -11,15 +11,26 @@ import {
     getCurrentCombatTarget,
 } from './actions';
 import {
-    followPlayer, goTo, goHome, collectItems,
-    attackEntity, lookAtPlayer,
+    followPlayer,
+    goTo,
+    goHome,
+    collectItems,
+    attackEntity,
+    lookAtPlayer,
     mineBlock,
     craftItem,
     cookFood,
     fishAction,
-    equipItem, eatFood, giveItem, tossItem, useHeldItem,
-    storeItem, takeItem, inspectContainer,
-    sleepInBed, setHomeBed,
+    equipItem,
+    eatFood,
+    giveItem,
+    tossItem,
+    useHeldItem,
+    storeItem,
+    takeItem,
+    inspectContainer,
+    sleepInBed,
+    setHomeBed,
     placeBlock,
 } from './actions';
 
@@ -60,7 +71,11 @@ export async function executeAction(
     if (actionDef?.isPhysical) {
         // Cancel any running action before starting a new one
         resetActionAbort();
-        try { bot.stopDigging(); } catch { /* may not be digging */ }
+        try {
+            bot.stopDigging();
+        } catch {
+            /* may not be digging */
+        }
         // Retract fishing rod if actively fishing
         if (getCurrentActivity() === 'fishing' && bot.heldItem?.name === 'fishing_rod') {
             bot.activateItem();
@@ -80,7 +95,9 @@ export async function executeAction(
             }
 
             case 'mc_go_to': {
-                const gx = getArg(args, 'x'), gy = getArg(args, 'y'), gz = getArg(args, 'z');
+                const gx = getArg(args, 'x'),
+                    gy = getArg(args, 'y'),
+                    gz = getArg(args, 'z');
                 setCurrentActivity(`navigating to ${gx ?? '?'},${gy ?? '?'},${gz ?? '?'}`);
                 return await goTo(bot, gx, gy, gz);
             }
@@ -109,8 +126,16 @@ export async function executeAction(
                 // but it MUST abort any running action's signal explicitly
                 resetActionAbort();
                 bot.pathfinder.stop();
-                try { bot.stopDigging(); } catch { /* may not be digging */ }
-                try { bot.deactivateItem(); } catch { /* may not be using an item */ }
+                try {
+                    bot.stopDigging();
+                } catch {
+                    /* may not be digging */
+                }
+                try {
+                    bot.deactivateItem();
+                } catch {
+                    /* may not be using an item */
+                }
                 // Retract fishing rod if actively fishing (check BEFORE clearing activity)
                 if (getCurrentActivity() === 'fishing' && bot.heldItem?.name === 'fishing_rod') {
                     bot.activateItem();
@@ -122,7 +147,13 @@ export async function executeAction(
                 return await equipItem(bot, getArg(args, 'item_name'));
 
             case 'mc_give_item':
-                return await giveItem(bot, getArg(args, 'item_name'), getArg(args, 'player_name'), getArg(args, 'count'), names);
+                return await giveItem(
+                    bot,
+                    getArg(args, 'item_name'),
+                    getArg(args, 'player_name'),
+                    getArg(args, 'count'),
+                    names,
+                );
 
             case 'mc_collect_items':
                 setCurrentActivity('collecting nearby items');

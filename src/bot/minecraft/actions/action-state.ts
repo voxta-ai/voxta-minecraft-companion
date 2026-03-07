@@ -4,7 +4,9 @@ import { join } from 'node:path';
 // ---- Cancellation & busy tracking ----
 
 let actionAbort = new AbortController();
-export function getActionAbort(): AbortController { return actionAbort; }
+export function getActionAbort(): AbortController {
+    return actionAbort;
+}
 export function resetActionAbort(): AbortController {
     actionAbort.abort();
     actionAbort = new AbortController();
@@ -13,29 +15,47 @@ export function resetActionAbort(): AbortController {
 
 // Tracks whether a physical action is running (mining, following, etc.)
 let actionBusy = false;
-export function isActionBusy(): boolean { return actionBusy; }
-export function setActionBusy(busy: boolean): void { actionBusy = busy; }
+export function isActionBusy(): boolean {
+    return actionBusy;
+}
+export function setActionBusy(busy: boolean): void {
+    actionBusy = busy;
+}
 
 // Suppress pickup notes during inventory management (equip/unequip in crafting)
 let suppressPickups = false;
-export function isPickupSuppressed(): boolean { return suppressPickups; }
-export function setSuppressPickups(value: boolean): void { suppressPickups = value; }
+export function isPickupSuppressed(): boolean {
+    return suppressPickups;
+}
+export function setSuppressPickups(value: boolean): void {
+    suppressPickups = value;
+}
 
 // Human-readable description of what the bot is currently doing
 let currentActivity: string | null = null;
-export function getCurrentActivity(): string | null { return currentActivity; }
-export function setCurrentActivity(activity: string | null): void { currentActivity = activity; }
+export function getCurrentActivity(): string | null {
+    return currentActivity;
+}
+export function setCurrentActivity(activity: string | null): void {
+    currentActivity = activity;
+}
 
 // Current combat target — used to prevent duplicate mc_attack from cancelling
 // an ongoing fight (e.g., auto-defense + AI action both targeting the same mob)
 let currentCombatTarget: string | null = null;
-export function getCurrentCombatTarget(): string | null { return currentCombatTarget; }
-export function setCurrentCombatTarget(target: string | null): void { currentCombatTarget = target; }
+export function getCurrentCombatTarget(): string | null {
+    return currentCombatTarget;
+}
+export function setCurrentCombatTarget(target: string | null): void {
+    currentCombatTarget = target;
+}
 
 // ---- Fishing callback ----
 
 let onFishCaught: ((itemName: string, count: number) => void) | null = null;
-export function getOnFishCaught(): ((itemName: string, count: number) => void) | null { return onFishCaught; }
+export function getOnFishCaught(): ((itemName: string, count: number) => void) | null {
+    return onFishCaught;
+}
 export function setFishCaughtCallback(cb: ((itemName: string, count: number) => void) | null): void {
     onFishCaught = cb;
 }
@@ -44,7 +64,9 @@ export function setFishCaughtCallback(cb: ((itemName: string, count: number) => 
 
 let homePosition: { x: number; y: number; z: number } | null = null;
 let homeServerKey: string | null = null;
-export function getHomePosition(): { x: number; y: number; z: number } | null { return homePosition; }
+export function getHomePosition(): { x: number; y: number; z: number } | null {
+    return homePosition;
+}
 
 const HOME_FILE = join(process.cwd(), 'bot-home.json');
 

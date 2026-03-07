@@ -119,9 +119,13 @@ export async function inspectContainer(bot: Bot, target: string | undefined): Pr
     if (!matcher) {
         // Try to match any container
         const allMatcher = (name: string): boolean =>
-            name === 'chest' || name === 'trapped_chest' || name === 'barrel'
-            || name === 'furnace' || name === 'smoker' || name === 'blast_furnace'
-            || name === 'crafting_table';
+            name === 'chest' ||
+            name === 'trapped_chest' ||
+            name === 'barrel' ||
+            name === 'furnace' ||
+            name === 'smoker' ||
+            name === 'blast_furnace' ||
+            name === 'crafting_table';
         return await doInspect(bot, allMatcher, target);
     }
 
@@ -148,9 +152,7 @@ async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: st
 
     // Walk to it
     try {
-        await bot.pathfinder.goto(
-            new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2),
-        );
+        await bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2));
     } catch {
         return `Cannot reach the ${label}`;
     }

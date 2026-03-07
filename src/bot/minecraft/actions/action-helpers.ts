@@ -65,9 +65,7 @@ export function findPlayerEntity(bot: Bot, playerName: string, names: NameRegist
     const mcName = names.resolveToMc(playerName);
 
     return Object.values(bot.entities).find(
-        (e) => e.type === 'player' &&
-            e !== bot.entity &&
-            e.username?.toLowerCase() === mcName.toLowerCase()
+        (e) => e.type === 'player' && e !== bot.entity && e.username?.toLowerCase() === mcName.toLowerCase(),
     );
 }
 

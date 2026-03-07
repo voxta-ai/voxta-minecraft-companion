@@ -15,9 +15,7 @@ export async function sleepInBed(bot: Bot): Promise<string> {
 
     // Walk to the bed
     try {
-        await bot.pathfinder.goto(
-            new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2),
-        );
+        await bot.pathfinder.goto(new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2));
     } catch {
         return 'Cannot reach the bed';
     }
@@ -58,9 +56,7 @@ export async function setHomeBed(bot: Bot): Promise<string> {
 
     // Walk to the bed
     try {
-        await bot.pathfinder.goto(
-            new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2),
-        );
+        await bot.pathfinder.goto(new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2));
     } catch {
         return 'Cannot reach the bed';
     }

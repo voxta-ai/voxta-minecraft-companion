@@ -18,15 +18,23 @@ export async function mineBlock(
 
     // Aliases: "wood", "log", "tree" → find any nearby log type
     const LOG_ALIASES = ['wood', 'log', 'tree', 'trees', 'any'];
-    const ALL_LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log'];
+    const ALL_LOGS = [
+        'oak_log',
+        'birch_log',
+        'spruce_log',
+        'jungle_log',
+        'acacia_log',
+        'dark_oak_log',
+        'mangrove_log',
+        'cherry_log',
+    ];
 
     let blockIds: number[];
     let displayName: string;
 
     if (LOG_ALIASES.includes(blockType.toLowerCase())) {
         // Match any log type
-        blockIds = ALL_LOGS
-            .map((name) => mcData.blocksByName[name] as { id: number } | undefined)
+        blockIds = ALL_LOGS.map((name) => mcData.blocksByName[name] as { id: number } | undefined)
             .filter((b): b is { id: number } => b !== undefined)
             .map((b) => b.id);
         displayName = 'wood';
@@ -119,16 +127,21 @@ export async function mineBlock(
     } else {
         // No tool required — but try to equip a preferred tool for speed
         // (e.g., axe for wood, shovel for dirt)
-        const preferred = resolvedName.includes('log') || resolvedName.includes('planks') ? 'axe'
-            : resolvedName.includes('dirt') || resolvedName.includes('sand') || resolvedName.includes('gravel') ? 'shovel'
-                : null;
+        const preferred =
+            resolvedName.includes('log') || resolvedName.includes('planks')
+                ? 'axe'
+                : resolvedName.includes('dirt') || resolvedName.includes('sand') || resolvedName.includes('gravel')
+                  ? 'shovel'
+                  : null;
         if (preferred) {
             const tool = getBestTool(bot, preferred as ToolCategory);
             if (tool) {
                 try {
                     await bot.equip(tool.item as number, 'hand');
                     console.log(`[MC Action] Equipped preferred tool ${tool.name}`);
-                } catch { /* not critical — mine with whatever is in hand */ }
+                } catch {
+                    /* not critical — mine with whatever is in hand */
+                }
             }
         }
     }
@@ -176,7 +189,8 @@ export async function mineBlock(
 
     // Snapshot inventory before mining so we count actual items gained
     const countInventory = (): number => {
-        return bot.inventory.items()
+        return bot.inventory
+            .items()
             .filter((item) => itemNames.has(item.name))
             .reduce((sum, item) => sum + item.count, 0);
     };
@@ -240,14 +254,18 @@ export async function mineBlock(
             });
 
         if (reachable.length === 0) {
-            console.log(`[MC Action] No reachable ${displayName}: ${candidates.length} candidates found, all filtered (botY=${Math.floor(botY)}, maxAbove=${maxAbove}, maxBelow=${maxBelow}, failed=${failedPositions.size})`);
+            console.log(
+                `[MC Action] No reachable ${displayName}: ${candidates.length} candidates found, all filtered (botY=${Math.floor(botY)}, maxAbove=${maxAbove}, maxBelow=${maxBelow}, failed=${failedPositions.size})`,
+            );
             if (candidates.length > 0) {
                 // Log why the first few were filtered
                 const sample = candidates.slice(0, 3);
                 for (const pos of sample) {
                     const dy = pos.y - botY;
                     const key = `${pos.x},${pos.y},${pos.z}`;
-                    console.log(`[MC Action]   candidate at ${pos.x},${pos.y},${pos.z} dy=${dy.toFixed(1)} failed=${failedPositions.has(key)}`);
+                    console.log(
+                        `[MC Action]   candidate at ${pos.x},${pos.y},${pos.z} dy=${dy.toFixed(1)} failed=${failedPositions.has(key)}`,
+                    );
                 }
             }
             if (dug === 0) return `Cannot find any reachable ${displayName} nearby`;
@@ -257,18 +275,17 @@ export async function mineBlock(
         const blockPos = reachable[0];
         const posKey = `${blockPos.x},${blockPos.y},${blockPos.z}`;
         const block = bot.blockAt(blockPos);
-        if (!block) { failedPositions.add(posKey); continue; }
+        if (!block) {
+            failedPositions.add(posKey);
+            continue;
+        }
 
         try {
             // Navigate to the block. For trees, stay at ground level and reach up
             // (avoids pathfinder climbing on top of leaves to reach upper logs).
             const goalY = isTreeBlock ? Math.floor(botY) : block.position.y;
-            const pathPromise = bot.pathfinder.goto(
-                new goals.GoalNear(block.position.x, goalY, block.position.z, 2),
-            );
-            const timeout = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('timeout')), 15000),
-            );
+            const pathPromise = bot.pathfinder.goto(new goals.GoalNear(block.position.x, goalY, block.position.z, 2));
+            const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
             await Promise.race([pathPromise, timeout]);
             if (signal.aborted) break;
 
@@ -276,7 +293,11 @@ export async function mineBlock(
             if (toolCategory !== 'none') {
                 const tool = getBestTool(bot, toolCategory);
                 if (tool) {
-                    try { await bot.equip(tool.item as number, 'hand'); } catch { /* best effort */ }
+                    try {
+                        await bot.equip(tool.item as number, 'hand');
+                    } catch {
+                        /* best effort */
+                    }
                 }
             }
 
@@ -289,9 +310,9 @@ export async function mineBlock(
             // Walk to nearby dropped items (check near bot AND near block — items
             // from upper tree blocks fall to ground level, far from block position)
             const droppedItem = Object.values(bot.entities).find(
-                (e) => e.name === 'item'
-                    && (e.position.distanceTo(block.position) < 3
-                        || e.position.distanceTo(bot.entity.position) < 4),
+                (e) =>
+                    e.name === 'item' &&
+                    (e.position.distanceTo(block.position) < 3 || e.position.distanceTo(bot.entity.position) < 4),
             );
             if (droppedItem) {
                 // Wait for playerCollect or timeout
@@ -313,11 +334,13 @@ export async function mineBlock(
                 });
                 // Walk to the item drop
                 try {
-                    await bot.pathfinder.goto(new goals.GoalBlock(
-                        Math.floor(droppedItem.position.x),
-                        Math.floor(droppedItem.position.y),
-                        Math.floor(droppedItem.position.z),
-                    ));
+                    await bot.pathfinder.goto(
+                        new goals.GoalBlock(
+                            Math.floor(droppedItem.position.x),
+                            Math.floor(droppedItem.position.y),
+                            Math.floor(droppedItem.position.z),
+                        ),
+                    );
                 } catch {
                     // Item may have been auto-collected already
                 }

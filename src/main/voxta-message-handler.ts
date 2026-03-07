@@ -1,4 +1,11 @@
-import type { ServerActionMessage, ServerReplyChunkMessage, ServerWelcomeMessage, ServerVisionCaptureRequestMessage, ServerRecordingRequestMessage, ServerMessage } from '../bot/voxta/types';
+import type {
+    ServerActionMessage,
+    ServerReplyChunkMessage,
+    ServerWelcomeMessage,
+    ServerVisionCaptureRequestMessage,
+    ServerRecordingRequestMessage,
+    ServerMessage,
+} from '../bot/voxta/types';
 import type { ChatMessage, McSettings, RecordingStartEvent, InspectorData } from '../shared/ipc-types';
 import type { AudioPipeline } from './audio-pipeline';
 import type { VoxtaClient } from '../bot/voxta/client';
@@ -106,7 +113,8 @@ function handleReplyChunk(message: ServerMessage, ctx: MessageHandlerContext): v
     const voxta = ctx.getVoxta();
     if (voxta) {
         ctx.audioPipeline.processReplyChunk(
-            chunk, voxta,
+            chunk,
+            voxta,
             ctx.getVoxtaUrl() ?? 'http://localhost:5384',
             ctx.getVoxtaApiKey(),
         );
@@ -156,22 +164,17 @@ function handleAction(message: ServerMessage, ctx: MessageHandlerContext): void 
     const bot = ctx.getMcBot();
     if (!bot) return;
 
-    handleActionMessage(
-        message as ServerActionMessage,
-        bot,
-        ctx.getNames(),
-        {
-            getAssistantName: () => ctx.getAssistantName() ?? 'Bot',
-            getSettings: () => ctx.getSettings(),
-            isReplying: () => ctx.isReplying(),
-            getFollowingPlayer: () => ctx.getFollowingPlayer(),
-            setFollowingPlayer: (p) => ctx.setFollowingPlayer(p),
-            addChat: (type, sender, text) => ctx.addChat(type, sender, text),
-            updateCurrentAction: (a) => ctx.updateStatus({ currentAction: a }),
-            queueNote: (text) => ctx.queueNote(text),
-            getVoxta: () => ctx.getVoxta(),
-        },
-    );
+    handleActionMessage(message as ServerActionMessage, bot, ctx.getNames(), {
+        getAssistantName: () => ctx.getAssistantName() ?? 'Bot',
+        getSettings: () => ctx.getSettings(),
+        isReplying: () => ctx.isReplying(),
+        getFollowingPlayer: () => ctx.getFollowingPlayer(),
+        setFollowingPlayer: (p) => ctx.setFollowingPlayer(p),
+        addChat: (type, sender, text) => ctx.addChat(type, sender, text),
+        updateCurrentAction: (a) => ctx.updateStatus({ currentAction: a }),
+        queueNote: (text) => ctx.queueNote(text),
+        getVoxta: () => ctx.getVoxta(),
+    });
 }
 
 function handleInterruptSpeech(_message: ServerMessage, ctx: MessageHandlerContext): void {
@@ -264,9 +267,7 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
 };
 
 // Quiet message types — don't log these to avoid console noise
-const QUIET_MESSAGES = new Set([
-    'replyChunk', 'speechRecognitionPartial', 'memoryUpdated', 'contextUpdated',
-]);
+const QUIET_MESSAGES = new Set(['replyChunk', 'speechRecognitionPartial', 'memoryUpdated', 'contextUpdated']);
 
 /**
  * Route a Voxta server message to the appropriate handler.

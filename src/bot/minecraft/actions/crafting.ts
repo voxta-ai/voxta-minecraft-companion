@@ -19,7 +19,8 @@ function getItemDisplayName(mcData: { items: McDataItemsById }, itemId: number):
 
 /** Count how many of a specific item ID the bot has in inventory */
 function countItemInInventory(bot: Bot, itemId: number): number {
-    return bot.inventory.items()
+    return bot.inventory
+        .items()
         .filter((i) => i.type === itemId)
         .reduce((sum, i) => sum + i.count, 0);
 }
@@ -76,7 +77,12 @@ async function autoCraftWithPrereqs(
     const allRecipes = bot.recipesAll(itemId, null, craftingTable);
     if (allRecipes.length === 0) {
         // No recipe exists — this is a raw material (logs, ores, etc.)
-        return { success: false, crafted: 0, steps: [], missing: [`${stillNeed} ${displayName} (no recipe, must be gathered)`] };
+        return {
+            success: false,
+            crafted: 0,
+            steps: [],
+            missing: [`${stillNeed} ${displayName} (no recipe, must be gathered)`],
+        };
     }
 
     // Score each recipe variant by how many ingredients we already have,
@@ -115,7 +121,12 @@ async function autoCraftWithPrereqs(
             const have = countItemInInventory(bot, ingredient.id);
             if (have < totalNeeded) {
                 const prereqResult = await autoCraftWithPrereqs(
-                    bot, mcData, ingredient.id, totalNeeded, craftingTable, depth + 1,
+                    bot,
+                    mcData,
+                    ingredient.id,
+                    totalNeeded,
+                    craftingTable,
+                    depth + 1,
                 );
                 allSteps.push(...prereqResult.steps);
                 allMissing.push(...prereqResult.missing);
@@ -164,9 +175,7 @@ async function autoCraftWithPrereqs(
         success: false,
         crafted: 0,
         steps: [],
-        missing: lastMissing.length > 0
-            ? lastMissing
-            : [`${displayName} (unknown reason)`],
+        missing: lastMissing.length > 0 ? lastMissing : [`${displayName} (unknown reason)`],
     };
 }
 
@@ -177,7 +186,9 @@ async function cleanup(bot: Bot, heldItemName: string | null): Promise<void> {
         if (reequip) await bot.equip(reequip, 'hand');
     }
     // Delay clearing so async slot events from equip/unequip are caught
-    setTimeout(() => { setSuppressPickups(false); }, 200);
+    setTimeout(() => {
+        setSuppressPickups(false);
+    }, 200);
 }
 
 export async function craftItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {

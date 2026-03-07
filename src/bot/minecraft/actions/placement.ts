@@ -9,9 +9,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
     const resolved = blockName.toLowerCase().replace(/ /g, '_');
 
     // Find the block in inventory
-    const item = bot.inventory.items().find(
-        (i) => i.name.toLowerCase().includes(resolved),
-    );
+    const item = bot.inventory.items().find((i) => i.name.toLowerCase().includes(resolved));
     // Also check held item
     const heldItem = bot.heldItem;
     const isHeld = heldItem && heldItem.name.toLowerCase().includes(resolved);
@@ -21,7 +19,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
     const displayName = item?.displayName ?? heldItem?.displayName ?? blockName;
 
     // Save a currently held item to re-equip after
-    const previousHeld = (!isHeld && heldItem) ? heldItem.name : null;
+    const previousHeld = !isHeld && heldItem ? heldItem.name : null;
 
     // Equip the block if not already held
     setSuppressPickups(true);
@@ -46,7 +44,9 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
             const reequip = bot.inventory.items().find((i) => i.name === previousHeld);
             if (reequip) await bot.equip(reequip, 'hand');
         }
-        setTimeout(() => { setSuppressPickups(false); }, 200);
+        setTimeout(() => {
+            setSuppressPickups(false);
+        }, 200);
         return `Placed ${displayName}`;
     } catch (err) {
         // If placing at feet fails, try in front of the bot
@@ -62,11 +62,17 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
                     const reequip = bot.inventory.items().find((i) => i.name === previousHeld);
                     if (reequip) await bot.equip(reequip, 'hand');
                 }
-                setTimeout(() => { setSuppressPickups(false); }, 200);
+                setTimeout(() => {
+                    setSuppressPickups(false);
+                }, 200);
                 return `Placed ${displayName}`;
             }
-        } catch { /* fallback failed */ }
-        setTimeout(() => { setSuppressPickups(false); }, 200);
+        } catch {
+            /* fallback failed */
+        }
+        setTimeout(() => {
+            setSuppressPickups(false);
+        }, 200);
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to place ${displayName}: ${message}`;
     }

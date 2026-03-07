@@ -44,11 +44,10 @@ export class AudioPipeline {
 
             // Start download immediately (parallel) but emit in order via a chain
             const epoch = this.epoch;
-            const downloadPromise = fetch(fullUrl, { headers })
-                .then((res) => {
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    return res.arrayBuffer();
-                });
+            const downloadPromise = fetch(fullUrl, { headers }).then((res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return res.arrayBuffer();
+            });
 
             this.downloadChain = this.downloadChain
                 .then(() => downloadPromise)
@@ -70,21 +69,27 @@ export class AudioPipeline {
                     console.error(`[Audio] Failed to download ${fullUrl}:`, err);
                     // Ack so server flow doesn't hang
                     void voxta.speechPlaybackStart(
-                        chunk.messageId, chunk.startIndex, chunk.endIndex, 0, chunk.isNarration,
+                        chunk.messageId,
+                        chunk.startIndex,
+                        chunk.endIndex,
+                        0,
+                        chunk.isNarration,
                     );
                 });
         } else {
             // No audio URL — immediately ack playback (matches Voxta Talk)
-            void voxta.speechPlaybackStart(
-                chunk.messageId, chunk.startIndex, chunk.endIndex, 0, chunk.isNarration,
-            );
+            void voxta.speechPlaybackStart(chunk.messageId, chunk.startIndex, chunk.endIndex, 0, chunk.isNarration);
         }
     }
 
     /** Renderer reports audio started playing — relay to the server */
     handleAudioStarted(event: AudioPlaybackEvent, voxta: VoxtaClient): void {
         void voxta.speechPlaybackStart(
-            event.messageId, event.startIndex, event.endIndex, event.duration, event.isNarration,
+            event.messageId,
+            event.startIndex,
+            event.endIndex,
+            event.duration,
+            event.isNarration,
         );
     }
 

@@ -25,10 +25,14 @@ export default function ToastContainer() {
 
     const getIcon = (type: ToastMessage['type']): string => {
         switch (type) {
-            case 'success': return '✅';
-            case 'error': return '❌';
-            case 'warning': return '⚠️';
-            case 'info': return 'ℹ️';
+            case 'success':
+                return '✅';
+            case 'error':
+                return '❌';
+            case 'warning':
+                return '⚠️';
+            case 'info':
+                return 'ℹ️';
         }
     };
 
@@ -39,11 +43,7 @@ export default function ToastContainer() {
                     <div class={`toast toast-${toast.type}`}>
                         <span class="toast-icon">{getIcon(toast.type)}</span>
                         <span class="toast-message">{toast.message}</span>
-                        <button
-                            class="toast-dismiss"
-                            onClick={() => dismissToast(toast.id)}
-                            aria-label="Dismiss"
-                        >
+                        <button class="toast-dismiss" onClick={() => dismissToast(toast.id)} aria-label="Dismiss">
                             ✕
                         </button>
                     </div>

@@ -42,9 +42,16 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
         // Collect door block IDs
         const doorNames = [
-            'oak_door', 'spruce_door', 'birch_door', 'jungle_door',
-            'acacia_door', 'dark_oak_door', 'mangrove_door', 'cherry_door',
-            'crimson_door', 'warped_door',
+            'oak_door',
+            'spruce_door',
+            'birch_door',
+            'jungle_door',
+            'acacia_door',
+            'dark_oak_door',
+            'mangrove_door',
+            'cherry_door',
+            'crimson_door',
+            'warped_door',
         ];
         const doorIds = new Set<number>();
         for (const name of doorNames) {
@@ -111,7 +118,9 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                                     doorBlock = below;
                                 }
                             }
-                        } catch { /* getProperties may not be available */ }
+                        } catch {
+                            /* getProperties may not be available */
+                        }
 
                         // Found a closed door — align, open, walk through
                         doorWalkingThrough = true;
@@ -121,20 +130,23 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
                         // Look at the center of the door, then open and walk through
                         const doorCenter = doorBlock.position.offset(0.5, 0.5, 0.5);
-                        bot.lookAt(doorCenter, true).then(() => {
-                            return bot.activateBlock(doorBlock);
-                        }).then(() => {
-                            console.log(`[MC] Door opened at ${key}`);
-                            // Walk forward through the door
-                            bot.setControlState('forward', true);
-                            setTimeout(() => {
-                                bot.setControlState('forward', false);
+                        bot.lookAt(doorCenter, true)
+                            .then(() => {
+                                return bot.activateBlock(doorBlock);
+                            })
+                            .then(() => {
+                                console.log(`[MC] Door opened at ${key}`);
+                                // Walk forward through the door
+                                bot.setControlState('forward', true);
+                                setTimeout(() => {
+                                    bot.setControlState('forward', false);
+                                    doorWalkingThrough = false;
+                                }, 800);
+                            })
+                            .catch((err) => {
+                                console.warn(`[MC] Door activation failed at ${key}:`, err);
                                 doorWalkingThrough = false;
-                            }, 800);
-                        }).catch((err) => {
-                            console.warn(`[MC] Door activation failed at ${key}:`, err);
-                            doorWalkingThrough = false;
-                        });
+                            });
 
                         // Clean up old entries
                         for (const [k, t] of recentlyOpened) {

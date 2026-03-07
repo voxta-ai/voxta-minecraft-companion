@@ -46,7 +46,10 @@ function getContextLabel(text: string): string {
 /** Split pipe-delimited context values into individual items */
 function splitContextValues(text: string): string[] {
     // Remove the "Character's X": prefix for cleaner display
-    return text.split('|').map((s) => s.trim()).filter(Boolean);
+    return text
+        .split('|')
+        .map((s) => s.trim())
+        .filter(Boolean);
 }
 
 /** Determine alert level for styling */
@@ -67,14 +70,16 @@ export default function InspectorDrawer(props: InspectorDrawerProps) {
             values: splitContextValues(ctx.text),
             alert: getAlertLevel(ctx.text),
             raw: ctx.text,
-        }))
+        })),
     );
 
     return (
         <div class={`inspector-drawer ${props.open ? 'open' : ''}`}>
             <div class="inspector-drawer-header">
                 <h2>🔍 Inspector</h2>
-                <button class="modal-close" onClick={() => props.onClose()}>✕</button>
+                <button class="modal-close" onClick={() => props.onClose()}>
+                    ✕
+                </button>
             </div>
             <div class="inspector-drawer-body">
                 {/* Contexts Section */}
@@ -93,9 +98,7 @@ export default function InspectorDrawer(props: InspectorDrawerProps) {
                                             <div class="inspector-context-label">{item.label}</div>
                                             <div class="inspector-context-values">
                                                 <For each={item.values}>
-                                                    {(val) => (
-                                                        <span class="inspector-context-tag">{val}</span>
-                                                    )}
+                                                    {(val) => <span class="inspector-context-tag">{val}</span>}
                                                 </For>
                                             </div>
                                         </div>

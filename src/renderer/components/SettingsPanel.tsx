@@ -163,7 +163,9 @@ export default function SettingsPanel() {
                     <select
                         class="vision-select"
                         value={settings.actionInferenceTiming}
-                        onChange={(e) => updateSetting('actionInferenceTiming', e.currentTarget.value as ActionInferenceTiming)}
+                        onChange={(e) =>
+                            updateSetting('actionInferenceTiming', e.currentTarget.value as ActionInferenceTiming)
+                        }
                     >
                         <option value="user">On user message</option>
                         <option value="afterChar">After character reply</option>

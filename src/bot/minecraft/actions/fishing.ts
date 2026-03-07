@@ -42,9 +42,7 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
             console.log(`[Fish] Calling bot.fish() (timeout: ${CAST_TIMEOUT_MS / 1000}s)...`);
             await Promise.race([
                 bot.fish(),
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('timeout')), CAST_TIMEOUT_MS),
-                ),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), CAST_TIMEOUT_MS)),
                 new Promise<never>((_, reject) => {
                     if (signal.aborted) reject(new Error('aborted'));
                     signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
@@ -84,7 +82,8 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
         let gainedAny = false;
         for (const item of bot.inventory.items()) {
             const prevCount = beforeItems.get(item.name) ?? 0;
-            const currentCount = bot.inventory.items()
+            const currentCount = bot.inventory
+                .items()
                 .filter((i) => i.name === item.name)
                 .reduce((sum, i) => sum + i.count, 0);
             const gained = currentCount - prevCount;
@@ -107,7 +106,7 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
     // If aborted (e.g., mc_stop), don't report a result — the stop already did
     if (signal.aborted) return '';
 
-    if (totalCaught === 0) return 'Didn\'t catch anything — make sure I\'m facing open water';
+    if (totalCaught === 0) return "Didn't catch anything — make sure I'm facing open water";
 
     const parts: string[] = [];
     for (const [name, count] of caught) {

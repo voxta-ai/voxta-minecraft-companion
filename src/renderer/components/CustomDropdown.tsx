@@ -42,14 +42,8 @@ export default function CustomDropdown(props: CustomDropdownProps) {
     onCleanup(() => document.removeEventListener('mousedown', handleClickOutside));
 
     return (
-        <div
-            class={`custom-dropdown ${props.class ?? ''}`}
-            ref={(el) => (containerRef = el)}
-        >
-            <div
-                class={`custom-dropdown-trigger ${isOpen() ? 'open' : ''}`}
-                onClick={handleToggle}
-            >
+        <div class={`custom-dropdown ${props.class ?? ''}`} ref={(el) => (containerRef = el)}>
+            <div class={`custom-dropdown-trigger ${isOpen() ? 'open' : ''}`} onClick={handleToggle}>
                 <span class="custom-dropdown-label">{selectedLabel()}</span>
                 <span class="custom-dropdown-arrow">{isOpen() ? '▲' : '▼'}</span>
             </div>

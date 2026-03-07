@@ -2,7 +2,18 @@ import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
 import { cycleVisionWindow } from './vision-capture';
 import { IPC_CHANNELS } from '../shared/ipc-types';
-import type { VoxtaConnectConfig, BotConfig, BotStatus, ChatMessage, ToastMessage, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent, InspectorData } from '../shared/ipc-types';
+import type {
+    VoxtaConnectConfig,
+    BotConfig,
+    BotStatus,
+    ChatMessage,
+    ToastMessage,
+    McSettings,
+    AudioChunk,
+    AudioPlaybackEvent,
+    RecordingStartEvent,
+    InspectorData,
+} from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): void {
     const engine = new BotEngine();

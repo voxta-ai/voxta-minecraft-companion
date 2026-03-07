@@ -10,20 +10,22 @@ import { fishAction } from './fishing.js';
 export async function equipItem(bot: Bot, itemName: string | undefined): Promise<string> {
     if (!itemName) return 'No item name provided';
 
-    const item = bot.inventory.items().find(
-        (i) => i.name.toLowerCase().includes(itemName.toLowerCase()),
-    );
+    const item = bot.inventory.items().find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()));
     if (!item) return `No ${itemName} found in inventory`;
 
     const slot = getEquipSlot(item.name);
     try {
         setSuppressPickups(true);
         await bot.equip(item.type, slot);
-        setTimeout(() => { setSuppressPickups(false); }, 200);
+        setTimeout(() => {
+            setSuppressPickups(false);
+        }, 200);
         const slotLabel = slot === 'hand' ? 'hand' : `${slot} armor slot`;
         return `Equipped ${item.displayName ?? item.name} in ${slotLabel}`;
     } catch (err) {
-        setTimeout(() => { setSuppressPickups(false); }, 200);
+        setTimeout(() => {
+            setSuppressPickups(false);
+        }, 200);
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to equip ${item.name}: ${message}`;
     }
@@ -36,9 +38,10 @@ export async function eatFood(bot: Bot, foodName: string | undefined): Promise<s
     if (foodName) {
         // Eat specific food — match against both internal name and display name
         const normalized = foodName.toLowerCase().replace(/\s+/g, '_');
-        foodItem = items.find((i) =>
-            i.name.toLowerCase() === normalized ||
-            (i.displayName && i.displayName.toLowerCase() === foodName.toLowerCase())
+        foodItem = items.find(
+            (i) =>
+                i.name.toLowerCase() === normalized ||
+                (i.displayName && i.displayName.toLowerCase() === foodName.toLowerCase()),
         );
         if (!foodItem) return `No ${foodName} in inventory`;
     } else {
@@ -82,9 +85,7 @@ export async function giveItem(
 
     // Walk to the player first (use GoalNear so we stop when close)
     try {
-        await bot.pathfinder.goto(
-            new goals.GoalNear(player.position.x, player.position.y, player.position.z, 2),
-        );
+        await bot.pathfinder.goto(new goals.GoalNear(player.position.x, player.position.y, player.position.z, 2));
     } catch {
         // Best effort approach
     }
@@ -151,7 +152,9 @@ export async function useHeldItem(bot: Bot, itemName: string | undefined): Promi
     }
 
     // Find the item in inventory
-    const item = bot.inventory.items().find((i) => i.name === resolved || i.displayName?.toLowerCase() === itemName.toLowerCase());
+    const item = bot.inventory
+        .items()
+        .find((i) => i.name === resolved || i.displayName?.toLowerCase() === itemName.toLowerCase());
     if (!item) return `No ${itemName} in inventory`;
 
     // Auto-equip if not already held

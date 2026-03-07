@@ -189,10 +189,7 @@ export class VoxtaClient {
         });
     }
 
-    async updateContext(
-        contexts: ContextDefinition[],
-        actions?: ScenarioAction[],
-    ): Promise<void> {
+    async updateContext(contexts: ContextDefinition[], actions?: ScenarioAction[]): Promise<void> {
         if (!this._sessionId) {
             return;
         }

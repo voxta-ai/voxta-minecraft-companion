@@ -87,7 +87,11 @@ export class McEventBridge {
 
                 // Log each tick to chat (visible but doesn't trigger AI reply)
                 const botName = this.callbacks.getAssistantName();
-                this.callbacks.onChat('note', 'Note', `${botName} took ${damage} damage from ${source}! Health: ${currentHealth}/20`);
+                this.callbacks.onChat(
+                    'note',
+                    'Note',
+                    `${botName} took ${damage} damage from ${source}! Health: ${currentHealth}/20`,
+                );
 
                 // Consolidate damage into one AI message after a short delay
                 if (!this.damageTimer) {
@@ -119,7 +123,10 @@ export class McEventBridge {
             this.lastAttacker = null;
             this.lastHealth = 20;
             this.pendingDamage = 0;
-            if (this.damageTimer) { clearTimeout(this.damageTimer); this.damageTimer = null; }
+            if (this.damageTimer) {
+                clearTimeout(this.damageTimer);
+                this.damageTimer = null;
+            }
             const botName = this.callbacks.getAssistantName();
             this.callbacks.onChat('note', 'Note', `${botName} died from ${killer}!`);
             this.callbacks.onNote(`${botName} died from ${killer}!`);
@@ -158,10 +165,11 @@ export class McEventBridge {
 
             // Priority 1: Check for nearby hostile mobs (handles explosions, ranged, AOE)
             const hostileMob = Object.values(this.bot.entities).find(
-                (e) => e !== this.bot.entity
-                    && e.type === 'hostile'
-                    && e.position.distanceTo(this.bot.entity.position) < 28
-                    && Math.abs(e.position.y - this.bot.entity.position.y) < 3,
+                (e) =>
+                    e !== this.bot.entity &&
+                    e.type === 'hostile' &&
+                    e.position.distanceTo(this.bot.entity.position) < 28 &&
+                    Math.abs(e.position.y - this.bot.entity.position.y) < 3,
             );
             if (hostileMob) {
                 const mcName = hostileMob.username ?? hostileMob.displayName ?? hostileMob.name ?? 'something';
@@ -196,8 +204,9 @@ export class McEventBridge {
                     this.isAutoDefending = true;
                     const botName = this.callbacks.getAssistantName();
                     this.callbacks.onChat('action', 'Action', `${botName} auto-defending against ${targetName}!`);
-                    void this.onAutoDefenseAction(this.bot, targetName)
-                        .finally(() => { this.isAutoDefending = false; });
+                    void this.onAutoDefenseAction(this.bot, targetName).finally(() => {
+                        this.isAutoDefending = false;
+                    });
                 }
             }
         }) as (...args: never[]) => void);
@@ -217,11 +226,12 @@ export class McEventBridge {
 
             // Find the hostile mob near the player that is likely attacking them
             const attacker = Object.values(this.bot.entities).find(
-                (e) => e !== this.bot.entity
-                    && e.id !== entity.id
-                    && e.type === 'hostile'
-                    && e.position.distanceTo(entity.position) < 8
-                    && Math.abs(e.position.y - entity.position.y) < 3,
+                (e) =>
+                    e !== this.bot.entity &&
+                    e.id !== entity.id &&
+                    e.type === 'hostile' &&
+                    e.position.distanceTo(entity.position) < 8 &&
+                    Math.abs(e.position.y - entity.position.y) < 3,
             );
             if (!attacker) return;
 
@@ -231,8 +241,9 @@ export class McEventBridge {
             const botName = this.callbacks.getAssistantName();
             this.callbacks.onChat('note', 'Note', `${botName} protecting ${playerName} from ${mobName}!`);
             this.callbacks.onNote(`${botName} is rushing to protect ${playerName} from a ${mobName}!`);
-            void this.onAutoDefenseAction(this.bot, mobName)
-                .finally(() => { this.isAutoDefending = false; });
+            void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
+                this.isAutoDefending = false;
+            });
         }) as (...args: never[]) => void);
 
         // ---- Wake up ----
@@ -266,10 +277,16 @@ export class McEventBridge {
                 try {
                     await this.bot.equip(foodItem.type, 'hand');
                     await this.bot.consume();
-                    console.log(`[MC] Auto-ate ${foodItem.displayName ?? foodItem.name}, hunger now: ${this.bot.food}/20`);
+                    console.log(
+                        `[MC] Auto-ate ${foodItem.displayName ?? foodItem.name}, hunger now: ${this.bot.food}/20`,
+                    );
                     // Re-equip previous item
                     if (prevHeldItem && prevHeldItem.type !== foodItem.type) {
-                        try { await this.bot.equip(prevHeldItem.type, 'hand'); } catch { /* best effort */ }
+                        try {
+                            await this.bot.equip(prevHeldItem.type, 'hand');
+                        } catch {
+                            /* best effort */
+                        }
                     }
                 } catch (err) {
                     console.warn(`[MC] Auto-eat failed:`, err);
@@ -362,8 +379,14 @@ export class McEventBridge {
                 const maxSlots = 36;
                 if (usedSlots >= maxSlots && !inventoryFullNotified) {
                     inventoryFullNotified = true;
-                    this.callbacks.onChat('note', 'Note', `${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`);
-                    this.callbacks.onNote(`${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`);
+                    this.callbacks.onChat(
+                        'note',
+                        'Note',
+                        `${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`,
+                    );
+                    this.callbacks.onNote(
+                        `${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`,
+                    );
                 } else if (usedSlots < maxSlots) {
                     // Reset so we can notify again the next time it fills up
                     inventoryFullNotified = false;
@@ -383,12 +406,12 @@ export class McEventBridge {
             // Skip Minecraft command output (cheat codes like /give, /tp, /gamemode, etc.)
             // These come through chat but aren't actual player messages
             const commandPatterns = [
-                /^Gave \d+/i,              // /give command output
-                /^Teleported /i,           // /tp command output
-                /^Set own game mode/i,     // /gamemode command output
-                /^Set the time to/i,       // /time command output
-                /^Set the weather to/i,    // /weather command output
-                /^\[Server]/i,            // Server broadcast messages
+                /^Gave \d+/i, // /give command output
+                /^Teleported /i, // /tp command output
+                /^Set own game mode/i, // /gamemode command output
+                /^Set the time to/i, // /time command output
+                /^Set the weather to/i, // /weather command output
+                /^\[Server]/i, // Server broadcast messages
             ];
             if (commandPatterns.some((p) => p.test(message))) {
                 this.callbacks.onChat('system', 'System', message);
@@ -437,7 +460,9 @@ export class McEventBridge {
             if (headBlock && headBlock.name !== 'air' && headBlock.name !== 'cave_air' && headBlock.name !== 'water') {
                 return 'suffocation';
             }
-        } catch { /* chunk not loaded */ }
+        } catch {
+            /* chunk not loaded */
+        }
         return 'environmental damage';
     }
 
@@ -449,9 +474,10 @@ export class McEventBridge {
             if (this.getFollowingPlayer()) return; // Pathfinder handles looking during follow
 
             const nearestPlayer = Object.values(this.bot.entities).find(
-                (e) => e.type === 'player'
-                    && e !== this.bot.entity
-                    && e.position.distanceTo(this.bot.entity.position) < 50,
+                (e) =>
+                    e.type === 'player' &&
+                    e !== this.bot.entity &&
+                    e.position.distanceTo(this.bot.entity.position) < 50,
             );
             if (nearestPlayer) {
                 void this.bot.lookAt(nearestPlayer.position.offset(0, 1.6, 0));

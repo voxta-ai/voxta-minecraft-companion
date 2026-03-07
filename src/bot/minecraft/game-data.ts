@@ -12,14 +12,28 @@ export type ToolCategory = 'axe' | 'pickaxe' | 'shovel' | 'none';
 export const TOOL_REQUIREMENTS: Record<string, ToolCategory> = {
     // Wood → axe preferred but NOT required (can be mined by hand)
     // Stone/Ores → pickaxe REQUIRED (no drops without it)
-    stone: 'pickaxe', cobblestone: 'pickaxe', deepslate: 'pickaxe',
-    iron_ore: 'pickaxe', gold_ore: 'pickaxe', diamond_ore: 'pickaxe',
-    coal_ore: 'pickaxe', copper_ore: 'pickaxe', lapis_ore: 'pickaxe',
-    redstone_ore: 'pickaxe', emerald_ore: 'pickaxe', nether_quartz_ore: 'pickaxe',
-    netherrack: 'pickaxe', obsidian: 'pickaxe', andesite: 'pickaxe',
-    diorite: 'pickaxe', granite: 'pickaxe',
+    stone: 'pickaxe',
+    cobblestone: 'pickaxe',
+    deepslate: 'pickaxe',
+    iron_ore: 'pickaxe',
+    gold_ore: 'pickaxe',
+    diamond_ore: 'pickaxe',
+    coal_ore: 'pickaxe',
+    copper_ore: 'pickaxe',
+    lapis_ore: 'pickaxe',
+    redstone_ore: 'pickaxe',
+    emerald_ore: 'pickaxe',
+    nether_quartz_ore: 'pickaxe',
+    netherrack: 'pickaxe',
+    obsidian: 'pickaxe',
+    andesite: 'pickaxe',
+    diorite: 'pickaxe',
+    granite: 'pickaxe',
     // Dirt/Sand/Wood → no tool required
-    dirt: 'none', sand: 'none', gravel: 'none', clay: 'none',
+    dirt: 'none',
+    sand: 'none',
+    gravel: 'none',
+    clay: 'none',
     grass_block: 'none',
 };
 
@@ -29,15 +43,41 @@ export const TOOL_TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'w
 
 /** Food items sorted by hunger restoration (the best first) */
 export const FOOD_ITEMS: Record<string, number> = {
-    golden_carrot: 6, cooked_beef: 8, cooked_porkchop: 8, cooked_mutton: 6,
-    cooked_salmon: 6, cooked_chicken: 6, cooked_rabbit: 5, cooked_cod: 5,
-    bread: 5, baked_potato: 5, beetroot_soup: 6, mushroom_stew: 6,
-    rabbit_stew: 10, suspicious_stew: 6, pumpkin_pie: 8, cake: 2,
-    apple: 4, melon_slice: 2, sweet_berries: 2, glow_berries: 2,
-    carrot: 3, potato: 1, beetroot: 1, dried_kelp: 1, cookie: 2,
-    beef: 3, porkchop: 3, mutton: 2, chicken: 2, rabbit: 3,
-    cod: 2, salmon: 2, tropical_fish: 1,
-    rotten_flesh: 4, spider_eye: 2, // edible but risky
+    golden_carrot: 6,
+    cooked_beef: 8,
+    cooked_porkchop: 8,
+    cooked_mutton: 6,
+    cooked_salmon: 6,
+    cooked_chicken: 6,
+    cooked_rabbit: 5,
+    cooked_cod: 5,
+    bread: 5,
+    baked_potato: 5,
+    beetroot_soup: 6,
+    mushroom_stew: 6,
+    rabbit_stew: 10,
+    suspicious_stew: 6,
+    pumpkin_pie: 8,
+    cake: 2,
+    apple: 4,
+    melon_slice: 2,
+    sweet_berries: 2,
+    glow_berries: 2,
+    carrot: 3,
+    potato: 1,
+    beetroot: 1,
+    dried_kelp: 1,
+    cookie: 2,
+    beef: 3,
+    porkchop: 3,
+    mutton: 2,
+    chicken: 2,
+    rabbit: 3,
+    cod: 2,
+    salmon: 2,
+    tropical_fish: 1,
+    rotten_flesh: 4,
+    spider_eye: 2, // edible but risky
 };
 
 /** Raw items that can be smelted in a furnace */
@@ -71,20 +111,47 @@ export const COOKABLE_ITEMS: Record<string, string> = {
 
 /** Items that work as furnace fuel, sorted by burn time (the best first) */
 export const FUEL_ITEMS = [
-    'coal', 'charcoal', 'coal_block',
-    'oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log',
-    'mangrove_log', 'cherry_log',
-    'oak_planks', 'birch_planks', 'spruce_planks', 'jungle_planks',
-    'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks',
+    'coal',
+    'charcoal',
+    'coal_block',
+    'oak_log',
+    'birch_log',
+    'spruce_log',
+    'jungle_log',
+    'acacia_log',
+    'dark_oak_log',
+    'mangrove_log',
+    'cherry_log',
+    'oak_planks',
+    'birch_planks',
+    'spruce_planks',
+    'jungle_planks',
+    'acacia_planks',
+    'dark_oak_planks',
+    'mangrove_planks',
+    'cherry_planks',
     'stick',
 ];
 
 // ---- Bed & Sleep data ----
 
 export const BED_BLOCKS = [
-    'white_bed', 'orange_bed', 'magenta_bed', 'light_blue_bed', 'yellow_bed',
-    'lime_bed', 'pink_bed', 'gray_bed', 'light_gray_bed', 'cyan_bed',
-    'purple_bed', 'blue_bed', 'brown_bed', 'green_bed', 'red_bed', 'black_bed',
+    'white_bed',
+    'orange_bed',
+    'magenta_bed',
+    'light_blue_bed',
+    'yellow_bed',
+    'lime_bed',
+    'pink_bed',
+    'gray_bed',
+    'light_gray_bed',
+    'cyan_bed',
+    'purple_bed',
+    'blue_bed',
+    'brown_bed',
+    'green_bed',
+    'red_bed',
+    'black_bed',
 ];
 
 // ---- Crafting data ----

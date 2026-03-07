@@ -7,7 +7,20 @@ import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage } from '../bot/voxta/types';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ChatListItem, ToastMessage, ToastType, McSettings, AudioPlaybackEvent } from '../shared/ipc-types';
+import type {
+    VoxtaConnectConfig,
+    VoxtaInfo,
+    BotConfig,
+    BotStatus,
+    ChatMessage,
+    ActionToggle,
+    CharacterInfo,
+    ChatListItem,
+    ToastMessage,
+    ToastType,
+    McSettings,
+    AudioPlaybackEvent,
+} from '../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
@@ -19,7 +32,17 @@ import { dispatchVoxtaMessage } from './voxta-message-handler';
 const CLIENT_NAME = 'Voxta.Minecraft';
 const CLIENT_VERSION = '0.2.0';
 
-type BotEngineEvent = 'status-changed' | 'chat-message' | 'clear-chat' | 'inspector-update' | 'action-triggered' | 'toast' | 'play-audio' | 'stop-audio' | 'recording-start' | 'recording-stop';
+type BotEngineEvent =
+    | 'status-changed'
+    | 'chat-message'
+    | 'clear-chat'
+    | 'inspector-update'
+    | 'action-triggered'
+    | 'toast'
+    | 'play-audio'
+    | 'stop-audio'
+    | 'recording-start'
+    | 'recording-stop';
 
 export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
@@ -146,18 +169,21 @@ export class BotEngine extends EventEmitter {
     }
 
     private getEnabledActions(): ScenarioAction[] {
-        const timing = this.settings.actionInferenceTiming === 'user'
-            ? 'AfterUserMessage' as const
-            : 'AfterAssistantMessage' as const;
-        return MINECRAFT_ACTIONS
-            .filter((a) => this.actionToggles.get(a.name) !== false)
-            .map((a) => ({ ...a, timing }));
+        const timing =
+            this.settings.actionInferenceTiming === 'user'
+                ? ('AfterUserMessage' as const)
+                : ('AfterAssistantMessage' as const);
+        return MINECRAFT_ACTIONS.filter((a) => this.actionToggles.get(a.name) !== false).map((a) => ({ ...a, timing }));
     }
 
     private pushActionsToVoxta(): void {
         if (!this.voxta?.sessionId) return;
         void this.voxta.updateContext(
-            [{ text: 'The user is playing Minecraft. You are their AI companion bot inside the game world. You can see the world around you and perform actions.' }],
+            [
+                {
+                    text: 'The user is playing Minecraft. You are their AI companion bot inside the game world. You can see the world around you and perform actions.',
+                },
+            ],
             this.getEnabledActions(),
         );
     }
@@ -263,7 +289,7 @@ export class BotEngine extends EventEmitter {
             }
             const res = await fetch(`${baseUrl}/api/characters/?assistant=true`, { headers });
             if (res.ok) {
-                const data = await res.json() as { characters: Array<{ id: string; name: string }> };
+                const data = (await res.json()) as { characters: Array<{ id: string; name: string }> };
                 this.characters = data.characters.map((c) => ({ id: c.id, name: c.name }));
             }
 
@@ -298,7 +324,17 @@ export class BotEngine extends EventEmitter {
             console.error(`[Voxta] Failed to load chats: ${res.status}`);
             return [];
         }
-        const data = await res.json() as { chats: Array<{ id: string; title?: string; created: string; lastSession?: string; lastSessionTimestamp?: string; createdTimestamp?: string; favorite?: boolean }> };
+        const data = (await res.json()) as {
+            chats: Array<{
+                id: string;
+                title?: string;
+                created: string;
+                lastSession?: string;
+                lastSessionTimestamp?: string;
+                createdTimestamp?: string;
+                favorite?: boolean;
+            }>;
+        };
         return data.chats.map((c) => ({
             id: c.id,
             title: c.title ?? null,
@@ -395,9 +431,7 @@ export class BotEngine extends EventEmitter {
 
         // Auto-detect the player's actual MC username from the server
         const botUsername = config.mc.username;
-        const onlinePlayers = Object.keys(bot.players).filter(
-            (name) => name !== botUsername,
-        );
+        const onlinePlayers = Object.keys(bot.players).filter((name) => name !== botUsername);
 
         if (onlinePlayers.length === 1) {
             this.playerMcUsername = onlinePlayers[0];
@@ -445,16 +479,20 @@ export class BotEngine extends EventEmitter {
                 const contextHash = contextStrings.join('|');
 
                 this.updateStatus({
-                    position: state.position ? { x: Math.round(state.position.x), y: Math.round(state.position.y), z: Math.round(state.position.z) } : null,
+                    position: state.position
+                        ? {
+                              x: Math.round(state.position.x),
+                              y: Math.round(state.position.y),
+                              z: Math.round(state.position.z),
+                          }
+                        : null,
                     health: state.health,
                     food: state.food,
                 });
 
                 if (contextHash !== lastContextHash) {
                     lastContextHash = contextHash;
-                    void this.voxta.updateContext(
-                        contextStrings.map((text) => ({ text })),
-                    );
+                    void this.voxta.updateContext(contextStrings.map((text) => ({ text })));
                 }
             } catch {
                 // Perception can fail during respawn/chunk loading
@@ -492,18 +530,27 @@ export class BotEngine extends EventEmitter {
                 const botName = this.assistantName ?? 'Bot';
                 console.log(`[Bot] Auto-defense started against ${mobName}, followingPlayer=${this.followingPlayer}`);
                 try {
-                    const result = await executeAction(botInstance, 'mc_attack', [{ name: 'entity_name', value: mobName }], this.names);
+                    const result = await executeAction(
+                        botInstance,
+                        'mc_attack',
+                        [{ name: 'entity_name', value: mobName }],
+                        this.names,
+                    );
                     this.addChat('system', 'System', `${botName}: ${result}`);
                     console.log(`[Bot] Auto-defense attack result: ${result}`);
                 } catch (err) {
                     console.log(`[Bot] Auto-defense attack failed:`, err);
                 } finally {
-                    console.log(`[Bot] Auto-defense finished, followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`);
+                    console.log(
+                        `[Bot] Auto-defense finished, followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`,
+                    );
                     if (this.followingPlayer && this.mcBot) {
                         const resumeResult = resumeFollowPlayer(this.mcBot.bot, this.followingPlayer, this.names);
                         console.log(`[Bot] Resumed following after defense: ${resumeResult}`);
                     } else {
-                        console.log(`[Bot] NOT resuming follow — followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`);
+                        console.log(
+                            `[Bot] NOT resuming follow — followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`,
+                        );
                     }
                 }
             },
@@ -570,8 +617,6 @@ export class BotEngine extends EventEmitter {
         await this.voxta.sendMessage(text);
     }
 
-
-
     /** Renderer reports audio started playing — relay to the server */
     handleAudioStarted(event: AudioPlaybackEvent): void {
         if (this.voxta) this.audioPipeline.handleAudioStarted(event, this.voxta);
@@ -598,15 +643,31 @@ export class BotEngine extends EventEmitter {
             getFollowingPlayer: () => this.followingPlayer,
 
             // State mutators
-            setAssistantName: (name) => { this.assistantName = name; },
-            setVoxtaUserName: (name) => { this.voxtaUserName = name; },
-            setDefaultAssistantId: (id) => { this.defaultAssistantId = id; },
-            setCharacters: (chars) => { this.characters = chars; },
-            setCurrentReply: (text) => { this.currentReply = text; },
-            appendCurrentReply: (text) => { this.currentReply += text; },
+            setAssistantName: (name) => {
+                this.assistantName = name;
+            },
+            setVoxtaUserName: (name) => {
+                this.voxtaUserName = name;
+            },
+            setDefaultAssistantId: (id) => {
+                this.defaultAssistantId = id;
+            },
+            setCharacters: (chars) => {
+                this.characters = chars;
+            },
+            setCurrentReply: (text) => {
+                this.currentReply = text;
+            },
+            appendCurrentReply: (text) => {
+                this.currentReply += text;
+            },
             getCurrentReply: () => this.currentReply,
-            setIsReplying: (value) => { this.isReplying = value; },
-            setFollowingPlayer: (player) => { this.followingPlayer = player; },
+            setIsReplying: (value) => {
+                this.isReplying = value;
+            },
+            setFollowingPlayer: (player) => {
+                this.followingPlayer = player;
+            },
 
             // Actions
             addChat: (type, sender, text) => this.addChat(type, sender, text),

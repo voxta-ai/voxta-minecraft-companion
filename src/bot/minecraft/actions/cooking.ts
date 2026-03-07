@@ -44,7 +44,11 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
     try {
         // Unequip held item so it moves back into inventory slots
         // (furnace putFuel/putInput only search slots 3-39, not the hand)
-        try { await bot.unequip('hand'); } catch { /* nothing equipped */ }
+        try {
+            await bot.unequip('hand');
+        } catch {
+            /* nothing equipped */
+        }
 
         const furnace = await bot.openFurnace(furnaceBlock);
         const cookCount = Math.min(rawItem.count, 8); // Cook up to 8 at a time

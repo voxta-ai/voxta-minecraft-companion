@@ -18,12 +18,18 @@ export interface McAction extends ScenarioAction {
 export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_follow_player',
-        description: 'Follow a player and stay near them. The bot walks behind the specified player. player_name must be the OTHER player (the human), never the {{ char }} itself.',
+        description:
+            'Follow a player and stay near them. The bot walks behind the specified player. player_name must be the OTHER player (the human), never the {{ char }} itself.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'player_name', type: 'String', description: 'Name of the human player to follow (NOT the bot name)', required: true },
+            {
+                name: 'player_name',
+                type: 'String',
+                description: 'Name of the human player to follow (NOT the bot name)',
+                required: true,
+            },
         ],
         category: 'movement',
         isQuick: true,
@@ -46,7 +52,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_go_home',
-        description: 'Go back home to the shelter/base where the bed is. Use when told to return home, go to base, go to shelter, or head back.',
+        description:
+            'Go back home to the shelter/base where the bed is. Use when told to return home, go to base, go to shelter, or head back.',
         disabled: false,
         layer: '',
         effect: {},
@@ -57,12 +64,19 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_mine_block',
-        description: 'Find and collect a specific type of block, plant, or flower. Works for ores, wood, flowers (cornflower, poppy, dandelion), crops, mushrooms, and any other block.',
+        description:
+            'Find and collect a specific type of block, plant, or flower. Works for ores, wood, flowers (cornflower, poppy, dandelion), crops, mushrooms, and any other block.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'block_type', type: 'String', description: 'Type of block to collect. Use "wood" or "log" for trees, or a specific name like oak_log, stone, iron_ore, cornflower, poppy, dandelion, wheat', required: true },
+            {
+                name: 'block_type',
+                type: 'String',
+                description:
+                    'Type of block to collect. Use "wood" or "log" for trees, or a specific name like oak_log, stone, iron_ore, cornflower, poppy, dandelion, wheat',
+                required: true,
+            },
             { name: 'count', type: 'String', description: 'Number of blocks to mine', required: false },
         ],
         category: 'survival',
@@ -76,7 +90,12 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         layer: '',
         effect: {},
         arguments: [
-            { name: 'entity_name', type: 'String', description: 'Name of entity to attack (e.g. zombie, skeleton, spider)', required: true },
+            {
+                name: 'entity_name',
+                type: 'String',
+                description: 'Name of entity to attack (e.g. zombie, skeleton, spider)',
+                required: true,
+            },
         ],
         category: 'combat',
         isQuick: false,
@@ -113,7 +132,12 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         layer: '',
         effect: {},
         arguments: [
-            { name: 'item_name', type: 'String', description: 'Name of the item to equip (e.g. iron_axe, diamond_pickaxe)', required: true },
+            {
+                name: 'item_name',
+                type: 'String',
+                description: 'Name of the item to equip (e.g. iron_axe, diamond_pickaxe)',
+                required: true,
+            },
         ],
         category: 'interaction',
         isQuick: true,
@@ -152,7 +176,12 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         layer: '',
         effect: {},
         arguments: [
-            { name: 'food_name', type: 'String', description: 'Specific food to eat (optional, will pick best available if not specified)', required: false },
+            {
+                name: 'food_name',
+                type: 'String',
+                description: 'Specific food to eat (optional, will pick best available if not specified)',
+                required: false,
+            },
         ],
         category: 'survival',
         isQuick: false,
@@ -160,7 +189,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_none',
-        description: 'ONLY use when just talking and absolutely no game action is needed. Do NOT use if the player asked you to do something.',
+        description:
+            'ONLY use when just talking and absolutely no game action is needed. Do NOT use if the player asked you to do something.',
         disabled: false,
         layer: '',
         effect: {},
@@ -193,7 +223,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_set_home',
-        description: 'Set a nearby bed as home/respawn point. Works at any time of day — does NOT require sleeping. Use when told to mark this as home, set home here, or remember this place.',
+        description:
+            'Set a nearby bed as home/respawn point. Works at any time of day — does NOT require sleeping. Use when told to mark this as home, set home here, or remember this place.',
         disabled: false,
         layer: '',
         effect: {},
@@ -204,12 +235,18 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_cook',
-        description: 'Cook raw food or smelt ores in a nearby furnace. Needs fuel (wood/coal) in inventory. Works for raw meat, ores (iron, gold, copper), sand, clay, and more.',
+        description:
+            'Cook raw food or smelt ores in a nearby furnace. Needs fuel (wood/coal) in inventory. Works for raw meat, ores (iron, gold, copper), sand, clay, and more.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'item_name', type: 'String', description: 'Raw food to cook (optional, will cook whatever is available)', required: false },
+            {
+                name: 'item_name',
+                type: 'String',
+                description: 'Raw food to cook (optional, will cook whatever is available)',
+                required: false,
+            },
         ],
         category: 'survival',
         isQuick: false,
@@ -222,7 +259,13 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         layer: '',
         effect: {},
         arguments: [
-            { name: 'item_name', type: 'String', description: 'Item to craft (e.g. wooden_sword, stone_pickaxe, oak_planks, sticks, crafting_table, furnace)', required: true },
+            {
+                name: 'item_name',
+                type: 'String',
+                description:
+                    'Item to craft (e.g. wooden_sword, stone_pickaxe, oak_planks, sticks, crafting_table, furnace)',
+                required: true,
+            },
             { name: 'count', type: 'String', description: 'How many to craft (default: 1)', required: false },
         ],
         category: 'survival',
@@ -231,12 +274,18 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_place_block',
-        description: 'Place a block from inventory at a nearby location. Automatically equips the block if not already held.',
+        description:
+            'Place a block from inventory at a nearby location. Automatically equips the block if not already held.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'block_name', type: 'String', description: 'Block to place (e.g. crafting_table, furnace, torch, chest)', required: true },
+            {
+                name: 'block_name',
+                type: 'String',
+                description: 'Block to place (e.g. crafting_table, furnace, torch, chest)',
+                required: true,
+            },
         ],
         category: 'survival',
         isQuick: false,
@@ -244,13 +293,25 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_store_item',
-        description: 'Store/deposit items from inventory into a nearby chest. Use when asked to put items away, store items, or fill a chest.',
+        description:
+            'Store/deposit items from inventory into a nearby chest. Use when asked to put items away, store items, or fill a chest.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'item_name', type: 'String', description: 'Name of the item to store (e.g. cobblestone, iron_ingot, diamond). Use "all" to store everything.', required: true },
-            { name: 'count', type: 'String', description: 'How many to store (default: all of that item)', required: false },
+            {
+                name: 'item_name',
+                type: 'String',
+                description:
+                    'Name of the item to store (e.g. cobblestone, iron_ingot, diamond). Use "all" to store everything.',
+                required: true,
+            },
+            {
+                name: 'count',
+                type: 'String',
+                description: 'How many to store (default: all of that item)',
+                required: false,
+            },
         ],
         category: 'interaction',
         isQuick: false,
@@ -258,13 +319,24 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_take_item',
-        description: 'Take/withdraw items from a nearby chest into inventory. Use when asked to get items from a chest, grab supplies, or retrieve something.',
+        description:
+            'Take/withdraw items from a nearby chest into inventory. Use when asked to get items from a chest, grab supplies, or retrieve something.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'item_name', type: 'String', description: 'Name of the item to take from the chest (e.g. cobblestone, iron_ingot, diamond)', required: true },
-            { name: 'count', type: 'String', description: 'How many to take (default: all available)', required: false },
+            {
+                name: 'item_name',
+                type: 'String',
+                description: 'Name of the item to take from the chest (e.g. cobblestone, iron_ingot, diamond)',
+                required: true,
+            },
+            {
+                name: 'count',
+                type: 'String',
+                description: 'How many to take (default: all available)',
+                required: false,
+            },
         ],
         category: 'interaction',
         isQuick: false,
@@ -272,12 +344,18 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_inspect',
-        description: 'Inspect the contents of a nearby container (chest, furnace, barrel) or own inventory. Returns a list of all items inside.',
+        description:
+            'Inspect the contents of a nearby container (chest, furnace, barrel) or own inventory. Returns a list of all items inside.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'target', type: 'String', description: 'What to inspect: "chest", "furnace", "barrel", or "inventory" for own items', required: true },
+            {
+                name: 'target',
+                type: 'String',
+                description: 'What to inspect: "chest", "furnace", "barrel", or "inventory" for own items',
+                required: true,
+            },
         ],
         category: 'interaction',
         isQuick: false,
@@ -285,13 +363,25 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_toss',
-        description: 'Toss/drop items from inventory onto the ground. Use when told to throw away, discard, or drop items. Useful to free up inventory space.',
+        description:
+            'Toss/drop items from inventory onto the ground. Use when told to throw away, discard, or drop items. Useful to free up inventory space.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'item_name', type: 'String', description: 'Name of the item to toss (e.g. cobblestone, dirt, rotten_flesh). Use "all" to drop everything.', required: true },
-            { name: 'count', type: 'String', description: 'How many to drop (default: all of that item)', required: false },
+            {
+                name: 'item_name',
+                type: 'String',
+                description:
+                    'Name of the item to toss (e.g. cobblestone, dirt, rotten_flesh). Use "all" to drop everything.',
+                required: true,
+            },
+            {
+                name: 'count',
+                type: 'String',
+                description: 'How many to drop (default: all of that item)',
+                required: false,
+            },
         ],
         category: 'interaction',
         isQuick: false,
@@ -299,12 +389,18 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_fish',
-        description: 'Fish with a fishing rod. Must have a fishing rod in inventory and be near water. Will cast and wait for fish to bite.',
+        description:
+            'Fish with a fishing rod. Must have a fishing rod in inventory and be near water. Will cast and wait for fish to bite.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'count', type: 'String', description: 'How many fish to catch before stopping (default: 5)', required: false },
+            {
+                name: 'count',
+                type: 'String',
+                description: 'How many fish to catch before stopping (default: 5)',
+                required: false,
+            },
         ],
         category: 'survival',
         isQuick: false,
@@ -312,12 +408,19 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_use_item',
-        description: 'Use/activate an item (right-click). Works for potions, buckets, bonemeal, ender pearls, and other usable items. Do NOT use for fishing rods — use mc_fish instead.',
+        description:
+            'Use/activate an item (right-click). Works for potions, buckets, bonemeal, ender pearls, and other usable items. Do NOT use for fishing rods — use mc_fish instead.',
         disabled: false,
         layer: '',
         effect: {},
         arguments: [
-            { name: 'item_name', type: 'String', description: 'Item to use (e.g. potion, water_bucket, bone_meal, ender_pearl). Will auto-equip if not already held.', required: true },
+            {
+                name: 'item_name',
+                type: 'String',
+                description:
+                    'Item to use (e.g. potion, water_bucket, bone_meal, ender_pearl). Will auto-equip if not already held.',
+                required: true,
+            },
         ],
         category: 'interaction',
         isQuick: true,
