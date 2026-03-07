@@ -42,7 +42,7 @@ body,
 }
 
 body {
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   background: var(--bg-primary);
   color: var(--text-primary);
   font-size: 14px;
@@ -265,7 +265,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   font-size: 13px;
   transition: border-color var(--transition);
   outline: none;
@@ -313,7 +313,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   font-size: 13px;
   outline: none;
   cursor: pointer;
@@ -338,7 +338,7 @@ body {
   padding: 8px 20px;
   border: none;
   border-radius: var(--radius-sm);
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -572,7 +572,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   font-size: 13px;
   outline: none;
   transition: border-color var(--transition);
@@ -739,7 +739,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   font-size: 13px;
   cursor: pointer;
   transition: border-color var(--transition);
@@ -802,7 +802,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   font-size: 12px;
   outline: none;
   cursor: pointer;
@@ -824,7 +824,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
@@ -871,7 +871,7 @@ body {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-family: var(--font);
+  font-family: var(--font), sans-serif;
   font-size: 12px;
   cursor: pointer;
   transition: all var(--transition);

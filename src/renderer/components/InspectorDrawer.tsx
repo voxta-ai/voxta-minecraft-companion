@@ -45,7 +45,7 @@ function getContextLabel(text: string): string {
 
 /** Split pipe-delimited context values into individual items */
 function splitContextValues(text: string): string[] {
-    // Remove the "Character's X: " prefix for cleaner display
+    // Remove the "Character's X": prefix for cleaner display
     return text.split('|').map((s) => s.trim()).filter(Boolean);
 }
 

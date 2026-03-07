@@ -65,7 +65,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     // Track last-chat timestamp per character for sorting
     const [charLastChat, setCharLastChat] = createSignal<Record<string, string>>({});
 
-    // Fetch all chats to build a sort order by most recent chat
+    // Fetch all chats to build a sort order by the most recent chat
     createEffect(() => {
         if (isVoxtaConnected() && hasCharacters()) {
             const map: Record<string, string> = {};
@@ -86,7 +86,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         return [...voxtaInfo.characters].sort((a, b) => {
             const aTime = map[a.id] ?? '';
             const bTime = map[b.id] ?? '';
-            // Characters with chats come first, sorted by most recent
+            // Characters with chats come first, sorted by the most recent
             if (aTime && !bTime) return -1;
             if (!aTime && bTime) return 1;
             if (aTime && bTime) return bTime.localeCompare(aTime);
@@ -94,21 +94,21 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         });
     });
 
-    // Auto-select first character when available
+    // Auto-select the first character when available
     createEffect(() => {
         if (voxtaInfo.characters.length > 0 && !selectedCharacterId()) {
             setSelectedCharacterId(voxtaInfo.defaultAssistantId ?? voxtaInfo.characters[0]?.id ?? null);
         }
     });
 
-    // Auto-fill player name from Voxta user profile (one-time, unless user edited)
+    // Autofill player name from Voxta user profile (one-time, unless user edited)
     createEffect(() => {
         if (voxtaInfo.userName && !userEditedPlayerName()) {
             setPlayerMcName(voxtaInfo.userName);
         }
     });
 
-    // Auto-fill bot name when character changes (unless user edited)
+    // Autofill the bot name when the character changes (unless user edited)
     createEffect(() => {
         const charId = selectedCharacterId();
         if (charId && !userEditedBotName()) {
@@ -119,7 +119,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         }
     });
 
-    // Load previous chats when character changes
+    // Load previous chats when the character changes
     const refreshChats = () => {
         const charId = selectedCharacterId();
         if (!charId) return;

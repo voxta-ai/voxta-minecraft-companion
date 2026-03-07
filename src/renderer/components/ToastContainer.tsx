@@ -1,4 +1,4 @@
-import { For, Show, createSignal, createEffect, onCleanup, onMount } from 'solid-js';
+import { For, createSignal, onCleanup, onMount } from 'solid-js';
 import type { ToastMessage } from '../../shared/ipc-types';
 
 const DEFAULT_DURATION_MS = 6000;

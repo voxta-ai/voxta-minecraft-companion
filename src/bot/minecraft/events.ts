@@ -46,7 +46,7 @@ export class McEventBridge {
     private pickupCheckTimer: ReturnType<typeof setInterval> | null = null;
 
     // Bound listener references for cleanup
-    private readonly boundListeners: Array<{ event: string; fn: Function }> = [];
+    private readonly boundListeners: Array<{ event: string; fn: (...args: never[]) => void }> = [];
 
     constructor(
         private readonly bot: Bot,
@@ -60,9 +60,8 @@ export class McEventBridge {
         this.startAutoLook();
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-    private on(event: string, fn: Function): void {
-        this.bot.on(event as 'health', fn as (...args: never[]) => void);
+    private on(event: string, fn: (...args: never[]) => void): void {
+        this.bot.on(event as 'health', fn);
         this.boundListeners.push({ event, fn });
     }
 

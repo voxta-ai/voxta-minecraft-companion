@@ -83,7 +83,7 @@ export class BotEngine extends EventEmitter {
     private humanizeError(err: unknown, context: string): string {
         // Build a comprehensive string to search — AggregateError has an empty message
         // but stores error codes in .code and a nested .errors[] array
-        let raw = '';
+        let raw: string;
         if (err instanceof Error) {
             raw = err.message || '';
             const errWithCode = err as Error & { code?: string; errors?: Error[] };

@@ -26,20 +26,20 @@ function createWindow(): BrowserWindow {
     });
 
     win.webContents.setWindowOpenHandler(({ url }) => {
-        shell.openExternal(url);
+        void shell.openExternal(url);
         return { action: 'deny' };
     });
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-        win.loadURL(process.env['ELECTRON_RENDERER_URL']);
+        void win.loadURL(process.env['ELECTRON_RENDERER_URL']);
     } else {
-        win.loadFile(join(__dirname, '../renderer/index.html'));
+        void win.loadFile(join(__dirname, '../renderer/index.html'));
     }
 
     return win;
 }
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
     electronApp.setAppUserModelId('com.voxta.minecraft-companion');
 
     app.on('browser-window-created', (_, window) => {

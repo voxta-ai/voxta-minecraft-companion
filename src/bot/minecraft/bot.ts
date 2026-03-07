@@ -31,7 +31,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
     });
 
     bot.on('spawn', () => {
-        console.log(`[MC] Spawned at ${bot.entity.position}`);
+        console.log(`[MC] Spawned at ${String(bot.entity.position)}`);
 
         // Configure pathfinder default movements
         const mcData = require('minecraft-data')(bot.version);
@@ -93,7 +93,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                         if (!block || !doorIds.has(block.type)) continue;
                         if (block.boundingBox !== 'block') continue; // already open
 
-                        // Use X,Z as key — both top and bottom halves share the same column.
+                        // Use X, Z as a key — both top and bottom halves share the same column.
                         // This prevents the bot from opening the bottom half and then
                         // immediately closing via the top half on the next tick.
                         const key = `${block.position.x},${block.position.z}`;

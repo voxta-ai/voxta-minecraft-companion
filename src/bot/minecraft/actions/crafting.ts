@@ -208,7 +208,7 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
 
     // Find a crafting table if needed (try without first)
     let craftingTable: ReturnType<Bot['findBlock']> = null;
-    let recipes = bot.recipesFor(itemInfo.id, null, 1, null);
+    const recipes = bot.recipesFor(itemInfo.id, null, 1, null);
 
     if (recipes.length === 0) {
         // Need to check with a crafting table

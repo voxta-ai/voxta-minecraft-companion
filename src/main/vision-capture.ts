@@ -6,8 +6,8 @@ import type { VisionMode } from '../shared/ipc-types';
  * and POSTing the image back to Voxta's vision API.
  *
  * Supports two modes:
- *  - "screen":  captures the user's own Minecraft window (source=Screen)
- *  - "eyes":    captures the spectator/bot-camera window (source=Eyes)
+ *  - "screen": captures the user's own Minecraft window (source=Screen)
+ *  - "eyes": captures the spectator/bot-camera window (source=Eyes)
  */
 
 interface VisionCaptureRequest {
@@ -36,7 +36,7 @@ async function getMinecraftWindows(): Promise<Electron.DesktopCapturerSource[]> 
 
 /**
  * Cycle through available Minecraft windows for "eyes" mode.
- * Returns the name of the newly selected window, or null if none found.
+ * Returns the name of the newly selected window, or null if none is found.
  */
 export async function cycleVisionWindow(): Promise<string | null> {
     const windows = await getMinecraftWindows();
@@ -69,7 +69,7 @@ async function captureMinecraftWindow(mode: VisionMode): Promise<Buffer | null> 
         // Screen mode: pick the first game window (user's own Minecraft)
         mcSource = mcWindows[0];
     } else {
-        // Eyes mode: use preferred index, default to last window (spectator launched second)
+        // Eyes mode: use the preferred index, default to the last window (spectator launched second)
         const idx = preferredWindowIndex >= 0 && preferredWindowIndex < mcWindows.length
             ? preferredWindowIndex
             : mcWindows.length - 1;

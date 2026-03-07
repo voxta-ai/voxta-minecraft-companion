@@ -8,6 +8,8 @@
         "build": "electron-vite build",
         "preview": "electron-vite preview",
         "start": "electron-vite dev",
+        "lint": "eslint src/",
+        "lint:fix": "eslint src/ --fix",
         "pack": "electron-vite build && electron-builder --dir",
         "dist": "electron-vite build && electron-builder"
     },
@@ -47,11 +49,14 @@
     "devDependencies": {
         "@electron-toolkit/preload": "^3.0.1",
         "@electron-toolkit/utils": "^4.0.0",
+        "@eslint/js": "^10.0.1",
         "electron": "^33.0.0",
         "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
+        "eslint": "^10.0.3",
         "solid-js": "^1.9.0",
         "typescript": "^5.7.0",
+        "typescript-eslint": "^8.56.1",
         "vite": "^5.0.0",
         "vite-plugin-solid": "^2.11.0"
     }

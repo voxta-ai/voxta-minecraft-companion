@@ -1,25 +1,33 @@
 import type { Bot } from 'mineflayer';
+import type { Block } from 'prismarine-block';
 import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 
-export async function storeItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
-    if (!itemName) return 'No item name provided';
-
-    // Find nearby chest
+/** Find a nearby chest/barrel and walk to it. Returns the block or an error message. */
+async function findAndReachChest(bot: Bot): Promise<{ block: Block } | { error: string }> {
     const chestBlock = bot.findBlock({
         matching: (block) => block.name === 'chest' || block.name === 'trapped_chest' || block.name === 'barrel',
         maxDistance: 32,
     });
-    if (!chestBlock) return 'No chest found nearby';
+    if (!chestBlock) return { error: 'No chest found nearby' };
 
-    // Walk to the chest
     try {
         await bot.pathfinder.goto(
             new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2),
         );
     } catch {
-        return 'Cannot reach the chest';
+        return { error: 'Cannot reach the chest' };
     }
+
+    return { block: chestBlock };
+}
+
+export async function storeItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
+    if (!itemName) return 'No item name provided';
+
+    const result = await findAndReachChest(bot);
+    if ('error' in result) return result.error;
+    const chestBlock = result.block;
 
     try {
         const container = await bot.openContainer(chestBlock);
@@ -61,21 +69,9 @@ export async function storeItem(bot: Bot, itemName: string | undefined, countStr
 export async function takeItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
     if (!itemName) return 'No item name provided';
 
-    // Find nearby chest
-    const chestBlock = bot.findBlock({
-        matching: (block) => block.name === 'chest' || block.name === 'trapped_chest' || block.name === 'barrel',
-        maxDistance: 32,
-    });
-    if (!chestBlock) return 'No chest found nearby';
-
-    // Walk to the chest
-    try {
-        await bot.pathfinder.goto(
-            new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2),
-        );
-    } catch {
-        return 'Cannot reach the chest';
-    }
+    const result = await findAndReachChest(bot);
+    if ('error' in result) return result.error;
+    const chestBlock = result.block;
 
     try {
         const container = await bot.openContainer(chestBlock);

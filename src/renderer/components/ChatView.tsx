@@ -9,8 +9,9 @@ export default function ChatView(props: ChatViewProps) {
     let messagesContainerRef: HTMLDivElement | undefined;
     const [inputText, setInputText] = createSignal('');
 
-    // Auto-scroll to bottom when new messages arrive
+    // Auto-scroll to the bottom when new messages arrive
     createEffect(() => {
+        // Read messages to subscribe — SolidJS re-runs this effect when the store changes
         const _msgs = chatMessages.messages;
         if (messagesContainerRef) {
             setTimeout(() => {

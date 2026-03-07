@@ -8,9 +8,6 @@ import type {
     ServerMessage,
     ServerWelcomeMessage,
     ServerChatStartedMessage,
-    ServerActionMessage,
-    ServerReplyChunkMessage,
-    ServerReplyEndMessage,
 } from './types.js';
 
 type MessageHandler = (message: ServerMessage) => void;
@@ -166,7 +163,7 @@ export class VoxtaClient {
         });
     }
 
-    /** Send a non-intrusive note — AI sees it but does NOT reply, not shown as user message */
+    /** Send a non-intrusive note — AI sees it but does NOT reply, not shown as a user message */
     async sendNote(text: string): Promise<void> {
         if (!this._sessionId) return;
         await this.send({
@@ -179,7 +176,7 @@ export class VoxtaClient {
         });
     }
 
-    /** Send an event that triggers the AI to reply, not shown as user message */
+    /** Send an event that triggers the AI to reply, not shown as a user message */
     async sendEvent(text: string, doActionInference = true): Promise<void> {
         if (!this._sessionId) return;
         await this.send({
