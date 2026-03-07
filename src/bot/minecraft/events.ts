@@ -3,8 +3,8 @@ import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
-import { executeAction, isActionBusy, getCurrentActivity } from './actions';
-import { FOOD_ITEMS } from './action-definitions';
+import { isActionBusy, getCurrentActivity } from './action-dispatcher';
+import { FOOD_ITEMS } from './game-data';
 
 // ---- Callback interface ----
 

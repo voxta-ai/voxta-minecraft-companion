@@ -1,7 +1,7 @@
 import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
-import { BED_BLOCKS } from './action-definitions';
+import { BED_BLOCKS } from './game-data';
 import { getCurrentActivity } from './actions';
 
 export interface WorldState {

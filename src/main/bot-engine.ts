@@ -2,18 +2,18 @@ import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
-import type { ActionCategory } from '../bot/minecraft/action-definitions';
-import { executeAction, isActionBusy, setCurrentActivity, initHomePosition, resumeFollowPlayer, setFishCaughtCallback } from '../bot/minecraft/actions';
+import { executeAction, initHomePosition, resumeFollowPlayer } from '../bot/minecraft/action-dispatcher';
 import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
-import type { ServerMessage, ServerActionMessage, ServerWelcomeMessage, ServerReplyChunkMessage, ServerVisionCaptureRequestMessage, ServerRecordingRequestMessage } from '../bot/voxta/types';
-import { handleVisionCaptureRequest } from './vision-capture';
-import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ChatListItem, ToastMessage, ToastType, McSettings, AudioChunk, AudioPlaybackEvent, RecordingStartEvent } from '../shared/ipc-types';
+import type { ServerMessage } from '../bot/voxta/types';
+import type { VoxtaConnectConfig, VoxtaInfo, BotConfig, BotStatus, ChatMessage, ActionToggle, CharacterInfo, ChatListItem, ToastMessage, ToastType, McSettings, AudioPlaybackEvent } from '../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
 import type { ScenarioAction } from '../bot/voxta/types';
+import { AudioPipeline } from './audio-pipeline';
+import { dispatchVoxtaMessage } from './voxta-message-handler';
 
 // Centralized version constant
 const CLIENT_NAME = 'Voxta.Minecraft';
@@ -46,14 +46,7 @@ export class BotEngine extends EventEmitter {
     private recentEvents: string[] = []; // Events injected into context on next perception tick
     private toastCounter = 0;
 
-    private audioDownloadChain: Promise<void> = Promise.resolve(); // Ensures audio chunks emit in order
-    private audioEpoch = 0; // Bumped on interrupt — stale downloads are discarded
-
-    // Sentinel-based ack queue (matches Voxta Talk's AudioPlayback.complete() pattern).
-    // When replyEnd arrives, ackCallback is set. When all pending chunks complete
-    // (or on interrupt), the callback fires speechPlaybackComplete.
-    private ackPendingChunks = 0;
-    private ackCallback: (() => void) | null = null;
+    private readonly audioPipeline: AudioPipeline;
 
     private status: BotStatus = {
         mc: 'disconnected',
@@ -71,6 +64,7 @@ export class BotEngine extends EventEmitter {
         for (const action of MINECRAFT_ACTIONS) {
             this.actionToggles.set(action.name, true);
         }
+        this.audioPipeline = new AudioPipeline((chunk) => this.emit('play-audio', chunk));
     }
 
     override emit(event: BotEngineEvent, ...args: unknown[]): boolean {
@@ -181,17 +175,6 @@ export class BotEngine extends EventEmitter {
         this.settings = { ...newSettings };
         if (timingChanged) {
             this.pushActionsToVoxta();
-        }
-    }
-
-    /** Get the voice chance (0-100) for an action category */
-    private getVoiceChance(category?: ActionCategory): number {
-        switch (category) {
-            case 'movement': return this.settings.voiceChanceMovement;
-            case 'survival': return this.settings.voiceChanceSurvival;
-            case 'combat': return this.settings.voiceChanceCombat;
-            case 'interaction': return this.settings.voiceChanceInteraction;
-            default: return 50;
         }
     }
 
@@ -424,25 +407,20 @@ export class BotEngine extends EventEmitter {
         this.assistantName = character?.name ?? 'AI';
 
         // Auto-detect the player's actual MC username from the server
-        // The UI field may contain the Voxta name (e.g., "Lapiro") but the real
-        // MC username could be different (e.g., "Emptyngton")
         const botUsername = config.mc.username;
         const onlinePlayers = Object.keys(bot.players).filter(
             (name) => name !== botUsername,
         );
 
         if (onlinePlayers.length === 1) {
-            // Only one other player — that's the user
             this.playerMcUsername = onlinePlayers[0];
             this.addChat('system', 'System', `Detected player: ${this.playerMcUsername}`);
         } else if (onlinePlayers.length > 1) {
-            // Multiple players — use the UI-provided name as a hint to find the right one
             const uiName = uiConfig.playerMcUsername;
             const match = onlinePlayers.find((p) => p.toLowerCase() === uiName.toLowerCase());
             this.playerMcUsername = match ?? onlinePlayers[0];
             this.addChat('system', 'System', `Multiple players online, using: ${this.playerMcUsername}`);
         }
-        // else: no other players, keep the UI value as fallback
 
         // Populate name registry
         this.names.clear();
@@ -538,15 +516,10 @@ export class BotEngine extends EventEmitter {
                     this.addChat('system', 'System', `${botName}: ${result}`);
                     console.log(`[Bot] Auto-defense attack result: ${result}`);
                 } catch (err) {
-                    // Defense target may already be gone (e.g. creeper exploded)
                     console.log(`[Bot] Auto-defense attack failed:`, err);
                 } finally {
-                    // Always resume following — even if the attack failed
                     console.log(`[Bot] Auto-defense finished, followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`);
                     if (this.followingPlayer && this.mcBot) {
-                        // Use resumeFollowPlayer instead of executeAction — the action
-                        // machinery (actionAbort/actionBusy) interferes with the pathfinder
-                        // after combat ends.
                         const resumeResult = resumeFollowPlayer(this.mcBot.bot, this.followingPlayer, this.names);
                         console.log(`[Bot] Resumed following after defense: ${resumeResult}`);
                     } else {
@@ -622,389 +595,57 @@ export class BotEngine extends EventEmitter {
 
     /** Renderer reports audio started playing — relay to server */
     handleAudioStarted(event: AudioPlaybackEvent): void {
-        void this.voxta?.speechPlaybackStart(
-            event.messageId, event.startIndex, event.endIndex, event.duration, event.isNarration,
-        );
+        if (this.voxta) this.audioPipeline.handleAudioStarted(event, this.voxta);
     }
 
     /** Renderer reports audio finished playing — dequeue and check sentinel */
     handleAudioComplete(_messageId: string): void {
-        if (this.ackPendingChunks > 0) this.ackPendingChunks--;
-        this.tryFireAck();
+        this.audioPipeline.handleAudioComplete();
     }
 
-    /** Fire sentinel callback if all chunks are done (or queue is empty) */
-    private tryFireAck(): void {
-        if (this.ackPendingChunks === 0 && this.ackCallback) {
-            const cb = this.ackCallback;
-            this.ackCallback = null;
-            cb();
-        }
-    }
-
-    /** Immediately fire sentinel (interrupt/cancel) — like Voxta Talk's stop() */
-    private fireAckNow(): void {
-        this.ackPendingChunks = 0;
-        this.tryFireAck();
-    }
+    // ---- Voxta message handling ----
 
     private handleVoxtaMessage(message: ServerMessage): void {
-        // Trace ALL incoming server messages for debugging
-        const msgType = message.$type;
-        if (msgType !== 'replyChunk' && msgType !== 'speechRecognitionPartial'
-            && msgType !== 'memoryUpdated' && msgType !== 'contextUpdated') {
-            console.log(`[Server] ${msgType}`);
-        }
-        switch (message.$type) {
-            case 'welcome': {
-                const welcome = message as ServerWelcomeMessage;
-                this.characters = (welcome.characters ?? []).map((c) => ({ id: c.id, name: c.name }));
-                this.voxtaUserName = welcome.user?.name ?? null;
-                if (welcome.assistant) {
-                    this.defaultAssistantId = welcome.assistant.id;
-                }
-                break;
-            }
-            case 'chatStarting': {
-                // New chat starting — clear old messages from the UI
-                this.emit('clear-chat');
-                break;
-            }
-            case 'chatStarted': {
-                // Load old chat messages when continuing an existing chat.
-                // The server sends the full history in chatStarted.messages[].
-                const started = message as {
-                    messages?: Array<{
-                        senderId: string;
-                        role: string;
-                        text: string;
-                        name?: string;
-                    }>;
-                    characters?: Array<{ id: string; name: string }>;
-                };
-                const characters = started.characters ?? this.characters;
-                if (started.messages && started.messages.length > 0) {
-                    for (const m of started.messages) {
-                        if (!m.text?.trim()) continue;
-                        const role = m.role; // 'User' | 'Assistant' | 'System' | 'Note'
-                        if (role === 'User') {
-                            const name = m.name ?? this.voxtaUserName ?? 'You';
-                            this.addChat('player', name, m.text);
-                        } else if (role === 'Assistant') {
-                            const char = characters.find((c) => c.id === m.senderId);
-                            this.addChat('ai', char?.name ?? this.assistantName ?? 'AI', m.text);
-                        }
-                        // Skip System/Note messages — they're internal context
-                    }
-                    console.log(`[Server] chatStarted — loaded ${started.messages.length} old messages`);
-                }
-                break;
-            }
-            case 'replyChunk': {
-                const chunk = message as ServerReplyChunkMessage;
-                this.currentReply += chunk.text;
-                // DEBUG: trace audio URL presence
-                console.log(`[<< AI] "${chunk.text.substring(0, 60)}..."`);
-                // Forward audio URL to renderer for playback (same as Voxta Talk)
-                if (chunk.audioUrl) {
-                    // audioUrl is relative (e.g. /api/tts/gens/...) — download in main process
-                    // to avoid cross-origin issues (renderer is on a different port)
-                    const baseUrl = (this.voxtaUrl ?? 'http://localhost:5384').replace(/\/hub\/?$/, '');
-                    const fullUrl = chunk.audioUrl.startsWith('http') ? chunk.audioUrl : `${baseUrl}${chunk.audioUrl}`;
-                    const headers: Record<string, string> = {};
-                    if (this.voxtaApiKey) headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
+        dispatchVoxtaMessage(message, {
+            // State accessors
+            getVoxta: () => this.voxta,
+            getVoxtaUrl: () => this.voxtaUrl,
+            getVoxtaApiKey: () => this.voxtaApiKey,
+            getAssistantName: () => this.assistantName,
+            getSettings: () => this.settings,
+            isReplying: () => this.isReplying,
+            getMcBot: () => this.mcBot?.bot ?? null,
+            getNames: () => this.names,
+            getFollowingPlayer: () => this.followingPlayer,
 
-                    // Track chunk in the ack queue
-                    this.ackPendingChunks++;
+            // State mutators
+            setAssistantName: (name) => { this.assistantName = name; },
+            setVoxtaUserName: (name) => { this.voxtaUserName = name; },
+            setDefaultAssistantId: (id) => { this.defaultAssistantId = id; },
+            setCharacters: (chars) => { this.characters = chars; },
+            setCurrentReply: (text) => { this.currentReply = text; },
+            appendCurrentReply: (text) => { this.currentReply += text; },
+            getCurrentReply: () => this.currentReply,
+            setIsReplying: (value) => { this.isReplying = value; },
+            setFollowingPlayer: (player) => { this.followingPlayer = player; },
 
-                    // Start download immediately (parallel) but emit in order via chain
-                    const epoch = this.audioEpoch;
-                    const downloadPromise = fetch(fullUrl, { headers })
-                        .then((res) => {
-                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                            return res.arrayBuffer();
-                        });
-
-                    this.audioDownloadChain = this.audioDownloadChain
-                        .then(() => downloadPromise)
-                        .then((buf) => {
-                            // If audio was stopped since this chunk was queued, discard it
-                            if (this.audioEpoch !== epoch) return;
-                            const b64 = Buffer.from(buf).toString('base64');
-                            const dataUrl = `data:audio/wav;base64,${b64}`;
-                            const audioChunk: AudioChunk = {
-                                url: dataUrl,
-                                messageId: chunk.messageId,
-                                startIndex: chunk.startIndex,
-                                endIndex: chunk.endIndex,
-                                isNarration: chunk.isNarration,
-                            };
-                            this.emit('play-audio', audioChunk);
-                        })
-                        .catch((err) => {
-                            console.error(`[Audio] Failed to download ${fullUrl}:`, err);
-                            // Ack so server flow doesn't hang
-                            void this.voxta?.speechPlaybackStart(
-                                chunk.messageId, chunk.startIndex, chunk.endIndex, 0, chunk.isNarration,
-                            );
-                        });
-                } else {
-                    // No audio URL — immediately ack playback (matches Voxta Talk)
-                    void this.voxta?.speechPlaybackStart(
-                        chunk.messageId, chunk.startIndex, chunk.endIndex, 0, chunk.isNarration,
-                    );
-                }
-                break;
-            }
-            case 'replyStart': {
-                // Reset the download chain for the new reply
-                this.audioDownloadChain = Promise.resolve();
-                break;
-            }
-            case 'replyGenerating':
-                console.log('[<< AI] generating reply...');
-                this.isReplying = true;
-                break;
-            case 'replyEnd': {
-                console.log(`[<< AI] reply complete (${this.currentReply.trim().length} chars)`);
-                if (this.currentReply.trim()) {
-                    const chatText = this.currentReply.trim();
-                    this.addChat('ai', this.assistantName ?? 'AI', chatText);
-
-                    // Speak in MC chat (only if enabled)
-                    if (this.mcBot && this.settings.enableBotChatEcho) {
-                        const maxLen = 250;
-                        for (let i = 0; i < chatText.length; i += maxLen) {
-                            this.mcBot.bot.chat(chatText.substring(i, i + maxLen));
-                        }
+            // Actions
+            addChat: (type, sender, text) => this.addChat(type, sender, text),
+            updateStatus: (patch) => this.updateStatus(patch),
+            flushPendingNotes: () => this.flushPendingNotes(),
+            queueNote: (text) => this.queueNote(text),
+            emit: (event, ...args) => this.emit(event as BotEngineEvent, ...args),
+            mcChatEcho: (text) => {
+                if (this.mcBot && this.settings.enableBotChatEcho) {
+                    const maxLen = 250;
+                    for (let i = 0; i < text.length; i += maxLen) {
+                        this.mcBot.bot.chat(text.substring(i, i + maxLen));
                     }
                 }
-                this.currentReply = '';
-                this.isReplying = false;
-                this.flushPendingNotes();
+            },
 
-                // Sentinel: set callback that fires when all pending chunks complete.
-                // If no chunks are pending, tryFireAck fires it immediately.
-                // (Matches Voxta Talk's markChunksComplete() pattern.)
-                const endMsg = message as { messageId?: string; sessionId?: string };
-                const endMsgId = endMsg.messageId;
-                if (endMsgId && this.voxta?.sessionId) {
-                    this.ackCallback = () => {
-                        console.log(`[<< AI] playback complete for ${endMsgId}`);
-                        void this.voxta?.speechPlaybackComplete(endMsgId);
-                    };
-                    this.tryFireAck();
-                }
-                break;
-            }
-            case 'replyCancelled': {
-                // Reply was interrupted (user spoke or typed while AI was talking).
-                // Reset state so the chat doesn't get stuck.
-                console.log(`[<< AI] reply cancelled (${this.currentReply.length} chars buffered)`);
-                if (this.currentReply.trim()) {
-                    // Show whatever partial text was received
-                    this.addChat('ai', this.assistantName ?? 'AI', this.currentReply.trim());
-                }
-                this.currentReply = '';
-                this.isReplying = false;
-                this.flushPendingNotes();
-
-                // Cancel = stop: fire sentinel immediately
-                this.fireAckNow();
-                break;
-            }
-            case 'action': {
-                const action = message as ServerActionMessage;
-                const actionName = action.value?.trim() ?? '';
-                console.log(`[<< AI] action: ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
-
-                // Ignore empty actions (AI sometimes sends action () with no name)
-                if (!actionName) {
-                    this.updateStatus({ currentAction: null });
-                    break;
-                }
-
-                this.updateStatus({ currentAction: actionName });
-                this.addChat('action', 'Action', `${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`);
-
-                if (this.mcBot) {
-                    // Track follow state
-                    if (actionName === 'mc_follow_player') {
-                        const playerArg = action.arguments?.find((a) => a.name.toLowerCase() === 'player_name');
-                        // Strip LLM type annotations like 'string="Lapiro' → 'Lapiro'
-                        let rawVal = playerArg?.value ?? '';
-                        const eqIdx = rawVal.lastIndexOf('=');
-                        if (eqIdx >= 0) rawVal = rawVal.slice(eqIdx + 1);
-                        rawVal = rawVal.replace(/"/g, '').trim();
-                        this.followingPlayer = rawVal || null;
-                    } else if (actionName === 'mc_stop' || actionName === 'mc_go_home' || actionName === 'mc_go_to') {
-                        this.followingPlayer = null;
-                    }
-
-                    // Notify AI about long-running actions so it knows what's happening
-                    if (actionName === 'mc_fish') {
-                        const botName = this.assistantName ?? 'Bot';
-                        const fishMsg = `${botName} is now casting the fishing rod and fishing.`;
-                        this.addChat('note', 'Note', fishMsg);
-                        this.queueNote(`${fishMsg} ${botName} is the one holding the rod and waiting for a bite.`);
-                        // Set per-catch callback using the survival voice chance slider
-                        setFishCaughtCallback((itemName, count) => {
-                            const fishBotName = this.assistantName ?? 'Bot';
-                            const msg = `${fishBotName} caught ${count} ${itemName} while fishing!`;
-                            const voiceChance = this.getVoiceChance('survival');
-                            const roll = Math.random() * 100;
-                            if (roll < voiceChance && !this.isReplying) {
-                                void this.voxta?.sendEvent(msg);
-                            } else {
-                                this.queueNote(msg);
-                            }
-                            this.addChat('note', 'Note', msg);
-                        });
-                    }
-
-                    void executeAction(this.mcBot.bot, actionName, action.arguments, this.names).then(async (result) => {
-                        const botName = this.assistantName ?? 'Bot';
-                        // Don't show empty results (e.g. mc_acknowledge)
-                        if (result) {
-                            this.addChat('system', 'System', `${botName}: ${result}`);
-                        }
-                        this.updateStatus({ currentAction: null });
-
-                        // Clear fishing callback when done
-                        if (actionName === 'mc_fish') {
-                            setFishCaughtCallback(null);
-                        }
-
-                        // Resume following if we were following before this action (silent — UI only)
-                        const shouldResume = this.followingPlayer
-                            && actionName !== 'mc_follow_player'
-                            && actionName !== 'mc_stop'
-                            && actionName !== 'mc_go_home'
-                            && actionName !== 'mc_go_to';
-                        console.log(`[Bot] Action done: ${actionName}, followingPlayer: ${this.followingPlayer}, shouldResume: ${!!shouldResume}`);
-                        if (actionName === 'mc_follow_player' && this.mcBot) {
-                            console.log(`[Bot] Pathfinder goal after follow: ${!!this.mcBot.bot.pathfinder.goal}`);
-                        }
-                        if (shouldResume && this.mcBot) {
-                            const resumeResult = await executeAction(
-                                this.mcBot.bot, 'mc_follow_player',
-                                [{ name: 'player_name', value: this.followingPlayer ?? '' }],
-                                this.names,
-                            );
-                            console.log(`[Bot] Resumed following: ${resumeResult}`);
-                        }
-
-                        // Look up action metadata to decide if we should report the result
-                        const actionDef = MINECRAFT_ACTIONS.find((a) => a.name === actionName);
-                        if (actionDef?.isQuick) return;
-                        if (!result) return; // Aborted actions return empty — nothing to report
-
-                        // Detect action failures — these must always trigger an AI reply
-                        // so the AI acknowledges the error instead of hallucinating success
-                        const failureKeywords = ['cannot', 'failed', 'unknown', 'no ', 'not a block', 'not a ', 'need ', 'missing'];
-                        const isFailure = failureKeywords.some((kw) => result.toLowerCase().includes(kw));
-
-                        if (isFailure && !this.isReplying) {
-                            // Failures always voiced — AI must acknowledge what went wrong
-                            // Disable action inference so hints like "kill spiders" don't auto-trigger actions
-                            void this.voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
-                        } else {
-                            // Voice chance roll — like Elite Dangerous probability system
-                            const voiceChance = this.getVoiceChance(actionDef?.category);
-                            const roll = Math.random() * 100;
-                            if (roll < voiceChance && !this.isReplying) {
-                                // Voiced: send as event so the AI replies about the result
-                                void this.voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
-                            } else {
-                                // Silent: AI sees it but stays quiet
-                                this.addChat('note', 'Note', `${botName}: ${result}`);
-                                this.queueNote(`${botName}: ${result}`);
-                            }
-                        }
-                    });
-                }
-                break;
-            }
-            case 'interruptSpeech': {
-                // Server says stop playback — kill renderer audio and cancel pending downloads
-                console.log('[Server] interruptSpeech — stopping audio playback');
-                this.audioEpoch++;
-                this.emit('stop-audio');
-                break;
-            }
-            case 'chatFlow': {
-                const state = (message as { state?: string }).state;
-                console.log(`[Server] chatFlow: ${state}`);
-                break;
-            }
-            case 'speechRecognitionStart': {
-                // User started speaking — stop local audio playback immediately.
-                // NOTE: Do NOT send interrupt() to the server! The server already detects
-                // speech via its own STT and interrupts the reply automatically.
-                // Sending a duplicate interrupt jams the server's foreground command queue.
-                console.log('[User >>] speaking... (stopping audio)');
-                this.audioEpoch++;
-                this.emit('stop-audio');
-                // Stop = fire sentinel immediately (matches Voxta Talk's AudioPlayback.stop())
-                this.fireAckNow();
-                break;
-            }
-            case 'speechRecognitionEnd': {
-                // Send immediately — matches Voxta Talk. The server handles
-                // ordering internally via its command queue.
-                const text = (message as { text?: string }).text;
-                console.log(`[User >>] said: "${text ?? '(empty)'}"`);
-                if (text) {
-                    const playerName = this.voxtaUserName ?? 'You';
-                    this.addChat('player', `${playerName} (voice)`, text);
-
-                    void this.voxta?.sendMessage(text);
-                }
-                break;
-            }
-            case 'visionCaptureRequest': {
-                if (this.settings.visionMode === 'off') {
-                    console.log('[Vision] Capture request received but vision is disabled in settings');
-                    break;
-                }
-                const visionReq = message as ServerVisionCaptureRequestMessage;
-                const baseUrl = (this.voxtaUrl ?? 'http://localhost:5384/hub').replace(/\/hub\/?$/, '');
-                console.log(`[Vision] Received capture request: ${visionReq.visionCaptureRequestId} (source: ${visionReq.source})`);
-                void handleVisionCaptureRequest(visionReq, baseUrl, this.voxtaApiKey, this.settings.visionMode);
-                break;
-            }
-            case 'recordingRequest': {
-                const req = message as ServerRecordingRequestMessage;
-                const baseUrl = (this.voxtaUrl ?? 'http://localhost:5384/hub').replace(/\/hub\/?$/, '');
-                if (req.enabled) {
-                    console.log('[Recording] Server requested recording START');
-                    const event: RecordingStartEvent = {
-                        sessionId: req.sessionId,
-                        voxtaBaseUrl: baseUrl,
-                        voxtaApiKey: this.voxtaApiKey,
-                    };
-                    this.emit('recording-start', event);
-                } else {
-                    console.log('[Recording] Server requested recording STOP');
-                    this.emit('recording-stop');
-                }
-                break;
-            }
-            case 'contextUpdated': {
-                // Forward context + actions to the renderer for the inspector drawer
-                const ctx = message as {
-                    contexts?: Array<{ contextKey: string; name: string; text: string }>;
-                    actions?: Array<{ name: string; description: string; layer?: string }>;
-                };
-                const inspectorData: import('../shared/ipc-types').InspectorData = {
-                    contexts: (ctx.contexts ?? []).map((c) => ({ name: c.name, text: c.text })),
-                    actions: (ctx.actions ?? []).map((a) => ({ name: a.name, description: a.description, layer: a.layer })),
-                };
-                this.emit('inspector-update', inspectorData);
-                break;
-            }
-            default:
-                break;
-        }
+            // Audio pipeline
+            audioPipeline: this.audioPipeline,
+        });
     }
 }
