@@ -29,25 +29,44 @@ export async function mineBlock(
         'cherry_log',
     ];
 
+    // Aliases: "mushroom" → find any mushroom type (brown or red)
+    const MUSHROOM_ALIASES = ['mushroom', 'mushrooms'];
+    const ALL_MUSHROOMS = ['brown_mushroom', 'red_mushroom'];
+
+    // Aliases: "flower" → find any flower type
+    const FLOWER_ALIASES = ['flower', 'flowers'];
+    const ALL_FLOWERS = [
+        'poppy', 'dandelion', 'blue_orchid', 'allium', 'azure_bluet',
+        'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip',
+        'oxeye_daisy', 'cornflower', 'lily_of_the_valley',
+    ];
+
     let blockIds: number[];
     let displayName: string;
 
-    if (LOG_ALIASES.includes(blockType.toLowerCase())) {
-        // Match any log type
-        blockIds = ALL_LOGS.map((name) => mcData.blocksByName[name] as { id: number } | undefined)
+    // Helper to resolve a list of block names to IDs
+    const resolveBlockIds = (names: string[]): number[] =>
+        names.map((name) => mcData.blocksByName[name] as { id: number } | undefined)
             .filter((b): b is { id: number } => b !== undefined)
             .map((b) => b.id);
+
+    if (LOG_ALIASES.includes(blockType.toLowerCase())) {
+        blockIds = resolveBlockIds(ALL_LOGS);
         displayName = 'wood';
         if (blockIds.length === 0) return 'Cannot find any wood block types in this Minecraft version';
+    } else if (MUSHROOM_ALIASES.includes(blockType.toLowerCase())) {
+        blockIds = resolveBlockIds(ALL_MUSHROOMS);
+        displayName = 'mushroom';
+        if (blockIds.length === 0) return 'Cannot find any mushroom types in this Minecraft version';
+    } else if (FLOWER_ALIASES.includes(blockType.toLowerCase())) {
+        blockIds = resolveBlockIds(ALL_FLOWERS);
+        displayName = 'flower';
+        if (blockIds.length === 0) return 'Cannot find any flower types in this Minecraft version';
     } else {
         // Try alias mapping first (AI often sends simplified names)
         const BLOCK_ALIASES: Record<string, string> = {
-            mushroom: 'brown_mushroom',
-            mushrooms: 'brown_mushroom',
             red_mushroom_block: 'red_mushroom',
             brown_mushroom_block: 'brown_mushroom',
-            flower: 'poppy',
-            flowers: 'poppy',
             dirt: 'dirt',
             sand: 'sand',
             sugarcane: 'sugar_cane',
