@@ -80,7 +80,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         inventorySummary.push(`${item.name} x${item.count}`);
     }
 
-    // Biome — prismarine-biome often returns empty name, so fall back to ID lookup
+    // Biome — prismarine-biome often returns an empty name, so fall back to ID lookup
     let biome = 'unknown';
     let biomeTemperature = 0.5; // default to temperate
     try {
@@ -89,7 +89,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
             const b = block.biome as { id?: number; displayName?: string; name?: string; temperature?: number };
             biomeTemperature = b.temperature ?? 0.5;
             let raw = b.displayName || b.name || '';
-            // If name is empty but we have an ID, look it up via minecraft-data
+            // If the name is empty, but we have an ID, look it up via minecraft-data
             if (!raw && b.id != null) {
                 const mcData = require('minecraft-data')(bot.version);
                 const biomeData = mcData.biomes?.[b.id] ?? mcData.biomesByName?.[b.id];
@@ -106,7 +106,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     // Notable block detection — blocks that indicate structures and provide utility
     const NOTABLE_BLOCKS: Record<string, string> = {
-        // Beds (from shared BED_BLOCKS list)
+        // Beds (from a shared BED_BLOCKS list)
         ...Object.fromEntries(BED_BLOCKS.map((b) => [b, 'bed'])),
         // Crafting & Smelting
         crafting_table: 'crafting table', furnace: 'furnace', blast_furnace: 'blast furnace',
@@ -140,7 +140,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         }
     } catch { /* chunk not loaded */ }
 
-    // Scan for notable blocks within radius
+    // Scan for notable blocks within a radius
     const blockCounts = new Map<string, number>();
     const shelterBlockLabels: string[] = [];
     try {

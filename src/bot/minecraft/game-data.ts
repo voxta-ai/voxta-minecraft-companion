@@ -27,7 +27,7 @@ export const TOOL_TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'w
 
 // ---- Food & Cooking data ----
 
-/** Food items sorted by hunger restoration (best first) */
+/** Food items sorted by hunger restoration (the best first) */
 export const FOOD_ITEMS: Record<string, number> = {
     golden_carrot: 6, cooked_beef: 8, cooked_porkchop: 8, cooked_mutton: 6,
     cooked_salmon: 6, cooked_chicken: 6, cooked_rabbit: 5, cooked_cod: 5,
@@ -69,7 +69,7 @@ export const COOKABLE_ITEMS: Record<string, string> = {
     ancient_debris: 'netherite_scrap',
 };
 
-/** Items that work as furnace fuel, sorted by burn time (best first) */
+/** Items that work as furnace fuel, sorted by burn time (the best first) */
 export const FUEL_ITEMS = [
     'coal', 'charcoal', 'coal_block',
     'oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log',

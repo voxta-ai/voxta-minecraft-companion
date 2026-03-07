@@ -26,7 +26,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
 
     const displayName = names.resolveToVoxta(names.resolveToMc(entityName));
 
-    // Auto-equip best weapon before fighting
+    // Auto-equip the best weapon before fighting
     const weapon = getBestWeapon(bot);
     if (weapon) {
         try {
@@ -59,12 +59,12 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
     bot.pathfinder.setGoal(goal, true);
 
     const startTime = Date.now();
-    const TIMEOUT_MS = 30000; // 30 seconds max combat
+    const TIMEOUT_MS = 30000; // 30-second max combat
 
     return new Promise<string>((resolve) => {
         const signal = getActionAbort().signal;
         const attackLoop = setInterval(() => {
-            // Check if cancelled
+            // Check if canceled
             if (signal.aborted) {
                 clearInterval(attackLoop);
                 if (getCurrentCombatTarget() === normalizedTarget) setCurrentCombatTarget(null);
@@ -73,7 +73,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 return;
             }
 
-            // Check if target is dead (entity removed from world)
+            // Check if the target is dead (entity removed from a world)
             if (!bot.entities[target.id]) {
                 clearInterval(attackLoop);
                 setCurrentCombatTarget(null);
@@ -102,7 +102,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                     setTimeout(() => { bot.activateItem(true); }, 100);
                 }
             } else if (hasShield) {
-                // Keep shield raised while approaching
+                // Keep the shield raised while approaching
                 bot.activateItem(true);
             }
         }, 500); // MC attack cooldown is ~500ms

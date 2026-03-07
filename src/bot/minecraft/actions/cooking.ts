@@ -24,14 +24,14 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
     const fuelItem = items.find((i) => FUEL_ITEMS.includes(i.name));
     if (!fuelItem) return 'No fuel in inventory (need coal, wood, or planks)';
 
-    // Find nearby furnace
+    // Find a nearby furnace
     const furnaceBlock = bot.findBlock({
         matching: (block) => block.name === 'furnace' || block.name === 'smoker' || block.name === 'blast_furnace',
         maxDistance: 32,
     });
     if (!furnaceBlock) return 'No furnace found nearby';
 
-    // Walk to furnace
+    // Walk to the furnace
     try {
         await bot.pathfinder.goto(
             new goals.GoalNear(furnaceBlock.position.x, furnaceBlock.position.y, furnaceBlock.position.z, 2),

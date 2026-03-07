@@ -128,7 +128,7 @@ async function autoCraftWithPrereqs(
 
         if (prereqFailed) {
             lastMissing = allMissing;
-            continue; // Try next recipe variant
+            continue; // Try the next recipe variant
         }
 
         // All prerequisites resolved — retry the craft
@@ -206,7 +206,7 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
 
     const countBefore = countItemInInventory(bot, itemInfo.id);
 
-    // Find crafting table if needed (try without first)
+    // Find a crafting table if needed (try without first)
     let craftingTable: ReturnType<Bot['findBlock']> = null;
     let recipes = bot.recipesFor(itemInfo.id, null, 1, null);
 
@@ -265,7 +265,7 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
         };
         // If a missing item matches a raw material hint, use that instead
         const missingHints = result.missing.map((m) => {
-            // Extract item name from "N ItemName (no recipe, must be gathered)"
+            // Extract the item name from "N ItemName (no recipe, must be gathered)"
             const match = m.match(/^\d+\s+(.+?)\s*\(no recipe/);
             if (match) {
                 const rawName = match[1].toLowerCase().replace(/ /g, '_');

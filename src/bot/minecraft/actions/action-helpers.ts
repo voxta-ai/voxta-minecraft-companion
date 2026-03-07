@@ -23,7 +23,7 @@ export function getBestTool(bot: Bot, category: ToolCategory): { item: unknown; 
     return null;
 }
 
-/** Find the best weapon in inventory: swords first, then axes, then other tools as fallback */
+/** Find the best weapon in the inventory: swords first, then axes, then other tools as fallback */
 export function getBestWeapon(bot: Bot): { item: unknown; name: string } | null {
     const items = bot.inventory.items();
     // Priority: swords (best damage) → axes → pickaxes → shovels
@@ -40,7 +40,7 @@ export function getBestWeapon(bot: Bot): { item: unknown; name: string } | null 
 // ---- Argument helpers ----
 
 /** Strip type annotations, leading '=' and surrounding quotes from argument values.
- *  Handles LLM quirks like: '="Lapiro"', 'string = "oak_log"', 'string="oak_log', '"value"' */
+ *  Handles LLM quirks like: '= "Lapiro"', 'string = "oak_log"', 'string="oak_log', '"value"' */
 export function cleanArgValue(raw: string): string {
     let val = raw.trim();
     // If the value contains '=', take everything after the last '='

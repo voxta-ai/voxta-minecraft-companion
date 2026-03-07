@@ -44,7 +44,7 @@ export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegi
     const displayName = names.resolveToVoxta(names.resolveToMc(playerName));
     if (!player) return `Cannot find player "${displayName}" nearby`;
 
-    // Flush pending stop flag (see comment in followPlayer above)
+    // Flush pending a stop flag (see comment in followPlayer above)
     bot.pathfinder.setGoal(null);
 
     const goal = new goals.GoalFollow(player, 3);

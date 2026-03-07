@@ -27,7 +27,7 @@ export function getCurrentActivity(): string | null { return currentActivity; }
 export function setCurrentActivity(activity: string | null): void { currentActivity = activity; }
 
 // Current combat target — used to prevent duplicate mc_attack from cancelling
-// an ongoing fight (e.g. auto-defense + AI action both targeting the same mob)
+// an ongoing fight (e.g., auto-defense + AI action both targeting the same mob)
 let currentCombatTarget: string | null = null;
 export function getCurrentCombatTarget(): string | null { return currentCombatTarget; }
 export function setCurrentCombatTarget(target: string | null): void { currentCombatTarget = target; }
@@ -45,7 +45,6 @@ export function setFishCaughtCallback(cb: ((itemName: string, count: number) => 
 let homePosition: { x: number; y: number; z: number } | null = null;
 let homeServerKey: string | null = null;
 export function getHomePosition(): { x: number; y: number; z: number } | null { return homePosition; }
-export function setHomePosition(pos: { x: number; y: number; z: number } | null): void { homePosition = pos; }
 
 const HOME_FILE = join(process.cwd(), 'bot-home.json');
 
@@ -84,7 +83,7 @@ export function initHomePosition(host: string, port: number): void {
     }
 }
 
-/** Save bed position as home (memory + disk) */
+/** Save bed position as home (memory and disk) */
 export function saveHome(bedBlock: { position: { x: number; y: number; z: number } }): void {
     homePosition = { x: bedBlock.position.x, y: bedBlock.position.y, z: bedBlock.position.z };
     if (homeServerKey) {

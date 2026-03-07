@@ -42,7 +42,7 @@ export async function eatFood(bot: Bot, foodName: string | undefined): Promise<s
         );
         if (!foodItem) return `No ${foodName} in inventory`;
     } else {
-        // Find best food in inventory
+        // Find the best food in inventory
         const foodItems = items
             .filter((i) => i.name in FOOD_ITEMS)
             .sort((a, b) => (FOOD_ITEMS[b.name] ?? 0) - (FOOD_ITEMS[a.name] ?? 0));
@@ -89,7 +89,7 @@ export async function giveItem(
         // Best effort approach
     }
 
-    // Re-find item fresh — inventory may have changed during walk
+    // Re-find item fresh — inventory may have changed during a walk
     const item = bot.inventory.items().find((i) => i.name === itemName);
     if (!item) return `No ${itemName} in inventory (lost while walking)`;
 
@@ -111,7 +111,7 @@ export async function tossItem(bot: Bot, itemName: string | undefined, countStr:
 
     const resolved = itemName.toLowerCase().replace(/ /g, '_');
 
-    // Handle "all" — drop entire inventory
+    // Handle "all" — drop the entire inventory
     if (resolved === 'all') {
         const items = bot.inventory.items();
         if (items.length === 0) return 'Inventory is already empty';
@@ -124,7 +124,7 @@ export async function tossItem(bot: Bot, itemName: string | undefined, countStr:
         return `Dropped ${totalDropped} items (entire inventory)`;
     }
 
-    // Find matching items in inventory
+    // Find matching items in the inventory
     const matching = bot.inventory.items().filter((i) => i.name === resolved);
     if (matching.length === 0) return `No ${itemName} in inventory`;
 

@@ -5,7 +5,7 @@ import { BED_BLOCKS } from '../game-data';
 import { saveHome } from './action-state.js';
 
 export async function sleepInBed(bot: Bot): Promise<string> {
-    // Find nearest bed
+    // Find the nearest bed
     const bedBlock = bot.findBlock({
         matching: (block) => BED_BLOCKS.includes(block.name),
         maxDistance: 32,
@@ -48,7 +48,7 @@ export async function sleepInBed(bot: Bot): Promise<string> {
 }
 
 export async function setHomeBed(bot: Bot): Promise<string> {
-    // Find nearest bed
+    // Find the nearest bed
     const bedBlock = bot.findBlock({
         matching: (block) => BED_BLOCKS.includes(block.name),
         maxDistance: 32,

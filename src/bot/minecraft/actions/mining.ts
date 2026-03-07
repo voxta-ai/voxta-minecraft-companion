@@ -45,7 +45,7 @@ export async function mineBlock(
         };
         const resolvedType = BLOCK_ALIASES[blockType.toLowerCase()] ?? blockType;
 
-        // Try exact match first
+        // Try the exact match first
         let blockInfo = mcData.blocksByName[resolvedType];
         // Fuzzy match: try common suffixes if exact fails
         if (!blockInfo) {
@@ -118,7 +118,7 @@ export async function mineBlock(
         }
     } else {
         // No tool required — but try to equip a preferred tool for speed
-        // (e.g. axe for wood, shovel for dirt)
+        // (e.g., axe for wood, shovel for dirt)
         const preferred = resolvedName.includes('log') || resolvedName.includes('planks') ? 'axe'
             : resolvedName.includes('dirt') || resolvedName.includes('sand') || resolvedName.includes('gravel') ? 'shovel'
                 : null;
@@ -141,7 +141,7 @@ export async function mineBlock(
     const failedPositions = new Set<string>();
 
     // Build item name set for inventory matching — block names usually match
-    // item names, but some have different drops (e.g. stone → cobblestone)
+    // item names, but some have different drops (e.g., stone → cobblestone)
     const BLOCK_DROP_NAMES: Record<string, string> = {
         stone: 'cobblestone',
         grass_block: 'dirt',
@@ -326,7 +326,7 @@ export async function mineBlock(
 
             console.log(`[MC Action] Dug ${block.name} (collected ${countInventory() - startCount}/${maxCount})`);
         } catch (err) {
-            // If we were cancelled by a new action, exit cleanly without
+            // If we were canceled by a new action, exit cleanly without
             // touching pathfinder (the new action owns it now)
             if (signal.aborted) break;
             const message = err instanceof Error ? err.message : String(err);
@@ -338,7 +338,7 @@ export async function mineBlock(
     // Wait briefly for any remaining items to be auto-collected
     await new Promise((r) => setTimeout(r, 1000));
 
-    // If aborted (e.g. mc_stop), don't report a result — the stop already did
+    // If aborted (e.g., mc_stop), don't report a result — the stop already did
     if (signal.aborted) return '';
 
     if (dug === 0) return `Failed to collect any ${displayName} (stuck or unreachable)`;

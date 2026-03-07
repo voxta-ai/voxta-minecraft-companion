@@ -61,7 +61,7 @@ export function handleActionMessage(
         const fishMsg = `${botName} is now casting the fishing rod and fishing.`;
         callbacks.addChat('note', 'Note', fishMsg);
         callbacks.queueNote(`${fishMsg} ${botName} is the one holding the rod and waiting for a bite.`);
-        // Set per-catch callback using the survival voice chance slider
+        // Set a per-catch callback using the survival voice chance slider
         setFishCaughtCallback((itemName, count) => {
             const fishBotName = callbacks.getAssistantName();
             const msg = `${fishBotName} caught ${count} ${itemName} while fishing!`;
@@ -78,7 +78,7 @@ export function handleActionMessage(
 
     void executeAction(bot, actionName, action.arguments, names).then(async (result) => {
         const botName = callbacks.getAssistantName();
-        // Don't show empty results (e.g. mc_acknowledge)
+        // Don't show empty results (e.g., mc_acknowledge)
         if (result) {
             callbacks.addChat('system', 'System', `${botName}: ${result}`);
         }
@@ -89,7 +89,7 @@ export function handleActionMessage(
             setFishCaughtCallback(null);
         }
 
-        // Resume following if we were following before this action (silent — UI only)
+        // Resume the following if we were following before this action (silent — UI only)
         const followingPlayer = callbacks.getFollowingPlayer();
         const shouldResume = followingPlayer
             && actionName !== 'mc_follow_player'
@@ -125,11 +125,11 @@ export function handleActionMessage(
             // Disable action inference so hints like "kill spiders" don't auto-trigger actions
             void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
         } else {
-            // Voice chance roll — like Elite Dangerous probability system
+            // Voice chance roll — like an Elite Dangerous probability system
             const voiceChance = getVoiceChance(callbacks.getSettings(), actionDef?.category);
             const roll = Math.random() * 100;
             if (roll < voiceChance && !callbacks.isReplying()) {
-                // Voiced: send as event so the AI replies about the result
+                // Voiced: send it as an event so the AI replies about the result
                 void voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
             } else {
                 // Silent: AI sees it but stays quiet

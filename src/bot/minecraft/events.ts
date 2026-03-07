@@ -3,7 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
-import { isActionBusy, getCurrentActivity } from './action-dispatcher';
+import { isActionBusy, getCurrentActivity } from './actions';
 import { FOOD_ITEMS } from './game-data';
 
 // ---- Callback interface ----
@@ -46,10 +46,7 @@ export class McEventBridge {
     private pickupCheckTimer: ReturnType<typeof setInterval> | null = null;
 
     // Bound listener references for cleanup
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
     private readonly boundListeners: Array<{ event: string; fn: Function }> = [];
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-    private readonly boundInventoryListeners: Array<{ event: string; fn: Function }> = [];
 
     constructor(
         private readonly bot: Bot,
@@ -102,7 +99,7 @@ export class McEventBridge {
                         const name = this.callbacks.getAssistantName();
                         const msg = `${name} took ${totalDmg} total damage from ${damageSource}! Health is now: ${hp}/20`;
                         // Damage is always a silent note — AI sees health in context
-                        // and gets 'under attack' events separately for mob attacks
+                        // and gets 'under attack' events separately from mob attacks
                         this.callbacks.onChat('note', 'Note', msg);
                         this.callbacks.onNote(msg);
                         this.pendingDamage = 0;
@@ -186,7 +183,7 @@ export class McEventBridge {
                 this.callbacks.onNote(`${botName} is being attacked by ${this.lastAttacker}!`);
             }
 
-            // Auto self-defense — only if we were actually hit by a mob (not environmental damage)
+            // Auto self-defense — only if a mob actually hit us (not environmental damage)
             // Case 1: hostile mob nearby (skeletons, zombies, etc.)
             // Case 2: any entity that swung at us recently (provoked bears, wolves, etc.)
             if (settings.enableAutoDefense && !this.isAutoDefending) {
@@ -246,14 +243,14 @@ export class McEventBridge {
             this.callbacks.onEvent(`${botName} woke up. It is now morning.`);
         }) as (...args: never[]) => void);
 
-        // ---- Auto-eat: eat when hunger drops below threshold ----
+        // ---- Auto-eat: eat when hunger drops below a threshold ----
         let isAutoEating = false;
 
         const tryAutoEat = (): void => {
             if (isAutoEating) return;
             if (this.bot.food >= 14) return; // only eat when hungry (20 = full)
 
-            // Find best food in inventory
+            // Find the best food in inventory
             const items = this.bot.inventory.items();
             const foodItems = items
                 .filter((i) => i.name in FOOD_ITEMS)
@@ -287,7 +284,7 @@ export class McEventBridge {
             })();
         };
 
-        // Trigger auto-eat when health/food changes
+        // Trigger auto-eating when health/food changes
         this.on('health', (() => tryAutoEat()) as (...args: never[]) => void);
 
         // Also check on spawn (health event doesn't fire for initial values)
@@ -369,7 +366,7 @@ export class McEventBridge {
                     this.callbacks.onChat('note', 'Note', `${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`);
                     this.callbacks.onNote(`${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`);
                 } else if (usedSlots < maxSlots) {
-                    // Reset so we can notify again next time it fills up
+                    // Reset so we can notify again the next time it fills up
                     inventoryFullNotified = false;
                 }
             }, 500);
@@ -392,7 +389,7 @@ export class McEventBridge {
                 /^Set own game mode/i,     // /gamemode command output
                 /^Set the time to/i,       // /time command output
                 /^Set the weather to/i,    // /weather command output
-                /^\[Server\]/i,            // Server broadcast messages
+                /^\[Server]/i,            // Server broadcast messages
             ];
             if (commandPatterns.some((p) => p.test(message))) {
                 this.callbacks.onChat('system', 'System', message);
@@ -480,11 +477,6 @@ export class McEventBridge {
         for (const { event, fn } of this.boundListeners) {
             this.bot.removeListener(event as 'health', fn as (...args: never[]) => void);
         }
-        for (const { event, fn } of this.boundInventoryListeners) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            this.bot.inventory.removeListener(event as 'updateSlot', fn as any);
-        }
         this.boundListeners.length = 0;
-        this.boundInventoryListeners.length = 0;
     }
 }

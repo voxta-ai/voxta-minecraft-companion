@@ -20,7 +20,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
 
     const displayName = item?.displayName ?? heldItem?.displayName ?? blockName;
 
-    // Save currently held item to re-equip after
+    // Save a currently held item to re-equip after
     const previousHeld = (!isHeld && heldItem) ? heldItem.name : null;
 
     // Equip the block if not already held

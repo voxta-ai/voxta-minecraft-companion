@@ -26,7 +26,6 @@ export class BotEngine extends EventEmitter {
     private voxta: VoxtaClient | null = null;
     private perceptionLoop: ReturnType<typeof setInterval> | null = null;
     private eventBridge: McEventBridge | null = null;
-    private assistantId: string | null = null;
     private assistantName: string | null = null;
     private currentReply = '';
     private messageCounter = 0;
@@ -34,7 +33,6 @@ export class BotEngine extends EventEmitter {
     private readonly names = new NameRegistry();
     private characters: CharacterInfo[] = [];
     private defaultAssistantId: string | null = null;
-    private currentConfig: CompanionConfig | null = null;
     private voxtaUserName: string | null = null;
     private playerMcUsername: string | null = null;
     private voxtaUrl: string | null = null;
@@ -43,7 +41,6 @@ export class BotEngine extends EventEmitter {
     private isReplying = false;
     private pendingNotes: string[] = [];
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
-    private recentEvents: string[] = []; // Events injected into context on next perception tick
     private toastCounter = 0;
 
     private readonly audioPipeline: AudioPipeline;
@@ -84,8 +81,8 @@ export class BotEngine extends EventEmitter {
 
     /** Convert raw errors into user-friendly messages */
     private humanizeError(err: unknown, context: string): string {
-        // Build a comprehensive string to search — AggregateError has empty message
-        // but stores error codes in .code and nested .errors[] array
+        // Build a comprehensive string to search — AggregateError has an empty message
+        // but stores error codes in .code and a nested .errors[] array
         let raw = '';
         if (err instanceof Error) {
             raw = err.message || '';
@@ -196,15 +193,6 @@ export class BotEngine extends EventEmitter {
             void this.voxta.sendNote(note);
         }
         this.pendingNotes = [];
-    }
-
-    /** Push a game event into the context queue — AI sees it via updateContext, not as a user message */
-    private pushEvent(text: string): void {
-        this.recentEvents.push(text);
-        // Keep only the latest 10 events
-        if (this.recentEvents.length > 10) {
-            this.recentEvents.shift();
-        }
     }
 
     private addChat(type: ChatMessage['type'], sender: string, text: string): void {
@@ -379,7 +367,6 @@ export class BotEngine extends EventEmitter {
                 entityRange: uiConfig.entityRange,
             },
         };
-        this.currentConfig = config;
         this.playerMcUsername = uiConfig.playerMcUsername || null;
 
         // ---- 1. Connect Minecraft ----
@@ -401,7 +388,7 @@ export class BotEngine extends EventEmitter {
             return;
         }
 
-        // ---- 2. Start chat with selected character ----
+        // ---- 2. Start chat with a selected character ----
         const bot = this.mcBot.bot;
         const character = this.characters.find((c) => c.id === uiConfig.characterId);
         this.assistantName = character?.name ?? 'AI';
@@ -455,11 +442,6 @@ export class BotEngine extends EventEmitter {
                 const state = readWorldState(bot, config.perception.entityRange);
                 const contextStrings = buildContextStrings(state, this.names, this.assistantName);
 
-                // Append recent events to context
-                if (this.recentEvents.length > 0) {
-                    contextStrings.push('Recent events: ' + this.recentEvents.join(' | '));
-                }
-
                 const contextHash = contextStrings.join('|');
 
                 this.updateStatus({
@@ -473,8 +455,6 @@ export class BotEngine extends EventEmitter {
                     void this.voxta.updateContext(
                         contextStrings.map((text) => ({ text })),
                     );
-                    // Clear events after they've been sent to context
-                    this.recentEvents = [];
                 }
             } catch {
                 // Perception can fail during respawn/chunk loading
@@ -561,7 +541,6 @@ export class BotEngine extends EventEmitter {
             this.voxta = null;
         }
 
-        this.assistantId = null;
         this.assistantName = null;
         this.currentReply = '';
         this.voxtaUrl = null;
@@ -593,7 +572,7 @@ export class BotEngine extends EventEmitter {
 
 
 
-    /** Renderer reports audio started playing — relay to server */
+    /** Renderer reports audio started playing — relay to the server */
     handleAudioStarted(event: AudioPlaybackEvent): void {
         if (this.voxta) this.audioPipeline.handleAudioStarted(event, this.voxta);
     }

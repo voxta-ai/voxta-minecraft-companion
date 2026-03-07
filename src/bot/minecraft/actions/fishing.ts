@@ -66,7 +66,7 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
                 bot.activateItem();
                 await new Promise((resolve) => setTimeout(resolve, 500));
             } else {
-                // Other errors (e.g. "Fishing cancelled", no water nearby)
+                // Other errors (e.g. "Fishing canceled", no water nearby)
                 catchResult = 'timeout';
             }
         }
@@ -104,7 +104,7 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
         }
     }
 
-    // If aborted (e.g. mc_stop), don't report a result — the stop already did
+    // If aborted (e.g., mc_stop), don't report a result — the stop already did
     if (signal.aborted) return '';
 
     if (totalCaught === 0) return 'Didn\'t catch anything — make sure I\'m facing open water';

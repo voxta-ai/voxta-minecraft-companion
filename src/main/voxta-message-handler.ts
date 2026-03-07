@@ -127,7 +127,7 @@ function handleReplyEnd(message: ServerMessage, ctx: MessageHandlerContext): voi
     ctx.setIsReplying(false);
     ctx.flushPendingNotes();
 
-    // Sentinel: set callback that fires when all pending chunks complete
+    // Sentinel: set a callback that fires when all pending chunks complete
     const endMsg = message as { messageId?: string; sessionId?: string };
     const endMsgId = endMsg.messageId;
     const voxta = ctx.getVoxta();

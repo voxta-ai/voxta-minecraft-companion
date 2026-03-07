@@ -33,7 +33,7 @@ export class AudioPipeline {
         voxtaApiKey: string | null,
     ): void {
         if (chunk.audioUrl) {
-            // audioUrl is relative — download in main process to avoid cross-origin issues
+            // audioUrl is relative — download in the main process to avoid cross-origin issues
             const baseUrl = voxtaUrl.replace(/\/hub\/?$/, '');
             const fullUrl = chunk.audioUrl.startsWith('http') ? chunk.audioUrl : `${baseUrl}${chunk.audioUrl}`;
             const headers: Record<string, string> = {};
@@ -42,7 +42,7 @@ export class AudioPipeline {
             // Track chunk in the ack queue
             this.ackPendingChunks++;
 
-            // Start download immediately (parallel) but emit in order via chain
+            // Start download immediately (parallel) but emit in order via a chain
             const epoch = this.epoch;
             const downloadPromise = fetch(fullUrl, { headers })
                 .then((res) => {
@@ -81,7 +81,7 @@ export class AudioPipeline {
         }
     }
 
-    /** Renderer reports audio started playing — relay to server */
+    /** Renderer reports audio started playing — relay to the server */
     handleAudioStarted(event: AudioPlaybackEvent, voxta: VoxtaClient): void {
         void voxta.speechPlaybackStart(
             event.messageId, event.startIndex, event.endIndex, event.duration, event.isNarration,
@@ -100,7 +100,7 @@ export class AudioPipeline {
         this.tryFireAck();
     }
 
-    /** Fire sentinel callback if all chunks are done (or queue is empty) */
+    /** Fire sentinel callback if all chunks are done (or the queue is empty) */
     private tryFireAck(): void {
         if (this.ackPendingChunks === 0 && this.ackCallback) {
             const cb = this.ackCallback;
