@@ -50,6 +50,34 @@ export async function mineBlock(
             flowers: 'poppy',
             dirt: 'dirt',
             sand: 'sand',
+            sugarcane: 'sugar_cane',
+            sugar_cane: 'sugar_cane',
+            cactus: 'cactus',
+            bamboo: 'bamboo',
+            melon: 'melon',
+            pumpkin: 'pumpkin',
+            kelp: 'kelp',
+            vine: 'vine',
+            vines: 'vine',
+            tallgrass: 'tall_grass',
+            tall_grass: 'tall_grass',
+            grass: 'short_grass',
+            cobblestone: 'cobblestone',
+            stone: 'stone',
+            clay: 'clay',
+            gravel: 'gravel',
+            // Crops and berries
+            sweet_berries: 'sweet_berry_bush',
+            sweet_berry: 'sweet_berry_bush',
+            berries: 'sweet_berry_bush',
+            berry: 'sweet_berry_bush',
+            berry_bush: 'sweet_berry_bush',
+            carrots: 'carrots',
+            carrot: 'carrots',
+            potatoes: 'potatoes',
+            potato: 'potatoes',
+            beetroots: 'beetroots',
+            beetroot: 'beetroots',
         };
         const resolvedType = BLOCK_ALIASES[blockType.toLowerCase()] ?? blockType;
 
@@ -93,7 +121,7 @@ export async function mineBlock(
             };
             const hint = ITEM_HINTS[blockType.toLowerCase()];
             if (hint) return hint;
-            return `Unknown block type: ${blockType}. This may be an item, not a block. Only blocks in the world can be mined.`;
+            return `Unknown block type: ${blockType}. This might be an item, not a block — only blocks placed in the world can be mined.`;
         }
         blockIds = [blockInfo.id];
         displayName = blockType;
@@ -114,7 +142,7 @@ export async function mineBlock(
     if (toolCategory !== 'none') {
         const tool = getBestTool(bot, toolCategory);
         if (!tool) {
-            return `Cannot mine ${blockType}: no ${toolCategory} in inventory. Need a ${toolCategory} to mine this block.`;
+            return `Cannot mine ${blockType} without a ${toolCategory}`;
         }
         // Auto-equip the required tool
         try {
@@ -268,7 +296,7 @@ export async function mineBlock(
                     );
                 }
             }
-            if (dug === 0) return `Cannot find any reachable ${displayName} nearby`;
+            if (dug === 0) return `Searched around but couldn't find any reachable ${displayName} nearby`;
             break;
         }
 
@@ -364,7 +392,7 @@ export async function mineBlock(
     // If aborted (e.g., mc_stop), don't report a result — the stop already did
     if (signal.aborted) return '';
 
-    if (dug === 0) return `Failed to collect any ${displayName} (stuck or unreachable)`;
+    if (dug === 0) return `Tried to collect ${displayName} but couldn't reach any`;
     const status = dug >= maxCount ? 'goal reached' : 'no more nearby';
     return `Collected ${dug} ${displayName} (${status})`;
 }

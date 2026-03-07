@@ -153,12 +153,14 @@ export class VoxtaClient {
             console.warn('[Voxta] Cannot send message — no active session');
             return;
         }
+        // Match VoxtaTalk: only send doReply + doCharacterActionInference.
+        // User vs afterChar timing is controlled by the action's `timing` field
+        // in the scenario definition, NOT by a doUserActionInference flag.
         await this.send({
             $type: 'send',
             sessionId: this._sessionId,
             text,
             doReply: true,
-            doUserActionInference: true,
             doCharacterActionInference: true,
         });
     }

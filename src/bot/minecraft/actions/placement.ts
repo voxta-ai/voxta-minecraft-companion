@@ -14,7 +14,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
     const heldItem = bot.heldItem;
     const isHeld = heldItem && heldItem.name.toLowerCase().includes(resolved);
 
-    if (!item && !isHeld) return `No ${blockName} found in inventory`;
+    if (!item && !isHeld) return `Checked inventory but has no ${blockName} to place`;
 
     const displayName = item?.displayName ?? heldItem?.displayName ?? blockName;
 
@@ -32,7 +32,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
     const refBlock = bot.blockAt(pos.offset(0, -1, 0));
     if (!refBlock || refBlock.name === 'air' || refBlock.name === 'cave_air') {
         setSuppressPickups(false);
-        return `Cannot place ${displayName}: no solid ground nearby`;
+        return `Cannot place ${displayName} — no solid ground nearby`;
     }
 
     // Try to place the block on top of the reference block
@@ -47,7 +47,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
         setTimeout(() => {
             setSuppressPickups(false);
         }, 200);
-        return `Placed ${displayName}`;
+        return `Placed down ${displayName}`;
     } catch (err) {
         // If placing at feet fails, try in front of the bot
         try {
@@ -65,7 +65,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
                 setTimeout(() => {
                     setSuppressPickups(false);
                 }, 200);
-                return `Placed ${displayName}`;
+                return `Placed down ${displayName}`;
             }
         } catch {
             /* fallback failed */

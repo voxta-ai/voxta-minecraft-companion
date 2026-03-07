@@ -14,22 +14,22 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
             // Maybe they gave us the exact name
             rawItem = items.find((i) => i.name in COOKABLE_ITEMS && i.name.includes(itemName.toLowerCase()));
         }
-        if (!rawItem) return `No cookable ${itemName} in inventory`;
+        if (!rawItem) return `Checked inventory but has no cookable ${itemName}`;
     } else {
         rawItem = items.find((i) => i.name in COOKABLE_ITEMS);
-        if (!rawItem) return 'No raw food to cook in inventory';
+        if (!rawItem) return 'Checked inventory but has nothing that can be cooked';
     }
 
     // Find fuel
     const fuelItem = items.find((i) => FUEL_ITEMS.includes(i.name));
-    if (!fuelItem) return 'No fuel in inventory (need coal, wood, or planks)';
+    if (!fuelItem) return 'Cannot cook without fuel — need coal, wood, or planks';
 
     // Find a nearby furnace
     const furnaceBlock = bot.findBlock({
         matching: (block) => block.name === 'furnace' || block.name === 'smoker' || block.name === 'blast_furnace',
         maxDistance: 32,
     });
-    if (!furnaceBlock) return 'No furnace found nearby';
+    if (!furnaceBlock) return 'Looked around but there is no furnace nearby';
 
     // Walk to the furnace
     try {
@@ -37,7 +37,7 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
             new goals.GoalNear(furnaceBlock.position.x, furnaceBlock.position.y, furnaceBlock.position.z, 2),
         );
     } catch {
-        return 'Cannot reach the furnace';
+        return 'Cannot reach the furnace from here';
     }
 
     // Open furnace and cook
@@ -86,8 +86,8 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
         furnace.close();
 
         const cookedName = COOKABLE_ITEMS[rawItem.name] ?? 'cooked food';
-        if (totalTaken === 0) return `Put ${cookCount} ${rawItem.name} in furnace but nothing cooked yet`;
-        return `Cooked ${totalTaken} ${cookedName.replace(/_/g, ' ')}`;
+        if (totalTaken === 0) return `Put ${cookCount} ${rawItem.name.replace(/_/g, ' ')} in the furnace but it is still cooking`;
+        return `Cooked up ${totalTaken} ${cookedName.replace(/_/g, ' ')}`;
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to cook: ${message}`;

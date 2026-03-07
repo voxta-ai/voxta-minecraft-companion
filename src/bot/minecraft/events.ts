@@ -4,6 +4,7 @@ import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
 import { isActionBusy, getCurrentActivity } from './actions';
+import { isPickupSuppressed } from './actions/action-state.js';
 import { FOOD_ITEMS } from './game-data';
 
 // ---- Callback interface ----
@@ -15,6 +16,8 @@ export interface McEventCallbacks {
     onNote(text: string): void;
     /** Send an event (critical — AI replies) */
     onEvent(text: string): void;
+    /** Send an urgent event — interrupts current speech and forces an immediate short reply */
+    onUrgentEvent(text: string): void;
     /** Get the current settings */
     getSettings(): McSettings;
     /** Get the assistant's display name */
@@ -65,6 +68,9 @@ export class McEventBridge {
         this.boundListeners.push({ event, fn });
     }
 
+    private lastDamageNoteTime = 0;
+    private readonly DAMAGE_NOTE_COOLDOWN_MS = 30_000;
+
     private registerListeners(): void {
         const eventCooldowns = new Map<string, number>();
         const EVENT_COOLDOWN_MS = 15_000;
@@ -82,31 +88,31 @@ export class McEventBridge {
             const currentHealth = Math.round(this.bot.health * 10) / 10;
             if (currentHealth < this.lastHealth && settings.enableEventDamage) {
                 const damage = Math.round((this.lastHealth - currentHealth) * 10) / 10;
+                if (damage <= 0) {
+                    this.lastHealth = currentHealth;
+                    return;
+                }
                 const source = this.getDamageSource();
                 this.pendingDamage += damage;
 
-                // Log each tick to chat (visible but doesn't trigger AI reply)
-                const botName = this.callbacks.getAssistantName();
-                this.callbacks.onChat(
-                    'note',
-                    'Note',
-                    `${botName} took ${damage} damage from ${source}! Health: ${currentHealth}/20`,
-                );
+                // After sending a note, suppress further notes for 30 seconds
+                // to prevent spam from continuous damage (starvation, drowning, etc.)
+                const onCooldown = Date.now() - this.lastDamageNoteTime < this.DAMAGE_NOTE_COOLDOWN_MS;
 
-                // Consolidate damage into one AI message after a short delay
-                if (!this.damageTimer) {
+                if (onCooldown) {
+                    // Still on cooldown — just accumulate, schedule a flush at cooldown end
+                    if (!this.damageTimer) {
+                        const remaining = this.DAMAGE_NOTE_COOLDOWN_MS - (Date.now() - this.lastDamageNoteTime);
+                        const damageSource = source;
+                        this.damageTimer = setTimeout(() => {
+                            this.flushDamageNote(damageSource);
+                        }, remaining);
+                    }
+                } else if (!this.damageTimer) {
+                    // Not on cooldown — consolidate damage over 3 seconds then send
                     const damageSource = source;
                     this.damageTimer = setTimeout(() => {
-                        const totalDmg = Math.round(this.pendingDamage * 10) / 10;
-                        const hp = Math.round(this.bot.health * 10) / 10;
-                        const name = this.callbacks.getAssistantName();
-                        const msg = `${name} took ${totalDmg} total damage from ${damageSource}! Health is now: ${hp}/20`;
-                        // Damage is always a silent note — AI sees health in context
-                        // and gets 'under attack' events separately from mob attacks
-                        this.callbacks.onChat('note', 'Note', msg);
-                        this.callbacks.onNote(msg);
-                        this.pendingDamage = 0;
-                        this.damageTimer = null;
+                        this.flushDamageNote(damageSource);
                     }, 3000);
                 }
             }
@@ -128,11 +134,11 @@ export class McEventBridge {
                 this.damageTimer = null;
             }
             const botName = this.callbacks.getAssistantName();
-            this.callbacks.onChat('note', 'Note', `${botName} died from ${killer}!`);
-            this.callbacks.onNote(`${botName} died from ${killer}!`);
+            // Just log to chat — the respawn event handles the AI reply
+            this.callbacks.onChat('event', 'Event', `${botName} died from ${killer}!`);
         }) as (...args: never[]) => void);
 
-        // ---- Respawn ----
+        // ---- Respawn (fires immediately after death) ----
         this.on('spawn', (() => {
             if (!this.died) return;
             this.died = false;
@@ -140,8 +146,8 @@ export class McEventBridge {
             const cause = this.deathCause ?? 'unknown causes';
             this.deathCause = null;
             this.callbacks.onChat('event', 'Event', `${botName} has respawned!`);
-            this.callbacks.onEvent(
-                `${botName} was killed by ${cause} and lost all items, but has respawned with full health (20/20) and full food (20/20). ${botName} should acknowledge that they died and came back.`,
+            this.callbacks.onUrgentEvent(
+                `[URGENT] ${botName} just died to ${cause}, lost all items, and respawned. IMPORTANT: Reply in ONE sentence only, maximum 10 words.`,
             );
         }) as (...args: never[]) => void);
 
@@ -185,20 +191,30 @@ export class McEventBridge {
 
             const settings = this.callbacks.getSettings();
             if (settings.enableEventUnderAttack && !isOnCooldown('underAttack') && this.lastAttacker) {
+                // Skip if we're already auto-defending — getting hit back is expected
+                if (this.isAutoDefending) return;
                 const botName = this.callbacks.getAssistantName();
-                this.callbacks.onChat('note', 'Note', `${botName} is under attack by ${this.lastAttacker}!`);
-                this.callbacks.onNote(`${botName} is being attacked by ${this.lastAttacker}!`);
+                this.callbacks.onChat('event', 'Event', `${botName} is under attack by ${this.lastAttacker}!`);
+                this.callbacks.onUrgentEvent(
+                    `[URGENT] ${botName} is being attacked by ${this.lastAttacker}! IMPORTANT: Reply in ONE sentence only, maximum 10 words.`,
+                );
             }
 
             // Auto self-defense — only if a mob actually hit us (not environmental damage)
             // Case 1: hostile mob nearby (skeletons, zombies, etc.)
             // Case 2: any entity that swung at us recently (provoked bears, wolves, etc.)
+            // NEVER auto-defend against the player we're following — accidental hits happen
             if (settings.enableAutoDefense && !this.isAutoDefending) {
                 let targetName: string | null = null;
                 if (hostileMob) {
                     targetName = hostileMob.name ?? 'unknown';
                 } else if (this.lastAttacker && Date.now() - this.lastAttackerTime < 2000) {
                     targetName = this.names.resolveToMc(this.lastAttacker);
+                }
+                // Never attack the player we're following
+                const followingPlayer = this.getFollowingPlayer();
+                if (targetName && followingPlayer && targetName.toLowerCase() === followingPlayer.toLowerCase()) {
+                    targetName = null;
                 }
                 if (targetName) {
                     this.isAutoDefending = true;
@@ -239,8 +255,11 @@ export class McEventBridge {
             const playerName = entity.username ?? entity.displayName ?? 'player';
             this.isAutoDefending = true;
             const botName = this.callbacks.getAssistantName();
-            this.callbacks.onChat('note', 'Note', `${botName} protecting ${playerName} from ${mobName}!`);
-            this.callbacks.onNote(`${botName} is rushing to protect ${playerName} from a ${mobName}!`);
+            const voxtaName = this.names.resolveToVoxta(playerName);
+            this.callbacks.onChat('event', 'Event', `${botName} protecting ${voxtaName} from ${mobName}!`);
+            this.callbacks.onUrgentEvent(
+                `[URGENT] ${voxtaName} is being attacked by a ${mobName}! ${botName} is rushing to protect them. IMPORTANT: Reply in ONE sentence only, maximum 10 words.`,
+            );
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
             });
@@ -351,6 +370,13 @@ export class McEventBridge {
                 const settings = this.callbacks.getSettings();
                 if (!settings.enableNoteItemPickup) return;
 
+                // Skip during crafting/equipping — update snapshot so items
+                // don't double-report when suppression ends
+                if (isPickupSuppressed()) {
+                    lastInventorySnapshot = takeSnapshot();
+                    return;
+                }
+
                 const current = takeSnapshot();
                 const botName = this.callbacks.getAssistantName();
                 const gains: string[] = [];
@@ -433,6 +459,19 @@ export class McEventBridge {
             this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
             this.callbacks.onEvent(`[${voxtaName} whispers in Minecraft]: ${resolvedMsg}`);
         }) as (...args: never[]) => void);
+    }
+
+    /** Send accumulated damage as a single note and start cooldown */
+    private flushDamageNote(source: string): void {
+        const totalDmg = Math.round(this.pendingDamage * 10) / 10;
+        const hp = Math.round(this.bot.health * 10) / 10;
+        const name = this.callbacks.getAssistantName();
+        const msg = `${name} took ${totalDmg} total damage from ${source}! Health is now: ${hp}/20`;
+        this.callbacks.onChat('note', 'Note', msg);
+        this.callbacks.onNote(msg);
+        this.pendingDamage = 0;
+        this.damageTimer = null;
+        this.lastDamageNoteTime = Date.now();
     }
 
     /** Guess damage source from bot state and recent attacker */

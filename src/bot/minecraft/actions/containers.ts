@@ -9,7 +9,7 @@ async function findAndReachChest(bot: Bot): Promise<{ block: Block } | { error: 
         matching: (block) => block.name === 'chest' || block.name === 'trapped_chest' || block.name === 'barrel',
         maxDistance: 32,
     });
-    if (!chestBlock) return { error: 'No chest found nearby' };
+    if (!chestBlock) return { error: 'Looked around but there is no chest or container nearby' };
 
     try {
         await bot.pathfinder.goto(
@@ -46,19 +46,19 @@ export async function storeItem(bot: Bot, itemName: string | undefined, countStr
                 }
             }
             container.close();
-            if (stored === 0) return 'Could not store any items (chest may be full)';
-            return `Stored ${stored} items in the chest`;
+            if (stored === 0) return 'Opened the chest but could not store anything — it may be full';
+            return `Stored ${stored} items into the chest`;
         } else {
             // Store specific item
             const item = bot.inventory.items().find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()));
             if (!item) {
                 container.close();
-                return `No ${itemName} in inventory`;
+                return `Checked inventory but has no ${itemName}`;
             }
             const count = countStr ? Math.min(parseInt(countStr, 10), item.count) : item.count;
             await container.deposit(item.type, null, count);
             container.close();
-            return `Stored ${count} ${item.name.replace(/_/g, ' ')} in the chest`;
+            return `Put ${count} ${item.name.replace(/_/g, ' ')} into the chest`;
         }
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -81,7 +81,7 @@ export async function takeItem(bot: Bot, itemName: string | undefined, countStr:
         const item = chestItems.find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()));
         if (!item) {
             container.close();
-            return `No ${itemName} found in the chest`;
+            return `Looked through the chest but couldn't find any ${itemName} inside`;
         }
 
         const count = countStr ? Math.min(parseInt(countStr, 10), item.count) : item.count;
@@ -102,9 +102,9 @@ export async function inspectContainer(bot: Bot, target: string | undefined): Pr
     // Inspect own inventory
     if (t === 'inventory' || t === 'self' || t === 'me') {
         const items = bot.inventory.items();
-        if (items.length === 0) return 'Inventory is empty';
-        const list = items.map((i) => `${i.count}x ${i.name.replace(/_/g, ' ')}`).join(', ');
-        return `Inventory contains: ${list}`;
+        if (items.length === 0) return 'Checked inventory — it is empty';
+        const list = items.map((i) => `${i.count}x ${(i.displayName ?? i.name).replace(/_/g, ' ')}`).join(', ');
+        return `Checked inventory and has: ${list}`;
     }
 
     // Determine which block type to look for
@@ -169,8 +169,8 @@ async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: st
             if (fuel) parts.push(`Fuel: ${fuel.count}x ${fuel.name.replace(/_/g, ' ')}`);
             if (output) parts.push(`Output: ${output.count}x ${output.name.replace(/_/g, ' ')}`);
             furnace.close();
-            if (parts.length === 0) return `The ${block.name.replace(/_/g, ' ')} is empty`;
-            return `${block.name.replace(/_/g, ' ')} contains: ${parts.join(', ')}`;
+            if (parts.length === 0) return `Opened the ${block.name.replace(/_/g, ' ')} — it is empty`;
+            return `Opened the ${block.name.replace(/_/g, ' ')} and found: ${parts.join(', ')}`;
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             return `Failed to inspect ${label}: ${message}`;
@@ -182,9 +182,9 @@ async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: st
         const container = await bot.openContainer(block);
         const items = container.containerItems();
         container.close();
-        if (items.length === 0) return `The ${label} is empty`;
-        const list = items.map((i) => `${i.count}x ${i.name.replace(/_/g, ' ')}`).join(', ');
-        return `${label} contains: ${list}`;
+        if (items.length === 0) return `Opened the ${label} — it is empty`;
+        const list = items.map((i) => `${i.count}x ${(i.displayName ?? i.name).replace(/_/g, ' ')}`).join(', ');
+        return `Opened a ${label} and found: ${list}`;
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to inspect ${label}: ${message}`;

@@ -8,9 +8,25 @@ import { getActionAbort, getHomePosition } from './action-state.js';
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
+    // Don't follow ourselves — AI sometimes sends the bot's own name
+    const mcName = names.resolveToMc(playerName);
+    if (mcName.toLowerCase() === bot.username.toLowerCase()) {
+        return 'Cannot follow myself. Use the human player name instead.';
+    }
+
     const player = findPlayerEntity(bot, playerName, names);
     const displayName = names.resolveToVoxta(names.resolveToMc(playerName));
-    if (!player) return `Cannot find player "${displayName}" nearby`;
+    if (!player) {
+        // Check if the player is online but out of render distance
+        const mcName = names.resolveToMc(playerName);
+        const onlinePlayer = Object.values(bot.players).find(
+            (p) => p.username.toLowerCase() === mcName.toLowerCase(),
+        );
+        if (onlinePlayer) {
+            return `${displayName} is too far away to follow — need to be closer first`;
+        }
+        return `Cannot find player "${displayName}" nearby`;
+    }
 
     // Re-equip previous item BEFORE setting goal (equip can interrupt pathfinder)
     const heldItem = bot.heldItem;
@@ -68,9 +84,20 @@ export async function goTo(
 
     if (isNaN(x) || isNaN(y) || isNaN(z)) return 'Invalid coordinates';
 
+    // Reject obviously hallucinated coordinates (AI sends 0,0,0 when unsure)
+    if (x === 0 && y === 0 && z === 0) {
+        return 'Cannot go to 0,0,0 — no valid destination. Try mc_follow_player instead.';
+    }
+
+    // Reject unreasonably far destinations (>1000 blocks away)
+    const dist = bot.entity.position.distanceTo(bot.entity.position.offset(x - bot.entity.position.x, y - bot.entity.position.y, z - bot.entity.position.z));
+    if (dist > 1000) {
+        return `Destination is ${Math.round(dist)} blocks away — too far to navigate safely.`;
+    }
+
     const goal = new goals.GoalBlock(x, y, z);
     await bot.pathfinder.goto(goal);
-    return `Arrived at ${x}, ${y}, ${z}`;
+    return `Made it to the destination`;
 }
 
 export async function goHome(bot: Bot): Promise<string> {
@@ -87,7 +114,7 @@ export async function goHome(bot: Bot): Promise<string> {
 
     const goal = new goals.GoalNear(homePosition.x, homePosition.y, homePosition.z, 2);
     await bot.pathfinder.goto(goal);
-    return `Arrived home at ${homePosition.x}, ${homePosition.y}, ${homePosition.z}`;
+    return `Made it back home`;
 }
 
 export async function collectItems(bot: Bot): Promise<string> {
@@ -95,7 +122,7 @@ export async function collectItems(bot: Bot): Promise<string> {
         (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < 32,
     );
 
-    if (items.length === 0) return 'No dropped items nearby';
+    if (items.length === 0) return 'Looked around but there are no dropped items nearby';
 
     const signal = getActionAbort().signal;
     let collected = 0;
@@ -115,5 +142,5 @@ export async function collectItems(bot: Bot): Promise<string> {
         }
     }
 
-    return `Collected ${collected} dropped item${collected !== 1 ? 's' : ''}`;
+    return `Picked up ${collected} dropped item${collected !== 1 ? 's' : ''} from the ground`;
 }

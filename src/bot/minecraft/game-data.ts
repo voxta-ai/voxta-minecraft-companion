@@ -158,7 +158,6 @@ export const BED_BLOCKS = [
 
 /** Common name aliases to real item names */
 export const CRAFT_ALIASES: Record<string, string> = {
-    planks: 'oak_planks',
     sticks: 'stick',
     stick: 'stick',
     'wooden sword': 'wooden_sword',
@@ -183,5 +182,57 @@ export const CRAFT_ALIASES: Record<string, string> = {
     bucket: 'bucket',
     bowl: 'bowl',
     bread: 'bread',
-    boat: 'oak_boat',
+};
+
+/** Common AI-inferred names mapped to Minecraft internal names */
+export const ITEM_ALIASES: Record<string, string> = {
+    // Fish — AI often says 'raw_fish' or 'raw_salmon' instead of 'cod'/'salmon'
+    raw_fish: 'cod',
+    raw_cod: 'cod',
+    raw_salmon: 'salmon',
+    cooked_fish: 'cooked_cod',
+    fish: 'cod',
+    // Meat — AI may add 'raw_' prefix to meat
+    raw_beef: 'beef',
+    raw_pork: 'porkchop',
+    raw_porkchop: 'porkchop',
+    raw_chicken: 'chicken',
+    raw_mutton: 'mutton',
+    raw_rabbit: 'rabbit',
+    // Common renames
+    steak: 'cooked_beef',
+    cooked_steak: 'cooked_beef',
+    cooked_pork: 'cooked_porkchop',
+    wooden_plank: 'oak_planks',
+    wooden_planks: 'oak_planks',
+    plank: 'oak_planks',
+    log: 'oak_log',
+    wood: 'oak_log',
+};
+
+/** Common AI-inferred entity names mapped to Minecraft internal names */
+export const ENTITY_ALIASES: Record<string, string> = {
+    bull: 'cow',
+    cattle: 'cow',
+    mooshroom: 'mooshroom',
+    horse: 'horse',
+    puppy: 'wolf',
+    dog: 'wolf',
+    kitty: 'cat',
+    kitten: 'cat',
+    ocelot: 'ocelot',
+    bunny: 'rabbit',
+    zombie_pigman: 'zombified_piglin',
+    pigman: 'zombified_piglin',
+    iron_golem: 'iron_golem',
+    snow_golem: 'snow_golem',
+    snowman: 'snow_golem',
+    ender_dragon: 'ender_dragon',
+    dragon: 'ender_dragon',
+    wither_skeleton: 'wither_skeleton',
+    cave_spider: 'cave_spider',
+    magma_cube: 'magma_cube',
+    slime: 'slime',
+    polar_bear: 'polar_bear',
+    bear: 'polar_bear',
 };

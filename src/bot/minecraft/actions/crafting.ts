@@ -185,10 +185,72 @@ async function cleanup(bot: Bot, heldItemName: string | null): Promise<void> {
         const reequip = bot.inventory.items().find((i) => i.name === heldItemName);
         if (reequip) await bot.equip(reequip, 'hand');
     }
-    // Delay clearing so async slot events from equip/unequip are caught
+    // Delay must exceed the 500ms inventory polling interval so the poll
+    // fires at least once while suppressed and updates the snapshot
     setTimeout(() => {
         setSuppressPickups(false);
-    }, 200);
+    }, 600);
+}
+
+/** Generic crafting categories — when user says 'planks', try all variants */
+const ALL_PLANKS = [
+    'oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks',
+    'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks',
+];
+const ALL_BOATS = [
+    'oak_boat', 'spruce_boat', 'birch_boat', 'jungle_boat',
+    'acacia_boat', 'dark_oak_boat', 'mangrove_boat', 'cherry_boat',
+];
+const ALL_FENCES = [
+    'oak_fence', 'spruce_fence', 'birch_fence', 'jungle_fence',
+    'acacia_fence', 'dark_oak_fence', 'mangrove_fence', 'cherry_fence',
+];
+const GENERIC_CRAFT_VARIANTS: Record<string, string[]> = {
+    planks: ALL_PLANKS,
+    plank: ALL_PLANKS,
+    wooden_planks: ALL_PLANKS,
+    wooden_plank: ALL_PLANKS,
+    wood_planks: ALL_PLANKS,
+    boat: ALL_BOATS,
+    wooden_boat: ALL_BOATS,
+    fence: ALL_FENCES,
+    wooden_fence: ALL_FENCES,
+};
+
+/** Resolve a generic craft name to the best variant the bot can actually make */
+function resolveGenericCraft(
+    bot: Bot,
+    mcData: { itemsByName: McDataItems },
+    genericName: string,
+): { id: number; displayName: string; name: string } | undefined {
+    const variants = GENERIC_CRAFT_VARIANTS[genericName];
+    if (!variants) return undefined;
+
+    // Score each variant by available materials
+    let bestItem: { id: number; displayName: string; name: string } | undefined;
+    let bestScore = -1;
+    for (const variant of variants) {
+        const info = mcData.itemsByName[variant];
+        if (!info) continue;
+        const recipes = bot.recipesAll(info.id, null, null);
+        if (recipes.length === 0) continue;
+        // Score = how many ingredient items we have
+        let score = 0;
+        for (const recipe of recipes) {
+            for (const delta of recipe.delta) {
+                if (delta.count < 0) {
+                    score += bot.inventory.items()
+                        .filter((i) => i.type === delta.id)
+                        .reduce((sum, i) => sum + i.count, 0);
+                }
+            }
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            bestItem = info;
+        }
+    }
+    return bestItem;
 }
 
 export async function craftItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
@@ -200,9 +262,13 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
     };
     const count = countStr ? parseInt(countStr, 10) : 1;
 
-    // Resolve name
-    const resolved = CRAFT_ALIASES[itemName.toLowerCase()] ?? itemName.toLowerCase().replace(/ /g, '_');
-    const itemInfo = mcData.itemsByName[resolved];
+    // Check for generic category first (e.g. 'planks' → best available plank type)
+    const normalized = itemName.toLowerCase().replace(/ /g, '_');
+    const genericItem = resolveGenericCraft(bot, mcData, normalized);
+
+    // Resolve name via alias or generic
+    const resolved = genericItem?.name ?? CRAFT_ALIASES[normalized] ?? normalized;
+    const itemInfo = genericItem ?? mcData.itemsByName[resolved];
     if (!itemInfo) return `Unknown item: ${itemName}`;
 
     // Suppress pickup notes for the entire crafting process

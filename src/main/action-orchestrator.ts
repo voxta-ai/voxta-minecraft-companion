@@ -31,8 +31,9 @@ export function handleActionMessage(
     callbacks: ActionOrchestratorCallbacks,
 ): void {
     const actionName = action.value?.trim() ?? '';
+    const timing = callbacks.getSettings().actionInferenceTiming;
     console.log(
-        `[<< AI] action: ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`,
+        `[<< AI] action (${timing}): ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`,
     );
 
     // Ignore empty actions (AI sometimes sends action () with no name)
@@ -84,10 +85,6 @@ export function handleActionMessage(
 
     void executeAction(bot, actionName, action.arguments, names).then(async (result) => {
         const botName = callbacks.getAssistantName();
-        // Don't show empty results (e.g., mc_acknowledge)
-        if (result) {
-            callbacks.addChat('system', 'System', `${botName}: ${result}`);
-        }
         callbacks.updateCurrentAction(null);
 
         // Clear fishing callback when done
@@ -121,18 +118,38 @@ export function handleActionMessage(
 
         // Look up action metadata to decide if we should report the result
         const actionDef = MINECRAFT_ACTIONS.find((a) => a.name === actionName);
-        if (actionDef?.isQuick) return;
+        const failureKeywords = ['cannot', 'failed', 'unknown', 'no ', 'not a block', 'not a ', 'need ', 'missing', 'too far'];
+        if (actionDef?.isQuick) {
+            if (!result) return;
+            const isQuickFailure = failureKeywords.some((kw) => result.toLowerCase().includes(kw));
+            if (isQuickFailure) {
+                // Quick action failed — AI must know so it doesn't hallucinate success
+                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+                callbacks.queueNote(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`);
+            } else {
+                // Quick action succeeded — show in chat only, no AI note needed
+                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+            }
+            return;
+        }
         if (!result) return; // Aborted actions return empty — nothing to report
 
         // Detect action failures — these must always trigger an AI reply
         // so the AI acknowledges the error instead of hallucinating success
-        const failureKeywords = ['cannot', 'failed', 'unknown', 'no ', 'not a block', 'not a ', 'need ', 'missing'];
         const isFailure = failureKeywords.some((kw) => result.toLowerCase().includes(kw));
         const voxta = callbacks.getVoxta();
+        const timing = callbacks.getSettings().actionInferenceTiming;
 
-        if (isFailure && !callbacks.isReplying()) {
+        if (timing === 'user') {
+            // With user action inference, the server already generates a reply
+            // alongside the action — sending an event would cause a double-reply.
+            // Show as note (not system) since the AI reply covers the outcome.
+            callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+            callbacks.queueNote(`[ACTION ${isFailure ? 'FAILED' : 'COMPLETE'}: ${actionName}] ${botName}: ${result}`);
+        } else if (isFailure && !callbacks.isReplying()) {
             // Failures always voiced — AI must acknowledge what went wrong
             // Disable action inference so hints like "kill spiders" don't auto-trigger actions
+            callbacks.addChat('system', 'System', `${botName}: ${result}`);
             void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
         } else {
             // Voice chance roll — like an Elite Dangerous probability system
@@ -140,9 +157,10 @@ export function handleActionMessage(
             const roll = Math.random() * 100;
             if (roll < voiceChance && !callbacks.isReplying()) {
                 // Voiced: send it as an event so the AI replies about the result
+                callbacks.addChat('system', 'System', `${botName}: ${result}`);
                 void voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
             } else {
-                // Silent: AI sees it but stays quiet
+                // Silent: AI sees it but stays quiet — single note, no duplicate
                 callbacks.addChat('note', 'Note', `${botName}: ${result}`);
                 callbacks.queueNote(`${botName}: ${result}`);
             }

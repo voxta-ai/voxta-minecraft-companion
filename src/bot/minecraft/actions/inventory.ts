@@ -1,17 +1,60 @@
 import type { Bot } from 'mineflayer';
+import type { Item } from 'prismarine-item';
 import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
-import { FOOD_ITEMS } from '../game-data';
+import { FOOD_ITEMS, ITEM_ALIASES } from '../game-data';
 import { findPlayerEntity, getEquipSlot } from './action-helpers.js';
 import { setSuppressPickups } from './action-state.js';
 import { fishAction } from './fishing.js';
 
+/** Find an inventory item by name — resolves AI aliases, then tries exact → partial matching */
+function findInventoryItem(bot: Bot, rawName: string): Item | undefined {
+    const normalized = rawName.toLowerCase().replace(/\s+/g, '_');
+    const resolved = ITEM_ALIASES[normalized] ?? normalized;
+    const items = bot.inventory.items();
+
+    // Exact match on internal name
+    const exact = items.find((i) => i.name.toLowerCase() === resolved);
+    if (exact) return exact;
+
+    // Exact match on displayName
+    const displayExact = items.find(
+        (i) => i.displayName && i.displayName.toLowerCase() === rawName.toLowerCase(),
+    );
+    if (displayExact) return displayExact;
+
+    // Partial match — 'log' matches 'spruce_log', 'sword' matches 'wooden_sword'
+    return items.find(
+        (i) =>
+            i.name.toLowerCase().includes(resolved) ||
+            (i.displayName && i.displayName.toLowerCase().includes(rawName.toLowerCase())),
+    );
+}
+
+/** Find all matching inventory items by name (for toss/count operations) */
+function findAllInventoryItems(bot: Bot, rawName: string): Item[] {
+    const normalized = rawName.toLowerCase().replace(/\s+/g, '_');
+    const resolved = ITEM_ALIASES[normalized] ?? normalized;
+    const items = bot.inventory.items();
+
+    // Exact match first
+    const exact = items.filter((i) => i.name.toLowerCase() === resolved);
+    if (exact.length > 0) return exact;
+
+    // Partial match fallback
+    return items.filter(
+        (i) =>
+            i.name.toLowerCase().includes(resolved) ||
+            (i.displayName && i.displayName.toLowerCase().includes(rawName.toLowerCase())),
+    );
+}
+
 export async function equipItem(bot: Bot, itemName: string | undefined): Promise<string> {
     if (!itemName) return 'No item name provided';
 
-    const item = bot.inventory.items().find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()));
-    if (!item) return `No ${itemName} found in inventory`;
+    const item = findInventoryItem(bot, itemName);
+    if (!item) return `Checked inventory but has no ${itemName}`;
 
     const slot = getEquipSlot(item.name);
     try {
@@ -21,7 +64,7 @@ export async function equipItem(bot: Bot, itemName: string | undefined): Promise
             setSuppressPickups(false);
         }, 200);
         const slotLabel = slot === 'hand' ? 'hand' : `${slot} armor slot`;
-        return `Equipped ${item.displayName ?? item.name} in ${slotLabel}`;
+        return `Equipped ${item.displayName ?? item.name} (${slotLabel})`;
     } catch (err) {
         setTimeout(() => {
             setSuppressPickups(false);
@@ -36,27 +79,22 @@ export async function eatFood(bot: Bot, foodName: string | undefined): Promise<s
 
     let foodItem;
     if (foodName) {
-        // Eat specific food — match against both internal name and display name
-        const normalized = foodName.toLowerCase().replace(/\s+/g, '_');
-        foodItem = items.find(
-            (i) =>
-                i.name.toLowerCase() === normalized ||
-                (i.displayName && i.displayName.toLowerCase() === foodName.toLowerCase()),
-        );
-        if (!foodItem) return `No ${foodName} in inventory`;
+        // Eat specific food — resolve aliases + partial match
+        foodItem = findInventoryItem(bot, foodName);
+        if (!foodItem) return `Checked inventory but has no ${foodName} to eat`;
     } else {
         // Find the best food in inventory
         const foodItems = items
             .filter((i) => i.name in FOOD_ITEMS)
             .sort((a, b) => (FOOD_ITEMS[b.name] ?? 0) - (FOOD_ITEMS[a.name] ?? 0));
         foodItem = foodItems[0];
-        if (!foodItem) return 'No food in inventory';
+        if (!foodItem) return 'Checked inventory but has nothing to eat';
     }
 
     try {
         await bot.equip(foodItem.type, 'hand');
         await bot.consume();
-        return `Ate ${foodItem.displayName ?? foodItem.name} (hunger restored)`;
+        return `Ate some ${foodItem.displayName ?? foodItem.name} and feels better`;
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to eat ${foodItem.name}: ${message}`;
@@ -78,8 +116,8 @@ export async function giveItem(
     if (!player) return `Cannot find player "${displayName}" nearby`;
 
     // Check item exists before walking
-    const checkItem = bot.inventory.items().find((i) => i.name === itemName);
-    if (!checkItem) return `No ${itemName} in inventory`;
+    const checkItem = findInventoryItem(bot, itemName);
+    if (!checkItem) return `Checked inventory but has no ${itemName} to give`;
 
     const count = countStr ? Math.min(parseInt(countStr, 10), checkItem.count) : checkItem.count;
 
@@ -91,8 +129,8 @@ export async function giveItem(
     }
 
     // Re-find item fresh — inventory may have changed during a walk
-    const item = bot.inventory.items().find((i) => i.name === itemName);
-    if (!item) return `No ${itemName} in inventory (lost while walking)`;
+    const item = findInventoryItem(bot, itemName);
+    if (!item) return `Had ${itemName} but it seems to be gone now`;
 
     const actualCount = Math.min(count, item.count);
 
@@ -100,7 +138,7 @@ export async function giveItem(
         // Look at the player so items are tossed toward them
         await bot.lookAt(player.position.offset(0, 1, 0));
         await bot.toss(item.type, null, actualCount);
-        return `Gave ${actualCount} ${itemName} to ${displayName}`;
+        return `Handed ${actualCount} ${item.displayName ?? itemName} over to ${displayName}`;
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to give ${itemName}: ${message}`;
@@ -115,19 +153,19 @@ export async function tossItem(bot: Bot, itemName: string | undefined, countStr:
     // Handle "all" — drop the entire inventory
     if (resolved === 'all') {
         const items = bot.inventory.items();
-        if (items.length === 0) return 'Inventory is already empty';
+        if (items.length === 0) return 'Inventory is already empty, nothing to drop';
 
         let totalDropped = 0;
         for (const item of items) {
             await bot.tossStack(item);
             totalDropped += item.count;
         }
-        return `Dropped ${totalDropped} items (entire inventory)`;
+        return `Tossed out everything — dropped ${totalDropped} items`;
     }
 
-    // Find matching items in the inventory
-    const matching = bot.inventory.items().filter((i) => i.name === resolved);
-    if (matching.length === 0) return `No ${itemName} in inventory`;
+    // Find matching items in the inventory (alias + partial matching)
+    const matching = findAllInventoryItems(bot, itemName);
+    if (matching.length === 0) return `Checked inventory but has no ${itemName} to drop`;
 
     const totalHave = matching.reduce((sum, i) => sum + i.count, 0);
     const toDrop = countStr ? Math.min(parseInt(countStr, 10), totalHave) : totalHave;
@@ -137,8 +175,8 @@ export async function tossItem(bot: Bot, itemName: string | undefined, countStr:
     // Use bot.toss() which accepts itemType, metadata, count
     await bot.toss(matching[0].type, null, toDrop);
 
-    const displayName = matching[0].displayName ?? itemName;
-    return `Dropped ${toDrop} ${displayName}`;
+    const itemDisplayName = matching[0].displayName ?? itemName;
+    return `Dropped ${toDrop} ${itemDisplayName} on the ground`;
 }
 
 export async function useHeldItem(bot: Bot, itemName: string | undefined): Promise<string> {
@@ -155,7 +193,7 @@ export async function useHeldItem(bot: Bot, itemName: string | undefined): Promi
     const item = bot.inventory
         .items()
         .find((i) => i.name === resolved || i.displayName?.toLowerCase() === itemName.toLowerCase());
-    if (!item) return `No ${itemName} in inventory`;
+    if (!item) return `Checked inventory but has no ${itemName}`;
 
     // Auto-equip if not already held
     if (bot.heldItem?.name !== item.name) {
@@ -170,5 +208,5 @@ export async function useHeldItem(bot: Bot, itemName: string | undefined): Promi
 
     // Activate the item (right-click)
     bot.activateItem();
-    return `Used ${name}`;
+    return `Used the ${name}`;
 }

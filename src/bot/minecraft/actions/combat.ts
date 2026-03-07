@@ -4,12 +4,15 @@ const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity, getBestWeapon } from './action-helpers.js';
 import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget } from './action-state.js';
+import { ENTITY_ALIASES } from '../game-data';
 
 export async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {
     if (!entityName) return 'No entity name provided';
 
-    // Resolve name through registry (handles both Voxta→MC and already-MC names)
-    const mcName = names.resolveToMc(entityName);
+    // Resolve: alias → name registry → normalized
+    const normalized = entityName.toLowerCase().replace(/ /g, '_');
+    const aliased = ENTITY_ALIASES[normalized] ?? normalized;
+    const mcName = names.resolveToMc(aliased);
 
     const target = bot.nearestEntity(
         (e) =>
@@ -22,9 +25,16 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 e.displayName?.toLowerCase() === entityName.toLowerCase()),
     );
 
-    if (!target) return `Cannot find ${names.resolveToVoxta(names.resolveToMc(entityName))} nearby`;
-
     const displayName = names.resolveToVoxta(names.resolveToMc(entityName));
+
+    if (!target) return `Looked around but cannot see any ${displayName} nearby`;
+
+    // Don't chase entities that are too far — fail fast instead of running across the map
+    const MAX_ATTACK_RANGE = 32;
+    const dist = target.position.distanceTo(bot.entity.position);
+    if (dist > MAX_ATTACK_RANGE) {
+        return `Looked around but cannot see any ${displayName} nearby (nearest is ${Math.round(dist)} blocks away)`;
+    }
 
     // Auto-equip the best weapon before fighting
     const weapon = getBestWeapon(bot);
@@ -69,7 +79,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 clearInterval(attackLoop);
                 if (getCurrentCombatTarget() === normalizedTarget) setCurrentCombatTarget(null);
                 // Don't call pathfinder.stop() — the new action owns it now
-                resolve(`Stopped attacking ${displayName}`);
+                resolve(`Stopped fighting ${displayName}`);
                 return;
             }
 
@@ -78,7 +88,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 clearInterval(attackLoop);
                 setCurrentCombatTarget(null);
                 bot.pathfinder.stop();
-                resolve(`Killed ${displayName}`);
+                resolve(`Defeated the ${displayName}`);
                 return;
             }
 
@@ -87,7 +97,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 clearInterval(attackLoop);
                 setCurrentCombatTarget(null);
                 bot.pathfinder.stop();
-                resolve(`Stopped attacking ${displayName} (timeout)`);
+                resolve(`Lost sight of ${displayName} and gave up the chase`);
                 return;
             }
 

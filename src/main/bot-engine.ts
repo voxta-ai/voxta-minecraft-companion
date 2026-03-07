@@ -215,7 +215,9 @@ export class BotEngine extends EventEmitter {
     /** Flush all queued notes after AI finishes speaking */
     private flushPendingNotes(): void {
         if (!this.voxta || this.pendingNotes.length === 0) return;
+        console.log(`[Bot >>] flushing ${this.pendingNotes.length} queued note(s)`);
         for (const note of this.pendingNotes) {
+            console.log(`[Bot >>] note (flushed): "${note.substring(0, 80)}"`);
             void this.voxta.sendNote(note);
         }
         this.pendingNotes = [];
@@ -520,6 +522,19 @@ export class BotEngine extends EventEmitter {
                     } else {
                         void this.voxta.sendEvent(text);
                     }
+                },
+                onUrgentEvent: (text) => {
+                    if (!this.voxta?.sessionId) return;
+                    this.addChat('event', 'Event', text);
+                    // Interrupt current speech and server reply
+                    this.audioPipeline.interrupt();
+                    this.audioPipeline.fireAckNow();
+                    this.emit('stop-audio');
+                    void this.voxta.interrupt();
+                    this.isReplying = false;
+                    this.currentReply = '';
+                    // Send the urgent event immediately
+                    void this.voxta.sendEvent(text);
                 },
                 getSettings: () => this.settings,
                 getAssistantName: () => this.assistantName ?? 'Bot',

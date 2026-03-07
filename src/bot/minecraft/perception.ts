@@ -82,7 +82,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     // Inventory summary
     const inventorySummary: string[] = [];
     for (const item of bot.inventory.items()) {
-        inventorySummary.push(`${item.name} x${item.count}`);
+        inventorySummary.push(`${item.displayName ?? item.name} x${item.count}`);
     }
 
     // Biome — prismarine-biome often returns an empty name, so fall back to ID lookup

@@ -65,7 +65,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_mine_block',
         description:
-            'Find and collect a specific type of block, plant, or flower. Works for ores, wood, flowers (cornflower, poppy, dandelion), crops, mushrooms, and any other block.',
+            'Find and collect/harvest a specific type of block, plant, or resource. Works for ores, wood, flowers, crops, mushrooms, sweet berries (sweet_berry_bush), sugarcane (sugar_cane), and any other block or plant.',
         disabled: false,
         layer: '',
         effect: {},
@@ -74,7 +74,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
                 name: 'block_type',
                 type: 'String',
                 description:
-                    'Type of block to collect. Use "wood" or "log" for trees, or a specific name like oak_log, stone, iron_ore, cornflower, poppy, dandelion, wheat',
+                    'Type of block to collect/harvest. Use "wood" or "log" for trees. Examples: oak_log, stone, iron_ore, cornflower, poppy, dandelion, wheat, sweet_berry_bush, sugar_cane',
                 required: true,
             },
             { name: 'count', type: 'String', description: 'Number of blocks to mine', required: false },

@@ -11,20 +11,20 @@ export async function sleepInBed(bot: Bot): Promise<string> {
         maxDistance: 32,
     });
 
-    if (!bedBlock) return 'No bed found nearby';
+    if (!bedBlock) return 'Looked around but there is no bed nearby';
 
     // Walk to the bed
     try {
         await bot.pathfinder.goto(new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2));
     } catch {
-        return 'Cannot reach the bed';
+        return 'Cannot reach the bed from here';
     }
 
     // Try to sleep
     try {
         await bot.sleep(bedBlock);
         saveHome(bedBlock);
-        return 'Went to sleep in bed (home set)';
+        return 'Climbed into bed and fell asleep (home set here)';
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
@@ -38,9 +38,9 @@ export async function sleepInBed(bot: Bot): Promise<string> {
             }
         }
 
-        if (message.includes('not night')) return 'Cannot sleep during the day, but home has been set to this bed';
-        if (message.includes('occupied')) return 'Cannot sleep, the bed is occupied (home set to this bed)';
-        if (message.includes('monsters')) return 'Cannot sleep, there are monsters nearby (home set to this bed)';
+        if (message.includes('not night')) return 'Cannot sleep during the day, but remembered this bed as home';
+        if (message.includes('occupied')) return 'Cannot sleep — someone else is already in the bed (remembered it as home)';
+        if (message.includes('monsters')) return 'Cannot sleep — there are monsters lurking nearby (remembered this bed as home)';
         return `Cannot sleep: ${message}`;
     }
 }
@@ -52,20 +52,20 @@ export async function setHomeBed(bot: Bot): Promise<string> {
         maxDistance: 32,
     });
 
-    if (!bedBlock) return 'No bed found nearby to set as home';
+    if (!bedBlock) return 'Looked around but there is no bed nearby to set as home';
 
     // Walk to the bed
     try {
         await bot.pathfinder.goto(new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2));
     } catch {
-        return 'Cannot reach the bed';
+        return 'Cannot reach the bed from here';
     }
 
     // Tap the bed to set spawn point (works any time of day)
     try {
         await bot.activateBlock(bedBlock);
         saveHome(bedBlock);
-        return `Home set to bed at ${bedBlock.position.x}, ${bedBlock.position.y}, ${bedBlock.position.z}`;
+        return 'Remembered this bed as home';
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to set home: ${message}`;
