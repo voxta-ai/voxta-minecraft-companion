@@ -5,34 +5,105 @@ import { settings, updateSetting } from '../stores/app-store';
 interface ToggleItem {
     key: keyof McSettings;
     label: string;
+    description: string;
 }
-
-const EVENT_TOGGLES: ToggleItem[] = [
-    { key: 'enableEventDamage', label: 'damage taken' },
-    { key: 'enableEventDeath', label: 'death' },
-    { key: 'enableEventUnderAttack', label: 'under attack' },
-    { key: 'enableEventPlayerNearby', label: 'player nearby' },
-    { key: 'enableEventMobNearby', label: 'mob nearby' },
-];
-
-const NOTE_TOGGLES: ToggleItem[] = [
-    { key: 'enableNoteItemPickup', label: 'item pickup' },
-    { key: 'enableNoteWeather', label: 'weather change' },
-    { key: 'enableNoteTime', label: 'time change' },
-    { key: 'enableNoteChat', label: 'chat messages' },
-];
 
 interface SliderItem {
     key: keyof McSettings;
     label: string;
+    description: string;
 }
 
-const VOICE_CHANCE_SLIDERS: SliderItem[] = [
-    { key: 'voiceChanceMovement', label: 'movement' },
-    { key: 'voiceChanceSurvival', label: 'survival' },
-    { key: 'voiceChanceCombat', label: 'combat' },
-    { key: 'voiceChanceInteraction', label: 'interaction' },
+// ── Toggle data ──────────────────────────────────────────────
+
+const EVENT_TOGGLES: ToggleItem[] = [
+    { key: 'enableEventDamage', label: 'Damage Taken', description: 'Tells the AI when you take damage' },
+    { key: 'enableEventDeath', label: 'Death', description: 'Notifies the AI when you die and respawn' },
+    {
+        key: 'enableEventUnderAttack',
+        label: 'Under Attack',
+        description: 'Alerts the AI when a hostile mob targets you',
+    },
+    {
+        key: 'enableEventPlayerNearby',
+        label: 'Player Nearby',
+        description: 'Notifies the AI when a player enters range',
+    },
+    { key: 'enableEventMobNearby', label: 'Mob Nearby', description: 'Reports nearby hostile or notable mobs' },
 ];
+
+const NOTE_TOGGLES: ToggleItem[] = [
+    { key: 'enableNoteItemPickup', label: 'Item Pickup', description: 'Silently logs picked up items for AI context' },
+    { key: 'enableNoteWeather', label: 'Weather Change', description: 'Silently logs rain/thunder changes' },
+    { key: 'enableNoteTime', label: 'Time Change', description: 'Silently logs dawn/dusk transitions' },
+    { key: 'enableNoteChat', label: 'Chat Messages', description: 'Forwards in-game chat to the AI' },
+];
+
+const BEHAVIOR_TOGGLES: ToggleItem[] = [
+    {
+        key: 'enableBotChatEcho',
+        label: 'Echo Replies to MC Chat',
+        description: 'Bot types its replies into Minecraft chat',
+    },
+    { key: 'enableAutoLook', label: 'Auto-Look at Nearby Player', description: 'Bot turns to face the nearest player' },
+    {
+        key: 'enableAutoDefense',
+        label: 'Auto-Defend Against Mobs',
+        description: 'Bot attacks hostile mobs automatically',
+    },
+];
+
+const VOICE_CHANCE_SLIDERS: SliderItem[] = [
+    { key: 'voiceChanceMovement', label: 'Movement', description: 'Chance the bot speaks during movement actions' },
+    { key: 'voiceChanceSurvival', label: 'Survival', description: 'Chance the bot speaks during survival actions' },
+    { key: 'voiceChanceCombat', label: 'Combat', description: 'Chance the bot speaks during combat' },
+    { key: 'voiceChanceInteraction', label: 'Interaction', description: 'Chance the bot speaks during interactions' },
+];
+
+// ── Reusable card components ─────────────────────────────────
+
+function ToggleCard(props: { item: ToggleItem }) {
+    return (
+        <div class="setting-card">
+            <div class="setting-card-info">
+                <div class="setting-card-name">{props.item.label}</div>
+                <div class="setting-card-desc">{props.item.description}</div>
+            </div>
+            <label class="toggle">
+                <input
+                    type="checkbox"
+                    checked={settings[props.item.key] as boolean}
+                    onChange={(e) => updateSetting(props.item.key, e.currentTarget.checked)}
+                />
+                <span class="toggle-slider" />
+            </label>
+        </div>
+    );
+}
+
+function SliderCard(props: { item: SliderItem }) {
+    return (
+        <div class="setting-card">
+            <div class="setting-card-info">
+                <div class="setting-card-name">{props.item.label}</div>
+                <div class="setting-card-desc">{props.item.description}</div>
+            </div>
+            <div class="slider-control">
+                <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={settings[props.item.key] as number}
+                    onInput={(e) => updateSetting(props.item.key, parseInt(e.currentTarget.value, 10))}
+                />
+                <span class="slider-value">{settings[props.item.key] as number}%</span>
+            </div>
+        </div>
+    );
+}
+
+// ── Section groups ───────────────────────────────────────────
 
 interface ToggleGroupProps {
     title: string;
@@ -43,30 +114,12 @@ function ToggleGroup(props: ToggleGroupProps) {
     return (
         <div class="action-category">
             <div class="action-category-title">{props.title}</div>
-            <For each={props.items}>
-                {(item) => (
-                    <div class="action-item">
-                        <label>{item.label}</label>
-                        <label class="toggle">
-                            <input
-                                type="checkbox"
-                                checked={settings[item.key] as boolean}
-                                onChange={(e) => updateSetting(item.key, e.currentTarget.checked)}
-                            />
-                            <span class="toggle-slider" />
-                        </label>
-                    </div>
-                )}
-            </For>
+            <div class="setting-card-list">
+                <For each={props.items}>{(item) => <ToggleCard item={item} />}</For>
+            </div>
         </div>
     );
 }
-
-const BEHAVIOR_TOGGLES: ToggleItem[] = [
-    { key: 'enableBotChatEcho', label: 'echo replies to MC chat' },
-    { key: 'enableAutoLook', label: 'auto-look at nearby player' },
-    { key: 'enableAutoDefense', label: 'auto-defend against mobs' },
-];
 
 interface SliderGroupProps {
     title: string;
@@ -77,27 +130,14 @@ function SliderGroup(props: SliderGroupProps) {
     return (
         <div class="action-category">
             <div class="action-category-title">{props.title}</div>
-            <For each={props.items}>
-                {(item) => (
-                    <div class="action-item">
-                        <label>{item.label}</label>
-                        <div class="slider-control">
-                            <input
-                                type="range"
-                                min="0"
-                                max="100"
-                                step="5"
-                                value={settings[item.key] as number}
-                                onInput={(e) => updateSetting(item.key, parseInt(e.currentTarget.value, 10))}
-                            />
-                            <span class="slider-value">{settings[item.key] as number}%</span>
-                        </div>
-                    </div>
-                )}
-            </For>
+            <div class="setting-card-list">
+                <For each={props.items}>{(item) => <SliderCard item={item} />}</For>
+            </div>
         </div>
     );
 }
+
+// ── Vision mode selector ─────────────────────────────────────
 
 const VISION_OPTIONS: { value: VisionMode; label: string; description: string }[] = [
     { value: 'off', label: 'Off', description: 'No vision capture' },
@@ -118,8 +158,11 @@ function VisionModeSelector() {
     return (
         <div class="action-category">
             <div class="action-category-title">👁️ Vision</div>
-            <div class="action-item">
-                <label>vision mode</label>
+            <div class="setting-card">
+                <div class="setting-card-info">
+                    <div class="setting-card-name">Vision Mode</div>
+                    <div class="setting-card-desc">How the bot sees the Minecraft world</div>
+                </div>
                 <select
                     class="vision-select"
                     value={settings.visionMode}
@@ -135,8 +178,11 @@ function VisionModeSelector() {
                 </select>
             </div>
             <Show when={settings.visionMode === 'eyes'}>
-                <div class="action-item">
-                    <label>target window</label>
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <div class="setting-card-name">Target Window</div>
+                        <div class="setting-card-desc">Select which Minecraft window to capture</div>
+                    </div>
                     <button class="btn-switch-window" onClick={handleCycleWindow}>
                         Switch Window
                     </button>
@@ -149,6 +195,8 @@ function VisionModeSelector() {
     );
 }
 
+// ── Main settings panel ──────────────────────────────────────
+
 export default function SettingsPanel() {
     return (
         <div class="action-toggles">
@@ -158,8 +206,11 @@ export default function SettingsPanel() {
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
             <div class="action-category">
                 <div class="action-category-title">🧠 Action Inference</div>
-                <div class="action-item">
-                    <label>timing</label>
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <div class="setting-card-name">Timing</div>
+                        <div class="setting-card-desc">When the AI decides which actions to perform</div>
+                    </div>
                     <select
                         class="vision-select"
                         value={settings.actionInferenceTiming}
