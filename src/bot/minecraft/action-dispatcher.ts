@@ -14,6 +14,7 @@ import {
     followPlayer,
     goTo,
     goHome,
+    goToEntity,
     collectItems,
     attackEntity,
     lookAtPlayer,
@@ -105,6 +106,12 @@ export async function executeAction(
             case 'mc_go_home':
                 setCurrentActivity('heading home');
                 return await goHome(bot);
+
+            case 'mc_go_to_entity': {
+                const entityArg = getArg(args, 'entity_name') ?? 'entity';
+                setCurrentActivity(`approaching ${entityArg}`);
+                return await goToEntity(bot, getArg(args, 'entity_name'));
+            }
 
             case 'mc_mine_block': {
                 const blockArg = getArg(args, 'block_type') ?? 'blocks';

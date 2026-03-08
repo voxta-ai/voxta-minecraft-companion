@@ -346,6 +346,8 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
             .map((m) => `${m.name} (${m.distance}m)`)
             .join(', ');
         lines.push(`Nearby mobs: ${mobList}`);
+    } else {
+        lines.push('Nearby mobs: none');
     }
 
     if (state.inventorySummary.length > 0) {

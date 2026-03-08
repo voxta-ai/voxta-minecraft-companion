@@ -40,6 +40,12 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         defaultMovements.allow1by1towers = true;
         defaultMovements.canOpenDoors = false; // broken for 2-block doors
 
+        // Only use dirt for scaffolding/pillaring — don't waste cobblestone or other materials
+        const dirtBlock = mcData.blocksByName['dirt'];
+        if (dirtBlock) {
+            defaultMovements.scafoldingBlocks = [dirtBlock.id];
+        }
+
         // Collect door block IDs
         const doorNames = [
             'oak_door',

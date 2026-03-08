@@ -3,6 +3,7 @@ import type { NameRegistry } from '../bot/name-registry';
 import type { ActionCategory } from '../bot/minecraft/action-definitions';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, setFishCaughtCallback } from '../bot/minecraft/action-dispatcher';
+import { isActionBusy, getCurrentActivity } from '../bot/minecraft/actions/index';
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { ServerActionMessage } from '../bot/voxta/types';
 import type { McSettings, ChatMessage } from '../shared/ipc-types';
@@ -42,6 +43,15 @@ export function handleActionMessage(
         return;
     }
 
+    // Ignore duplicate long-running actions — the LLM sometimes re-triggers the same
+    // action when the user says "keep going" or "you're doing great", which would abort
+    // the current operation and restart from scratch.
+    const LONG_RUNNING_ACTIONS = ['mc_mine_block', 'mc_fish', 'mc_craft', 'mc_cook'];
+    if (LONG_RUNNING_ACTIONS.includes(actionName) && isActionBusy() && getCurrentActivity()) {
+        console.log(`[Bot] Ignoring duplicate ${actionName} — already busy with: ${getCurrentActivity()}`);
+        return;
+    }
+
     callbacks.updateCurrentAction(actionName);
     callbacks.addChat(
         'action',
@@ -58,7 +68,7 @@ export function handleActionMessage(
         if (eqIdx >= 0) rawVal = rawVal.slice(eqIdx + 1);
         rawVal = rawVal.replace(/"/g, '').trim();
         callbacks.setFollowingPlayer(rawVal || null);
-    } else if (actionName === 'mc_stop' || actionName === 'mc_go_home' || actionName === 'mc_go_to') {
+    } else if (actionName === 'mc_stop' || actionName === 'mc_go_home' || actionName === 'mc_go_to' || actionName === 'mc_go_to_entity') {
         callbacks.setFollowingPlayer(null);
     }
 
@@ -81,6 +91,25 @@ export function handleActionMessage(
             }
             callbacks.addChat('note', 'Note', msg);
         });
+    }
+
+    // Notify AI that the bot is heading home to its bed/respawn point
+    if (actionName === 'mc_go_home') {
+        const botName = callbacks.getAssistantName();
+        const msg = `${botName} is heading home to the bed where the respawn point is set.`;
+        callbacks.addChat('note', 'Note', msg);
+        callbacks.queueNote(msg);
+    }
+
+    // Notify AI that the bot started mining
+    if (actionName === 'mc_mine_block') {
+        const botName = callbacks.getAssistantName();
+        const blockArg = action.arguments?.find((a) => a.name === 'block_type')?.value ?? 'blocks';
+        const countArg = action.arguments?.find((a) => a.name === 'count')?.value;
+        const countMsg = countArg ? ` (${countArg} requested)` : '';
+        const msg = `${botName} starts mining ${blockArg}${countMsg}.`;
+        callbacks.addChat('note', 'Note', msg);
+        callbacks.queueNote(msg);
     }
 
     void executeAction(bot, actionName, action.arguments, names).then(async (result) => {

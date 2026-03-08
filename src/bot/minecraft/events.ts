@@ -397,6 +397,24 @@ export class McEventBridge {
                     }
                 }
 
+                // Detect tool/weapon/armor breaks — item disappeared from inventory
+                const BREAKABLE_SUFFIXES = [
+                    '_pickaxe', '_sword', '_axe', '_shovel', '_hoe',
+                    '_helmet', '_chestplate', '_leggings', '_boots',
+                    'shield', 'bow', 'crossbow', 'trident', 'fishing_rod',
+                    'shears', 'flint_and_steel',
+                ];
+                for (const [name, { count: prevCount, displayName }] of lastInventorySnapshot) {
+                    const currentCount = current.get(name)?.count ?? 0;
+                    if (prevCount > 0 && currentCount === 0) {
+                        const isTool = BREAKABLE_SUFFIXES.some((s) => name.endsWith(s) || name === s);
+                        if (isTool) {
+                            this.callbacks.onChat('note', 'Note', `${botName}'s ${displayName} just broke!`);
+                            this.callbacks.onNote(`${botName}'s ${displayName} just broke!`);
+                        }
+                    }
+                }
+
                 lastInventorySnapshot = current;
 
                 // ---- Inventory full detection ----

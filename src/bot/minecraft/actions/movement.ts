@@ -8,10 +8,19 @@ import { getActionAbort, getHomePosition } from './action-state.js';
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
-    // Don't follow ourselves — AI sometimes sends the bot's own name
+    // Don't follow ourselves — AI sometimes sends the bot's own name.
+    // Auto-reroute to the first online human player instead.
     const mcName = names.resolveToMc(playerName);
     if (mcName.toLowerCase() === bot.username.toLowerCase()) {
-        return 'Cannot follow myself. Use the human player name instead.';
+        const otherPlayer = Object.values(bot.players).find(
+            (p) => p.username.toLowerCase() !== bot.username.toLowerCase(),
+        );
+        if (otherPlayer) {
+            playerName = names.resolveToVoxta(otherPlayer.username) || otherPlayer.username;
+            console.log(`[MC Action] Bot tried to follow itself, rerouting to ${playerName}`);
+        } else {
+            return 'No other players nearby to follow';
+        }
     }
 
     const player = findPlayerEntity(bot, playerName, names);
@@ -114,7 +123,7 @@ export async function goHome(bot: Bot): Promise<string> {
 
     const goal = new goals.GoalNear(homePosition.x, homePosition.y, homePosition.z, 2);
     await bot.pathfinder.goto(goal);
-    return `Made it back home`;
+    return `Made it back home safely near my bed`;
 }
 
 export async function collectItems(bot: Bot): Promise<string> {
@@ -143,4 +152,41 @@ export async function collectItems(bot: Bot): Promise<string> {
     }
 
     return `Picked up ${collected} dropped item${collected !== 1 ? 's' : ''} from the ground`;
+}
+
+export async function goToEntity(bot: Bot, entityName: string | undefined): Promise<string> {
+    if (!entityName) return 'No entity name provided';
+
+    const nameLower = entityName.toLowerCase().replace(/_/g, ' ');
+
+    // Find the nearest entity matching the name
+    let nearest: { entity: typeof bot.entity; dist: number } | null = null;
+    for (const entity of Object.values(bot.entities)) {
+        if (entity === bot.entity) continue;
+        if (entity.type === 'orb' || entity.type === 'projectile' || entity.type === 'object') continue;
+
+        const eName = (entity.displayName ?? entity.name ?? '').toLowerCase().replace(/_/g, ' ');
+        if (!eName.includes(nameLower) && !nameLower.includes(eName)) continue;
+
+        const dist = entity.position.distanceTo(bot.entity.position);
+        if (!nearest || dist < nearest.dist) {
+            nearest = { entity, dist };
+        }
+    }
+
+    if (!nearest) return `Cannot find any ${entityName} nearby`;
+
+    const displayName = nearest.entity.displayName ?? nearest.entity.name ?? entityName;
+    console.log(
+        `[MC Action] Going to ${displayName} at ${Math.round(nearest.entity.position.x)},${Math.round(nearest.entity.position.y)},${Math.round(nearest.entity.position.z)} (${Math.round(nearest.dist)} blocks away)`,
+    );
+
+    const goal = new goals.GoalNear(
+        nearest.entity.position.x,
+        nearest.entity.position.y,
+        nearest.entity.position.z,
+        2,
+    );
+    await bot.pathfinder.goto(goal);
+    return `Reached the ${displayName}`;
 }

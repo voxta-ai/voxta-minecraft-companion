@@ -49,7 +49,7 @@ async function autoCraftWithPrereqs(
 
     // Safety: prevent infinite recursion
     if (depth > 5) {
-        return { success: false, crafted: 0, steps: [], missing: [`${displayName} (too many nested dependencies)`] };
+        return { success: false, crafted: 0, steps: [], missing: [`don't have the materials to make ${displayName}`] };
     }
 
     // For prerequisites only: skip crafting if we already have enough
@@ -81,7 +81,7 @@ async function autoCraftWithPrereqs(
             success: false,
             crafted: 0,
             steps: [],
-            missing: [`${stillNeed} ${displayName} (no recipe, must be gathered)`],
+            missing: [`need to find ${stillNeed} ${displayName} in the world`],
         };
     }
 
@@ -205,6 +205,23 @@ const ALL_FENCES = [
     'oak_fence', 'spruce_fence', 'birch_fence', 'jungle_fence',
     'acacia_fence', 'dark_oak_fence', 'mangrove_fence', 'cherry_fence',
 ];
+// Tools — ordered simplest-first; when no materials are available (all score 0)
+// the first variant with recipes wins, so wooden is tried first
+const ALL_PICKAXES = [
+    'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'diamond_pickaxe',
+];
+const ALL_SWORDS = [
+    'wooden_sword', 'stone_sword', 'iron_sword', 'golden_sword', 'diamond_sword',
+];
+const ALL_AXES = [
+    'wooden_axe', 'stone_axe', 'iron_axe', 'golden_axe', 'diamond_axe',
+];
+const ALL_SHOVELS = [
+    'wooden_shovel', 'stone_shovel', 'iron_shovel', 'golden_shovel', 'diamond_shovel',
+];
+const ALL_HOES = [
+    'wooden_hoe', 'stone_hoe', 'iron_hoe', 'golden_hoe', 'diamond_hoe',
+];
 const GENERIC_CRAFT_VARIANTS: Record<string, string[]> = {
     planks: ALL_PLANKS,
     plank: ALL_PLANKS,
@@ -215,6 +232,13 @@ const GENERIC_CRAFT_VARIANTS: Record<string, string[]> = {
     wooden_boat: ALL_BOATS,
     fence: ALL_FENCES,
     wooden_fence: ALL_FENCES,
+    pickaxe: ALL_PICKAXES,
+    pick: ALL_PICKAXES,
+    sword: ALL_SWORDS,
+    axe: ALL_AXES,
+    shovel: ALL_SHOVELS,
+    spade: ALL_SHOVELS,
+    hoe: ALL_HOES,
 };
 
 /** Resolve a generic craft name to the best variant the bot can actually make */
@@ -226,13 +250,26 @@ function resolveGenericCraft(
     const variants = GENERIC_CRAFT_VARIANTS[genericName];
     if (!variants) return undefined;
 
+    // Find nearby crafting table for recipe checks — tools REQUIRE one
+    const craftingTable = bot.findBlock({
+        matching: (block) => block.name === 'crafting_table',
+        maxDistance: 32,
+    });
+
     // Score each variant by available materials
     let bestItem: { id: number; displayName: string; name: string } | undefined;
     let bestScore = -1;
+    let fallbackItem: { id: number; displayName: string; name: string } | undefined;
     for (const variant of variants) {
         const info = mcData.itemsByName[variant];
         if (!info) continue;
-        const recipes = bot.recipesAll(info.id, null, null);
+        // Track the last valid item as fallback (last in array = simplest tier)
+        fallbackItem = info;
+        // Check recipes both without and with a crafting table
+        const recipes = [
+            ...bot.recipesAll(info.id, null, null),
+            ...bot.recipesAll(info.id, null, craftingTable),
+        ];
         if (recipes.length === 0) continue;
         // Score = how many ingredient items we have
         let score = 0;
@@ -250,7 +287,8 @@ function resolveGenericCraft(
             bestItem = info;
         }
     }
-    return bestItem;
+    // If no variant had recipes (no crafting table nearby), fall back to simplest tier
+    return bestItem ?? fallbackItem;
 }
 
 export async function craftItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
@@ -342,8 +380,8 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
         };
         // If a missing item matches a raw material hint, use that instead
         const missingHints = result.missing.map((m) => {
-            // Extract the item name from "N ItemName (no recipe, must be gathered)"
-            const match = m.match(/^\d+\s+(.+?)\s*\(no recipe/);
+            // Extract the item name from "need to find N ItemName in the world"
+            const match = m.match(/^need to find\s+\d+\s+(.+?)\s+in the world/);
             if (match) {
                 const rawName = match[1].toLowerCase().replace(/ /g, '_');
                 const hint = RAW_MATERIAL_HINTS[rawName];
@@ -351,9 +389,9 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
             }
             return m;
         });
-        message = `Cannot craft ${itemInfo.displayName}: ${missingHints.join('; ')}`;
+        message = `Tried to craft ${itemInfo.displayName} but ${missingHints.join('; ')}`;
     } else {
-        message = `Cannot craft ${itemInfo.displayName}: missing materials`;
+        message = `Tried to craft ${itemInfo.displayName} but don't have the right materials`;
     }
 
     await cleanup(bot, heldItemName);

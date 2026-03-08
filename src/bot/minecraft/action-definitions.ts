@@ -63,6 +63,25 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         isPhysical: true,
     },
     {
+        name: 'mc_go_to_entity',
+        description:
+            'Walk to a nearby mob, animal, or creature. Use when told to go to, approach, or get closer to an entity.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            {
+                name: 'entity_name',
+                type: 'String',
+                description: 'Name of the entity to approach (e.g. pig, cow, sheep, villager, zombie)',
+                required: true,
+            },
+        ],
+        category: 'movement',
+        isQuick: false,
+        isPhysical: true,
+    },
+    {
         name: 'mc_mine_block',
         description:
             'Find and collect/harvest a specific type of block, plant, or resource. Works for ores, wood, flowers, crops, mushrooms, sweet berries (sweet_berry_bush), sugarcane (sugar_cane), and any other block or plant.',

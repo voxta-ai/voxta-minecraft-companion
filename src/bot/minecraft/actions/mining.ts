@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import type { ToolCategory } from '../game-data';
 import { getToolCategory, getBestTool } from './action-helpers.js';
-import { getActionAbort } from './action-state.js';
+import { getActionAbort, setSuppressPickups } from './action-state.js';
 
 export async function mineBlock(
     bot: Bot,
@@ -32,6 +32,11 @@ export async function mineBlock(
     // Aliases: "mushroom" → find any mushroom type (brown or red)
     const MUSHROOM_ALIASES = ['mushroom', 'mushrooms'];
     const ALL_MUSHROOMS = ['brown_mushroom', 'red_mushroom'];
+
+    // Aliases: "cobblestone" or "stone" → find both stone and cobblestone blocks
+    // (Natural blocks are 'stone' which drops 'cobblestone' when mined)
+    const STONE_ALIASES = ['cobblestone', 'stone', 'cobble'];
+    const ALL_STONE = ['stone', 'cobblestone'];
 
     // Aliases: "flower" → find any flower type
     const FLOWER_ALIASES = ['flower', 'flowers'];
@@ -62,6 +67,10 @@ export async function mineBlock(
         blockIds = resolveBlockIds(ALL_FLOWERS);
         displayName = 'flower';
         if (blockIds.length === 0) return 'Cannot find any flower types in this Minecraft version';
+    } else if (STONE_ALIASES.includes(blockType.toLowerCase())) {
+        blockIds = resolveBlockIds(ALL_STONE);
+        displayName = 'stone';
+        if (blockIds.length === 0) return 'Cannot find stone block types in this Minecraft version';
     } else {
         // Try alias mapping first (AI often sends simplified names)
         const BLOCK_ALIASES: Record<string, string> = {
@@ -81,8 +90,8 @@ export async function mineBlock(
             tallgrass: 'tall_grass',
             tall_grass: 'tall_grass',
             grass: 'short_grass',
-            cobblestone: 'cobblestone',
-            stone: 'stone',
+            cobblestone: 'cobblestone',  // handled by STONE_ALIASES above, kept as fallback
+            stone: 'stone',              // handled by STONE_ALIASES above, kept as fallback
             clay: 'clay',
             gravel: 'gravel',
             // Crops and berries
@@ -247,33 +256,67 @@ export async function mineBlock(
 
     const signal = getActionAbort().signal;
 
+    // Block type flags (used for sort/filter behavior inside the loop)
+    const isTreeBlock = resolvedName.includes('log');
+    const isStoneBlock = STONE_ALIASES.includes(blockType.toLowerCase());
+
+    // Stone mining: anchor position prevents Y-drift when bot falls into dug holes
+    const anchorY = bot.entity.position.y;
+    const anchorX = bot.entity.position.x;
+    const anchorZ = bot.entity.position.z;
+
+    // Suppress per-item pickup notes during mining — the final summary is enough
+    setSuppressPickups(true);
+    try {
     while (attempts < MAX_ATTEMPTS) {
         // Check if we've dug enough blocks
         if (dug >= maxCount) break;
         if (signal.aborted) break;
         attempts++;
 
-        // Find blocks nearby
+        // Find blocks nearby — use tighter radius for stone (stay in one area)
+        const searchRadius = isStoneBlock ? 16 : 64;
         const candidates = bot.findBlocks({
             matching: blockIds,
-            maxDistance: 64,
+            maxDistance: searchRadius,
             count: 32,
         });
 
         // Trees (logs): 6 above, 3 below (handles terrain where base is lower).
-        // Other blocks: max 2 above, max 1 below (avoid digging straight down).
+        // Other blocks: max 2 above, max 2 below.
         const botY = bot.entity.position.y;
         const botX = Math.floor(bot.entity.position.x);
         const botZ = Math.floor(bot.entity.position.z);
-        const isTreeBlock = resolvedName.includes('log');
         const maxAbove = isTreeBlock ? 6 : 2;
-        const maxBelow = isTreeBlock ? 3 : 1;
+        const maxBelow = isTreeBlock ? 3 : 2;
+
+        // Stone mining: use ANCHORED Y reference so digging one block and falling
+        // doesn't shift the "current level" and cause scattered holes.
+        // Only mine blocks within a tight horizontal range (4 blocks).
+        const refY = isStoneBlock ? anchorY : botY;
+        const stoneMaxHDist = 4;
+
         const reachable = candidates
             .filter((pos) => {
                 const key = `${pos.x},${pos.y},${pos.z}`;
+                if (failedPositions.has(key)) return false;
+
+                if (isStoneBlock) {
+                    // Only mine blocks within horizontal range of starting position
+                    const hDist = Math.sqrt(
+                        (pos.x - anchorX) ** 2 + (pos.z - anchorZ) ** 2,
+                    );
+                    if (hDist > stoneMaxHDist) return false;
+                    // Only mine at anchor level (walls around bot) — foot, head, 1 above
+                    const dy = pos.y - refY;
+                    if (dy > 1 || dy < -1) return false;
+                    // Don't mine directly below feet
+                    if (pos.y < Math.floor(botY) && pos.x === botX && pos.z === botZ) return false;
+                    return true;
+                }
+
                 const dy = pos.y - botY;
                 if (dy > maxAbove || dy < -maxBelow) return false;
-                if (failedPositions.has(key)) return false;
                 // Don't mine directly below feet (safety: lava, void, etc.)
                 if (dy < 0 && pos.x === botX && pos.z === botZ) return false;
                 return true;
@@ -289,7 +332,29 @@ export async function mineBlock(
                     if (sameTreeA && sameTreeB) return a.y - b.y;
                     return hDistA - hDistB;
                 }
-                // Prioritize blocks at/above bot level over below
+                if (isStoneBlock) {
+                    // Quarry pattern: mine blocks at same level first (horizontal
+                    // distance), then go to the level below.
+                    const yA = Math.floor(a.y);
+                    const yB = Math.floor(b.y);
+                    const refFloorY = Math.floor(refY);
+                    // Same level as anchor first, then above, then below
+                    const levelA = yA >= refFloorY ? yA - refFloorY : (refFloorY - yA) + 100;
+                    const levelB = yB >= refFloorY ? yB - refFloorY : (refFloorY - yB) + 100;
+                    if (levelA !== levelB) return levelA - levelB;
+                    // Same level — closest to ANCHOR (ring pattern outward from start).
+                    // Tiebreaker: closest to bot's CURRENT position so it doesn't
+                    // jump across the ring to the opposite side.
+                    const anchorDistA = Math.sqrt((a.x - anchorX) ** 2 + (a.z - anchorZ) ** 2);
+                    const anchorDistB = Math.sqrt((b.x - anchorX) ** 2 + (b.z - anchorZ) ** 2);
+                    const ringDiff = Math.floor(anchorDistA) - Math.floor(anchorDistB);
+                    if (ringDiff !== 0) return ringDiff;
+                    // Same ring — pick whichever is closer to the bot right now
+                    const botDistA = Math.sqrt((a.x - bot.entity.position.x) ** 2 + (a.z - bot.entity.position.z) ** 2);
+                    const botDistB = Math.sqrt((b.x - bot.entity.position.x) ** 2 + (b.z - bot.entity.position.z) ** 2);
+                    return botDistA - botDistB;
+                }
+                // Default: prioritize blocks at/above bot level over below
                 const belowA = a.y < botY ? 1 : 0;
                 const belowB = b.y < botY ? 1 : 0;
                 if (belowA !== belowB) return belowA - belowB;
@@ -299,6 +364,23 @@ export async function mineBlock(
                 const distB = bot.entity.position.distanceTo(b) + yPenaltyB;
                 return distA - distB;
             });
+
+        // Stone mining diagnostics — log every iteration to debug hole pattern
+        if (isStoneBlock && reachable.length > 0) {
+            const refFloorY = Math.floor(isStoneBlock ? anchorY : botY);
+            console.log(
+                `[MC Mine] anchor=(${Math.floor(anchorX)},${Math.floor(anchorY)},${Math.floor(anchorZ)}) ` +
+                `bot=(${Math.floor(bot.entity.position.x)},${Math.floor(bot.entity.position.y)},${Math.floor(bot.entity.position.z)}) ` +
+                `candidates=${candidates.length} reachable=${reachable.length}`,
+            );
+            const top5 = reachable.slice(0, 5);
+            for (let i = 0; i < top5.length; i++) {
+                const p = top5[i];
+                const dy = p.y - refFloorY;
+                const hDist = Math.sqrt((p.x - anchorX) ** 2 + (p.z - anchorZ) ** 2).toFixed(1);
+                console.log(`[MC Mine]   #${i}: (${p.x},${p.y},${p.z}) dy=${dy} hDist=${hDist}${i === 0 ? ' ← SELECTED' : ''}`);
+            }
+        }
 
         if (reachable.length === 0) {
             console.log(
@@ -339,12 +421,18 @@ export async function mineBlock(
             // Re-equip the correct tool before digging (pathfinder may change held item)
             if (toolCategory !== 'none') {
                 const tool = getBestTool(bot, toolCategory);
-                if (tool) {
-                    try {
-                        await bot.equip(tool.item as number, 'hand');
-                    } catch {
-                        /* best effort */
-                    }
+                if (!tool) {
+                    // Tool broke mid-mining — stop, bare hands won't drop anything
+                    const gained = countInventory() - startCount;
+                    const toolMsg = gained > 0
+                        ? `Collected ${gained} ${displayName} but the ${toolCategory} broke and there's no replacement`
+                        : `The ${toolCategory} broke and there's no replacement — can't mine ${displayName} without one`;
+                    return toolMsg;
+                }
+                try {
+                    await bot.equip(tool.item as number, 'hand');
+                } catch {
+                    /* best effort */
                 }
             }
 
@@ -405,13 +493,18 @@ export async function mineBlock(
         }
     }
 
-    // Wait briefly for any remaining items to be auto-collected
-    await new Promise((r) => setTimeout(r, 1000));
+    // Wait for straggler items to be auto-collected (still suppressed)
+    await new Promise((r) => setTimeout(r, 2000));
+
+    } finally {
+        setSuppressPickups(false);
+    }
 
     // If aborted (e.g., mc_stop), don't report a result — the stop already did
     if (signal.aborted) return '';
 
     if (dug === 0) return `Tried to collect ${displayName} but couldn't reach any`;
-    const status = dug >= maxCount ? 'goal reached' : 'no more nearby';
-    return `Collected ${dug} ${displayName} (${status})`;
+    const gained = countInventory() - startCount;
+    const status = gained >= maxCount ? 'goal reached' : 'no more nearby';
+    return `Collected ${gained} ${displayName} (${status})`;
 }
