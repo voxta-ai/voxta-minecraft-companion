@@ -1,4 +1,5 @@
 import * as signalR from '@microsoft/signalr';
+import { MinecraftCompanionIconBase64Url } from './minecraft-icon.js';
 import type { CompanionConfig } from '../config.js';
 import type {
     ClientMessage,
@@ -134,6 +135,7 @@ export class VoxtaClient {
         await this.send({
             $type: 'registerApp',
             clientVersion: this.config.voxta.clientVersion,
+            iconBase64Url: MinecraftCompanionIconBase64Url,
             label: 'Minecraft Companion',
         });
         console.log('[Voxta] App registered');
