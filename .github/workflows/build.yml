@@ -38,7 +38,7 @@ jobs:
         run: npm run build
 
       - name: Package Windows (installer + portable zip)
-        run: npx electron-builder --win --config
+        run: npx electron-builder --win --config --publish never
 
       - name: GitHub Release (draft)
         uses: softprops/action-gh-release@v2
