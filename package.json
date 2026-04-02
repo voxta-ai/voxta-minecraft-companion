@@ -30,7 +30,7 @@
             "node_modules/mineflayer-pathfinder/**"
         ],
         "win": {
-            "target": "nsis",
+            "target": ["nsis", "zip"],
             "icon": "resources/icon.png"
         },
         "nsis": {
