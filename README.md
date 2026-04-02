@@ -4,6 +4,8 @@ An AI-powered Minecraft companion bot that lives in your game world. It uses [Mi
 
 Your companion can follow you, mine resources, craft items, fight mobs, cook food, fish, manage chests, and talk to you — all driven by AI.
 
+![Voxta Minecraft Companion](docs/screenshot.png)
+
 ## Features
 
 ### 🎮 Game Actions (24 actions)
