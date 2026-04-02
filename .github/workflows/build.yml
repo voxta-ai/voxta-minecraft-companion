@@ -9,6 +9,8 @@ jobs:
   build:
     name: Build & Release (Windows)
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -24,14 +26,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Cache npm
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -42,16 +37,15 @@ jobs:
       - name: Build Electron app
         run: npm run build
 
-      - name: Package Windows installer
+      - name: Package Windows (installer + portable zip)
         run: npx electron-builder --win --config
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: GitHub Release (draft)
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           draft: true
           tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
           files: |
             release/*.exe
             release/*.zip
