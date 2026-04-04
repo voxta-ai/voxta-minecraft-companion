@@ -68,6 +68,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         engine.handleAudioComplete(messageId);
     });
 
+    ipcMain.on(IPC_CHANNELS.LOG, (_event, message: string) => {
+        console.log(message);
+    });
+
     // Handle renderer requests
     ipcMain.handle(IPC_CHANNELS.CONNECT_VOXTA, async (_event, config: VoxtaConnectConfig) => {
         return engine.connectVoxta(config);
