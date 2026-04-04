@@ -3,7 +3,7 @@ import type { NameRegistry } from '../bot/name-registry';
 import type { ActionCategory } from '../bot/minecraft/action-definitions';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, setFishCaughtCallback } from '../bot/minecraft/action-dispatcher';
-import { isActionBusy, getCurrentActivity } from '../bot/minecraft/actions/index';
+import { isActionBusy, getCurrentActivity } from '../bot/minecraft/actions';
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { ServerActionMessage } from '../bot/voxta/types';
 import type { McSettings, ChatMessage } from '../shared/ipc-types';
@@ -183,7 +183,7 @@ export function handleActionMessage(
             const voiceChance = isFailure ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
             const roll = Math.random() * 100;
             if (roll < voiceChance) {
-                callbacks.addChat('system', 'System', `${botName}: ${result}`);
+                callbacks.addChat('event', 'Event', `${botName}: ${result}`);
                 callbacks.queueEvent(noteText);
             } else {
                 callbacks.addChat('note', 'Note', `${botName}: ${result}`);
