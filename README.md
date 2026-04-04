@@ -14,6 +14,8 @@ Your companion can follow you, mine resources, craft items, fight mobs, cook foo
 - **Survival** — Mine blocks, craft items, cook/smelt, eat, fish, sleep, place blocks
 - **Interaction** — Give/toss items, store/take from chests, inspect containers, use items, equip gear
 
+![Your companion in action — chatting and working in the Minecraft world](docs/screenshot-ingame.png)
+
 ### 🧠 AI Integration
 - **Real-time world perception** — Health, hunger, biome, time, weather, nearby entities, inventory, shelter detection
 - **Context-aware conversations** — The AI sees the game world and responds naturally
@@ -29,6 +31,8 @@ Your companion can follow you, mine resources, craft items, fight mobs, cook foo
 - Electron-based UI with connection management, chat view, action toggles, settings, and an inspector/debug drawer
 - Chat history management — resume previous conversations, favorites, deletion
 - Toast notifications, status bar with real-time bot stats
+
+![The companion app — chat, inspector, and real-time bot status](docs/screenshot-app.png)
 
 ## Requirements
 
