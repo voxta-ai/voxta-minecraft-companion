@@ -86,17 +86,32 @@ async function autoCraftWithPrereqs(
     }
 
     // Score each recipe variant by how many ingredients we already have,
-    // so we prefer oak_planks when we have oak_log over cherry_planks when we don't have cherry_log
+    // so we prefer oak_planks when we have oak_log over cherry_planks when we don't have cherry_log.
+    // Tiebreaker: for missing ingredients, check if their own recipes can be satisfied
+    // (e.g., oak_planks needs oak_log — score higher if we have oak_log).
     const scored = allRecipes.map((recipe) => {
         let score = 0;
+        let tiebreaker = 0;
         for (const delta of recipe.delta) {
             if (delta.count < 0) {
-                score += countItemInInventory(bot, delta.id);
+                const have = countItemInInventory(bot, delta.id);
+                score += have;
+                // For missing ingredients, check if we can craft them from available materials
+                if (have < Math.abs(delta.count)) {
+                    const subRecipes = bot.recipesAll(delta.id, null, craftingTable);
+                    for (const sub of subRecipes) {
+                        for (const subDelta of sub.delta) {
+                            if (subDelta.count < 0) {
+                                tiebreaker += countItemInInventory(bot, subDelta.id);
+                            }
+                        }
+                    }
+                }
             }
         }
-        return { recipe, score };
+        return { recipe, score, tiebreaker };
     });
-    scored.sort((a, b) => b.score - a.score);
+    scored.sort((a, b) => b.score - a.score || b.tiebreaker - a.tiebreaker);
 
     // Try each recipe variant until one succeeds
     let lastMissing: string[] = [];

@@ -53,7 +53,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_go_home',
         description:
-            'Go back home to the shelter/base where the bed is. Use when told to return home, go to base, go to shelter, or head back.',
+            'Go back home to the shelter/base where the bed is. Use when told to return home, go to base, go to shelter, or head back. Do NOT use for questions about where home is.',
         disabled: false,
         layer: '',
         effect: {},
@@ -104,7 +104,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_attack',
-        description: 'Attack the nearest entity of a given type',
+        description:
+            'Attack the nearest entity of a given type. Only use when explicitly told to attack, fight, or kill. Do NOT use for questions about nearby mobs — that info is already in context.',
         disabled: false,
         layer: '',
         effect: {},
@@ -146,7 +147,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_equip',
-        description: 'Equip an item from inventory',
+        description:
+            'Equip an item from inventory into hand or armor slot. Only use when explicitly told to equip, hold, wield, or switch to an item. Do NOT use for questions about having items — inventory is already in context.',
         disabled: false,
         layer: '',
         effect: {},
@@ -179,7 +181,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_collect_items',
-        description: 'Pick up nearby dropped items from the ground',
+        description:
+            'Pick up nearby dropped items from the ground. Only use when explicitly told to pick up, collect, or grab items.',
         disabled: false,
         layer: '',
         effect: {},
@@ -190,7 +193,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_eat',
-        description: 'Eat food from inventory to restore hunger. Will eat the best food available.',
+        description:
+            'Eat food from inventory to restore hunger. Only use when explicitly told to eat, feed, or have a meal. Do NOT use for questions about hunger — hunger level is already visible in context.',
         disabled: false,
         layer: '',
         effect: {},
@@ -220,7 +224,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_sleep',
-        description: 'Find a nearby bed and sleep in it. Only works at night.',
+        description:
+            'Find a nearby bed and sleep in it. Only works at night. Only use when explicitly told to sleep or rest. Do NOT use for questions about time or night — that info is already in context.',
         disabled: false,
         layer: '',
         effect: {},
@@ -255,7 +260,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_cook',
         description:
-            'Cook raw food or smelt ores in a nearby furnace. Needs fuel (wood/coal) in inventory. Works for raw meat, ores (iron, gold, copper), sand, clay, and more.',
+            'Cook raw food or smelt ores in a nearby furnace. Needs fuel (wood/coal) in inventory. Works for raw meat, ores (iron, gold, copper), sand, clay, and more. Only use when explicitly told to cook, smelt, or use the furnace.',
         disabled: false,
         layer: '',
         effect: {},

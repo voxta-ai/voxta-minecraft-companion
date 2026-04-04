@@ -63,6 +63,7 @@ export class BotEngine extends EventEmitter {
     private settings: McSettings = { ...DEFAULT_SETTINGS };
     private isReplying = false;
     private pendingNotes: string[] = [];
+    private pendingEvents: string[] = [];
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
     private toastCounter = 0;
 
@@ -226,6 +227,16 @@ export class BotEngine extends EventEmitter {
             void this.voxta.sendNote(note);
         }
         this.pendingNotes = [];
+    }
+
+    /** Flush queued events — triggers voiced AI replies for action results */
+    private flushPendingEvents(): void {
+        if (!this.voxta || this.pendingEvents.length === 0) return;
+        // Only send the most recent event to avoid spamming multiple replies
+        const event = this.pendingEvents[this.pendingEvents.length - 1];
+        console.log(`[Bot >>] event (deferred): "${event.substring(0, 80)}"`);
+        void this.voxta.sendEvent(event);
+        this.pendingEvents = [];
     }
 
     private addChat(type: ChatMessage['type'], sender: string, text: string): void {
@@ -459,7 +470,32 @@ export class BotEngine extends EventEmitter {
             this.names.register(this.assistantName, config.mc.username);
         }
 
-        await this.voxta.startChat(uiConfig.characterId, uiConfig.chatId ?? undefined);
+        // Read initial world state BEFORE starting chat — the server processes
+        // context from the startChat message before generating the greeting
+        let initialContextStrings: string[] = [];
+        try {
+            const initialState = readWorldState(bot, config.perception.entityRange);
+            initialContextStrings = buildContextStrings(initialState, this.names, this.assistantName);
+            this.updateStatus({
+                position: initialState.position
+                    ? {
+                          x: Math.round(initialState.position.x),
+                          y: Math.round(initialState.position.y),
+                          z: Math.round(initialState.position.z),
+                      }
+                    : null,
+                health: initialState.health,
+                food: initialState.food,
+            });
+        } catch {
+            // Perception can fail during initial chunk loading
+        }
+
+        await this.voxta.startChat(uiConfig.characterId, uiConfig.chatId ?? undefined, {
+            contextKey: 'minecraft',
+            contexts: initialContextStrings.map((text) => ({ text })),
+            actions: this.getEnabledActions(),
+        });
 
         const chatStart = Date.now();
         while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
@@ -471,12 +507,11 @@ export class BotEngine extends EventEmitter {
             assistantName: this.assistantName,
         });
 
-        // Register actions
-        this.pushActionsToVoxta();
         this.addChat('system', 'System', `Chat started with ${this.assistantName}`);
 
         // ---- Perception loop ----
-        let lastContextHash = '';
+        let lastContextHash = initialContextStrings.join('|');
+
         this.perceptionLoop = setInterval(() => {
             if (!this.voxta?.sessionId) return;
             try {
@@ -541,6 +576,26 @@ export class BotEngine extends EventEmitter {
                     // Send the urgent event immediately
                     void this.voxta.sendEvent(text);
                 },
+                onPlayerChat: (text) => {
+                    if (!this.voxta?.sessionId) return;
+                    console.log(`[User >>] MC chat: "${text}"`);
+
+                    if (this.isReplying) {
+                        // Interrupt the current speech first, then send after server settles
+                        console.log('[User >>] MC chat during speech — interrupting first');
+                        this.audioPipeline.interrupt();
+                        this.audioPipeline.fireAckNow();
+                        this.isReplying = false;
+                        this.currentReply = '';
+                        this.pendingEvents = [];
+                        // Give the server time to process the interrupt before sending
+                        setTimeout(() => {
+                            void this.voxta?.sendMessage(text);
+                        }, 300);
+                    } else {
+                        void this.voxta.sendMessage(text);
+                    }
+                },
                 getSettings: () => this.settings,
                 getAssistantName: () => this.assistantName ?? 'Bot',
                 isReplying: () => this.isReplying,
@@ -576,7 +631,6 @@ export class BotEngine extends EventEmitter {
             },
         );
 
-        bot.chat("Hello! I'm your Voxta AI companion. Talk to me!");
     }
 
     async disconnect(): Promise<void> {
@@ -693,7 +747,16 @@ export class BotEngine extends EventEmitter {
             addChat: (type, sender, text) => this.addChat(type, sender, text),
             updateStatus: (patch) => this.updateStatus(patch),
             flushPendingNotes: () => this.flushPendingNotes(),
+            flushPendingEvents: () => this.flushPendingEvents(),
             queueNote: (text) => this.queueNote(text),
+            queueEvent: (text) => {
+                if (this.isReplying) {
+                    this.pendingEvents.push(text);
+                } else {
+                    console.log(`[Bot >>] event (immediate, reply done): "${text.substring(0, 80)}"`);
+                    void this.voxta?.sendEvent(text);
+                }
+            },
             emit: (event, ...args) => this.emit(event as BotEngineEvent, ...args),
             mcChatEcho: (text) => {
                 if (this.mcBot && this.settings.enableBotChatEcho) {
