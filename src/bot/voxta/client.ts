@@ -141,11 +141,18 @@ export class VoxtaClient {
         console.log('[Voxta] App registered');
     }
 
-    async startChat(characterId: string, chatId?: string): Promise<void> {
+    async startChat(
+        characterId: string,
+        chatId?: string,
+        initialContext?: { contextKey: string; contexts: ContextDefinition[]; actions?: ScenarioAction[] },
+    ): Promise<void> {
         const message: ClientStartChatMessage = {
             $type: 'startChat',
             characterId,
             chatId,
+            contextKey: initialContext?.contextKey,
+            contexts: initialContext?.contexts,
+            actions: initialContext?.actions,
         };
         await this.send(message);
     }

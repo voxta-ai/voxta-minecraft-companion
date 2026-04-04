@@ -84,6 +84,10 @@ export interface ClientStartChatMessage {
     characterId?: string;
     chatId?: string;
     scenarioId?: string;
+    // Initial context — processed by the server BEFORE generating the first reply
+    contextKey?: string;
+    contexts?: ContextDefinition[];
+    actions?: ScenarioAction[];
 }
 
 export interface ClientSendMessage {

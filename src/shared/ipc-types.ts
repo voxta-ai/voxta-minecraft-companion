@@ -102,14 +102,14 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableNoteItemPickup: true,
     enableNoteWeather: false,
     enableNoteTime: false,
-    enableNoteChat: false,
+    enableNoteChat: true,
 
     voiceChanceMovement: 20,
     voiceChanceSurvival: 50,
     voiceChanceCombat: 80,
     voiceChanceInteraction: 30,
 
-    enableBotChatEcho: false,
+    enableBotChatEcho: true,
     enableAutoLook: true,
     enableAutoDefense: true,
     visionMode: 'off',

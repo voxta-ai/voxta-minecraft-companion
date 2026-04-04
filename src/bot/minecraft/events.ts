@@ -18,6 +18,8 @@ export interface McEventCallbacks {
     onEvent(text: string): void;
     /** Send an urgent event — interrupts current speech and forces an immediate short reply */
     onUrgentEvent(text: string): void;
+    /** Send a player chat message — treated as a regular user message (triggers action inference) */
+    onPlayerChat(text: string): void;
     /** Get the current settings */
     getSettings(): McSettings;
     /** Get the assistant's display name */
@@ -397,20 +399,24 @@ export class McEventBridge {
                     }
                 }
 
-                // Detect tool/weapon/armor breaks — item disappeared from inventory
-                const BREAKABLE_SUFFIXES = [
-                    '_pickaxe', '_sword', '_axe', '_shovel', '_hoe',
-                    '_helmet', '_chestplate', '_leggings', '_boots',
-                    'shield', 'bow', 'crossbow', 'trident', 'fishing_rod',
-                    'shears', 'flint_and_steel',
-                ];
-                for (const [name, { count: prevCount, displayName }] of lastInventorySnapshot) {
-                    const currentCount = current.get(name)?.count ?? 0;
-                    if (prevCount > 0 && currentCount === 0) {
-                        const isTool = BREAKABLE_SUFFIXES.some((s) => name.endsWith(s) || name === s);
-                        if (isTool) {
-                            this.callbacks.onChat('note', 'Note', `${botName}'s ${displayName} just broke!`);
-                            this.callbacks.onNote(`${botName}'s ${displayName} just broke!`);
+                // Detect tool/weapon/armor breaks — item disappeared from inventory.
+                // Guards: skip during death (items lost) and suppression (give/toss/craft).
+                // The only unsuppressed case where a tool count drops to 0 is a real durability break.
+                if (!this.died && !isPickupSuppressed()) {
+                    const BREAKABLE_SUFFIXES = [
+                        '_pickaxe', '_sword', '_axe', '_shovel', '_hoe',
+                        '_helmet', '_chestplate', '_leggings', '_boots',
+                        'shield', 'bow', 'crossbow', 'trident', 'fishing_rod',
+                        'shears', 'flint_and_steel',
+                    ];
+                    for (const [name, { count: prevCount, displayName }] of lastInventorySnapshot) {
+                        const currentCount = current.get(name)?.count ?? 0;
+                        if (prevCount > 0 && currentCount === 0) {
+                            const isTool = BREAKABLE_SUFFIXES.some((s) => name.endsWith(s) || name === s);
+                            if (isTool) {
+                                this.callbacks.onChat('note', 'Note', `${botName}'s ${displayName} just broke!`);
+                                this.callbacks.onNote(`${botName}'s ${displayName} just broke!`);
+                            }
                         }
                     }
                 }
@@ -465,7 +471,7 @@ export class McEventBridge {
             const voxtaName = this.names.resolveToVoxta(username);
             const resolvedMsg = this.names.resolveNamesInText(message);
             this.callbacks.onChat('player', voxtaName, resolvedMsg);
-            this.callbacks.onEvent(`[${voxtaName} says in Minecraft chat]: ${resolvedMsg}`);
+            this.callbacks.onPlayerChat(resolvedMsg);
         }) as (...args: never[]) => void);
 
         this.on('whisper', ((username: string, message: string) => {
@@ -475,7 +481,7 @@ export class McEventBridge {
             const voxtaName = this.names.resolveToVoxta(username);
             const resolvedMsg = this.names.resolveNamesInText(message);
             this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
-            this.callbacks.onEvent(`[${voxtaName} whispers in Minecraft]: ${resolvedMsg}`);
+            this.callbacks.onPlayerChat(resolvedMsg);
         }) as (...args: never[]) => void);
     }
 

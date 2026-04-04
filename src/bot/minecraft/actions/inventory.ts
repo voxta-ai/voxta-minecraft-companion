@@ -137,9 +137,13 @@ export async function giveItem(
     try {
         // Look at the player so items are tossed toward them
         await bot.lookAt(player.position.offset(0, 1, 0));
+        // Suppress pickup/break detection — tossing removes items from inventory
+        setSuppressPickups(true);
         await bot.toss(item.type, null, actualCount);
+        setTimeout(() => setSuppressPickups(false), 600);
         return `Handed ${actualCount} ${item.displayName ?? itemName} over to ${displayName}`;
     } catch (err) {
+        setTimeout(() => setSuppressPickups(false), 600);
         const message = err instanceof Error ? err.message : String(err);
         return `Failed to give ${itemName}: ${message}`;
     }
@@ -172,8 +176,10 @@ export async function tossItem(bot: Bot, itemName: string | undefined, countStr:
 
     if (isNaN(toDrop) || toDrop <= 0) return `Invalid count: ${countStr}`;
 
-    // Use bot.toss() which accepts itemType, metadata, count
+    // Suppress pickup/break detection — tossing removes items from inventory
+    setSuppressPickups(true);
     await bot.toss(matching[0].type, null, toDrop);
+    setTimeout(() => setSuppressPickups(false), 600);
 
     const itemDisplayName = matching[0].displayName ?? itemName;
     return `Dropped ${toDrop} ${itemDisplayName} on the ground`;

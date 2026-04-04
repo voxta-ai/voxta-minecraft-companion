@@ -44,7 +44,9 @@ export interface MessageHandlerContext {
     addChat(type: ChatMessage['type'], sender: string, text: string): void;
     updateStatus(patch: Record<string, unknown>): void;
     flushPendingNotes(): void;
+    flushPendingEvents(): void;
     queueNote(text: string): void;
+    queueEvent(text: string): void;
     emit(event: string, ...args: unknown[]): void;
     mcChatEcho(text: string): void;
 
@@ -134,6 +136,7 @@ function handleReplyEnd(message: ServerMessage, ctx: MessageHandlerContext): voi
     ctx.setCurrentReply('');
     ctx.setIsReplying(false);
     ctx.flushPendingNotes();
+    ctx.flushPendingEvents();
 
     // Sentinel: set a callback that fires when all pending chunks complete
     const endMsg = message as { messageId?: string; sessionId?: string };
@@ -157,6 +160,7 @@ function handleReplyCancelled(_message: ServerMessage, ctx: MessageHandlerContex
     ctx.setCurrentReply('');
     ctx.setIsReplying(false);
     ctx.flushPendingNotes();
+    ctx.flushPendingEvents();
     ctx.audioPipeline.fireAckNow();
 }
 
@@ -173,6 +177,17 @@ function handleAction(message: ServerMessage, ctx: MessageHandlerContext): void 
         addChat: (type, sender, text) => ctx.addChat(type, sender, text),
         updateCurrentAction: (a) => ctx.updateStatus({ currentAction: a }),
         queueNote: (text) => ctx.queueNote(text),
+        sendNoteNow: (text) => {
+            const voxta = ctx.getVoxta();
+            if (voxta) {
+                console.log(`[Bot >>] note (immediate): "${text.substring(0, 80)}"`);
+                void voxta.sendNote(text);
+            }
+        },
+        queueEvent: (text) => {
+            console.log(`[Bot >>] queuing event for after reply: "${text.substring(0, 80)}"`);
+            ctx.queueEvent(text);
+        },
         getVoxta: () => ctx.getVoxta(),
     });
 }

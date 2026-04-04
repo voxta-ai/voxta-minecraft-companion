@@ -17,6 +17,10 @@ export interface ActionOrchestratorCallbacks {
     addChat(type: ChatMessage['type'], sender: string, text: string): void;
     updateCurrentAction(action: string | null): void;
     queueNote(text: string): void;
+    /** Send a note immediately, bypassing the isReplying queue */
+    sendNoteNow(text: string): void;
+    /** Queue an event to be sent after the current reply finishes */
+    queueEvent(text: string): void;
     getVoxta(): VoxtaClient | null;
 }
 
@@ -170,11 +174,21 @@ export function handleActionMessage(
         const timing = callbacks.getSettings().actionInferenceTiming;
 
         if (timing === 'user') {
-            // With user action inference, the server already generates a reply
-            // alongside the action — sending an event would cause a double-reply.
-            // Show as note (not system) since the AI reply covers the outcome.
-            callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-            callbacks.queueNote(`[ACTION ${isFailure ? 'FAILED' : 'COMPLETE'}: ${actionName}] ${botName}: ${result}`);
+            // With user action inference, the server generates a reply simultaneously.
+            const noteText = `[ACTION ${isFailure ? 'FAILED' : 'COMPLETE'}: ${actionName}] ${botName}: ${result}`;
+
+            // Apply voice chance — if it passes, queue an event to trigger a
+            // follow-up voiced reply once the current reply finishes.
+            // Only send ONE of note or event, never both (avoids duplicate in LLM context).
+            const voiceChance = isFailure ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
+            const roll = Math.random() * 100;
+            if (roll < voiceChance) {
+                callbacks.addChat('system', 'System', `${botName}: ${result}`);
+                callbacks.queueEvent(noteText);
+            } else {
+                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+                callbacks.sendNoteNow(noteText);
+            }
         } else if (isFailure && !callbacks.isReplying()) {
             // Failures always voiced — AI must acknowledge what went wrong
             // Disable action inference so hints like "kill spiders" don't auto-trigger actions
