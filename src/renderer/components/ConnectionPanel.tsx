@@ -9,6 +9,7 @@ interface SavedConfig {
     mcHost?: string;
     mcPort?: number;
     mcUsername?: string;
+    mcVersion?: string;
     playerMcUsername?: string;
     voxtaUrl?: string;
     voxtaApiKey?: string;
@@ -42,6 +43,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     // Phase 2 fields: MC connection
     const [mcHost, setMcHost] = createSignal(saved.mcHost ?? 'localhost');
     const [mcPort, setMcPort] = createSignal(String(saved.mcPort ?? 25565));
+    const [mcVersion, setMcVersion] = createSignal(saved.mcVersion ?? '');
     const [mcUsername, setMcUsername] = createSignal(saved.mcUsername ?? '');
     const [playerMcName, setPlayerMcName] = createSignal(saved.playerMcUsername ?? '');
     const [selectedCharacterId, setSelectedCharacterId] = createSignal<string | null>(null);
@@ -187,7 +189,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcHost: mcHost(),
             mcPort: parseInt(mcPort(), 10),
             mcUsername: mcUsername(),
-            mcVersion: '1.21.11',
+            mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
             characterId: charId,
             chatId: selectedChatId(),
@@ -198,6 +200,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcHost: mcHost(),
             mcPort: parseInt(mcPort(), 10),
             mcUsername: mcUsername(),
+            mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
             voxtaUrl: voxtaUrl(),
             voxtaApiKey: apiKey(),
@@ -378,6 +381,16 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                 onInput={(e) => setMcPort(e.currentTarget.value)}
                                 placeholder="25565"
                             />
+                        </div>
+                        <div class="field">
+                            <label>Game Version</label>
+                            <input
+                                type="text"
+                                value={mcVersion()}
+                                onInput={(e) => setMcVersion(e.currentTarget.value)}
+                                placeholder="Auto-detect"
+                            />
+                            <span class="field-hint">Leave empty to auto-detect from server</span>
                         </div>
                     </div>
 

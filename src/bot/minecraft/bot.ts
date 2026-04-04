@@ -19,7 +19,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         host: config.mc.host,
         port: config.mc.port,
         username: config.mc.username,
-        version: config.mc.version,
+        ...(config.mc.version ? { version: config.mc.version } : {}),
         hideErrors: false,
     });
 

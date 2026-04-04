@@ -81,11 +81,11 @@ export default function AudioPlayer() {
         const audioInput = new AudioInputService();
 
         const unsubRecordingStart = window.api.onRecordingStart((event: RecordingStartEvent) => {
-            void audioInput.startStreaming(event.sessionId, event.voxtaBaseUrl, event.voxtaApiKey);
+            audioInput.handleRecordingRequest(true, event.sessionId, event.voxtaBaseUrl, event.voxtaApiKey);
         });
 
         const unsubRecordingStop = window.api.onRecordingStop(() => {
-            audioInput.pauseStreaming();
+            audioInput.handleRecordingRequest(false, audioInput.sessionId ?? '', '', null);
         });
 
         onCleanup(() => {

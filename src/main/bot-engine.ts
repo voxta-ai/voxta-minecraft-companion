@@ -133,6 +133,11 @@ export class BotEngine extends EventEmitter {
         if (raw.includes('ENOTFOUND')) {
             return `Server address not found — check the host name is correct.`;
         }
+        // Version mismatch (Mineflayer reports server vs client version)
+        const versionMatch = raw.match(/server is version ([\d.]+)/i);
+        if (versionMatch) {
+            return `Version mismatch — the server runs ${versionMatch[1]}. Set "Game Version" to ${versionMatch[1]} and try again.`;
+        }
 
         // Voxta connection errors
         if (raw.includes('Failed to complete negotiation') || raw.includes('Status code')) {

@@ -1,11 +1,12 @@
 /**
  * Client-side audio input service for the Minecraft companion.
- * Streams microphone audio to the Voxta server over a WebSocket,
- * replicating how Voxta Talk handles audio input.
+ * Streams microphone audio to the Voxta server over a WebSocket.
  *
- * The server controls when to start/stop via recordingRequest messages.
- * Uses getUserMedia with echoCancellation to prevent the AI's voice
- * from being transcribed as user speech.
+ * Mirrors the architecture of voxta-talk's AudioInputService:
+ * - One WebSocket per session, kept alive with keepAlive during pauses
+ * - pause/resume for recording stop/start within the same session
+ * - Full stop after a timeout (30s) of inactivity
+ * - Full restart on new session ID
  */
 
 import { MediaRecorder, register } from 'extendable-media-recorder';
@@ -16,6 +17,16 @@ const TIMESLICE_MS = 30;
 const AUDIO_BITS_PER_SECOND = 64_000;
 const KEEP_ALIVE_MS = 15_000;
 const RECONNECT_RETRY_MS = 1_000;
+const RECORDING_OFF_TIMEOUT_MS = 30_000;
+
+/** Forward log to main process terminal via IPC */
+function log(msg: string): void {
+    try {
+        window.api.log(msg);
+    } catch {
+        console.log(msg);
+    }
+}
 
 // Register WAV encoder once at module load
 const registerPromise = (async () => {
@@ -27,42 +38,39 @@ const registerPromise = (async () => {
 })();
 
 export class AudioInputService {
-    private sessionId: string | null = null;
-    private enabled = false;
-    private paused = false;
+    public sessionId: string | null = null;
+    public enabled = false;
+    public paused = false;
+
     private stream: MediaStream | null = null;
     private socket: WebSocket | null = null;
     private mediaRecorder: IMediaRecorder | null = null;
     private shouldRetry = false;
     private readyToSend = false;
+    private retryInProgress = false;
     private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
+    private recordingOffTimeout: ReturnType<typeof setTimeout> | null = null;
+    private chunksSent = 0;
 
-    /** Start streaming mic audio to the server */
+    /** Start streaming — acquires mic, connects WebSocket, starts MediaRecorder */
     async startStreaming(sessionId: string, voxtaBaseUrl: string, apiKey: string | null): Promise<void> {
-        // Wait for WAV encoder registration
         await registerPromise;
 
         if (this.enabled) {
             if (this.sessionId === sessionId) {
-                // Same session — just resume if paused
-                if (this.paused) {
-                    this.resumeStreaming();
-                } else {
-                    console.log('[AudioInput] startStreaming called but already active (same session, not paused)');
-                }
+                // Same session — stop and restart (matches voxta-talk behavior)
+                this.stopStreaming();
+            } else {
                 return;
             }
-            // Different session — restart
-            console.log(`[AudioInput] Session changed (${this.sessionId} → ${sessionId}), restarting`);
-            this.stopStreaming();
         }
 
         this.sessionId = sessionId;
         this.enabled = true;
         this.shouldRetry = true;
+        this.chunksSent = 0;
 
         try {
-            // Request mic with echo cancellation
             this.stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     channelCount: 1,
@@ -72,28 +80,24 @@ export class AudioInputService {
                 },
             });
 
-            // Create MediaRecorder with WAV format
             this.mediaRecorder = new MediaRecorder(this.stream, {
                 mimeType: 'audio/wav',
                 audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
             });
 
             this.mediaRecorder.ondataavailable = (event: BlobEvent) => {
-                if (this.paused) return;
-                if (!this.readyToSend) {
-                    return;
+                if (
+                    !this.paused &&
+                    this.readyToSend &&
+                    event.data.size > 0 &&
+                    this.socket?.readyState === WebSocket.OPEN
+                ) {
+                    this.socket.send(event.data);
+                    this.chunksSent++;
                 }
-                if (event.data.size === 0) return;
-                if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-                    console.warn(
-                        `[AudioInput] Data available but socket not open (state: ${this.socket?.readyState ?? 'null'})`,
-                    );
-                    return;
-                }
-                this.socket.send(event.data);
             };
 
-            // Build WebSocket URL with auth token
+            // Build WebSocket URL
             const wsProtocol = voxtaBaseUrl.startsWith('https') ? 'wss' : 'ws';
             const host = voxtaBaseUrl.replace(/^https?:\/\//, '');
             let wsUrl = `${wsProtocol}://${host}/ws/audio/input/stream?sessionId=${sessionId}`;
@@ -101,36 +105,27 @@ export class AudioInputService {
                 wsUrl += `&access_token=${encodeURIComponent(apiKey)}`;
             }
 
-            await this.connectWebSocket(wsUrl);
+            await this.connectWebSocket(sessionId, wsUrl);
 
-            // Start recording
             this.mediaRecorder.start(TIMESLICE_MS);
 
-            // Monitor mic track for unexpected stops
+            // Monitor mic track
             const track = this.stream.getAudioTracks()[0];
             if (track) {
                 track.addEventListener('ended', () => {
-                    console.error('[AudioInput] Mic track ended unexpectedly!');
+                    log('[AudioInput] Mic track ended unexpectedly!');
                 });
-                track.addEventListener('mute', () => {
-                    console.warn('[AudioInput] Mic track muted');
-                });
-                track.addEventListener('unmute', () => {
-                    console.log('[AudioInput] Mic track unmuted');
-                });
-                console.log(
-                    `[AudioInput] Started streaming (track state: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted})`,
+                log(
+                    `[AudioInput] Started streaming (track: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted})`,
                 );
-            } else {
-                console.error('[AudioInput] No audio track found after getUserMedia!');
             }
         } catch (error) {
-            console.error('[AudioInput] Error starting:', error);
+            log(`[AudioInput] Error starting: ${error instanceof Error ? error.message : String(error)}`);
             this.stopStreaming();
         }
     }
 
-    /** Stop streaming and release all resources */
+    /** Full stop — releases mic, WebSocket, MediaRecorder */
     stopStreaming(): void {
         if (!this.enabled) return;
 
@@ -143,13 +138,16 @@ export class AudioInputService {
             clearInterval(this.keepAliveInterval);
             this.keepAliveInterval = null;
         }
+        if (this.recordingOffTimeout) {
+            clearTimeout(this.recordingOffTimeout);
+            this.recordingOffTimeout = null;
+        }
         if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
             this.mediaRecorder.stop();
         }
         this.stream?.getTracks().forEach((track) => track.stop());
         this.stream = null;
         this.mediaRecorder = null;
-
         if (this.socket) {
             this.socket.onerror = () => {
                 /* noop */
@@ -161,10 +159,10 @@ export class AudioInputService {
         }
         this.socket = null;
 
-        console.log('[AudioInput] Stopped streaming');
+        log(`[AudioInput] Stopped streaming (${this.chunksSent} chunks sent total)`);
     }
 
-    /** Pause mic streaming (keep connection alive) — called when AI starts speaking */
+    /** Pause — stop sending data, send keepAlives to keep WebSocket alive */
     pauseStreaming(): void {
         if (!this.enabled || this.paused) return;
         this.paused = true;
@@ -172,13 +170,13 @@ export class AudioInputService {
             if (this.socket?.readyState === WebSocket.OPEN) {
                 this.socket.send(JSON.stringify({ type: 'keepalive' }));
             } else {
-                console.warn(`[AudioInput] Keepalive skipped — socket state: ${this.socket?.readyState ?? 'null'}`);
+                log(`[AudioInput] Keepalive skipped — socket state: ${this.socket?.readyState ?? 'null'}`);
             }
         }, KEEP_ALIVE_MS);
-        console.log(`[AudioInput] Paused streaming (socket state: ${this.socket?.readyState ?? 'null'})`);
+        log(`[AudioInput] Paused (socket: ${this.socket?.readyState ?? 'null'}, chunks sent: ${this.chunksSent})`);
     }
 
-    /** Resume mic streaming — called when AI stops speaking */
+    /** Resume — start sending data again */
     resumeStreaming(): void {
         if (!this.enabled || !this.paused) return;
         this.paused = false;
@@ -186,10 +184,82 @@ export class AudioInputService {
             clearInterval(this.keepAliveInterval);
             this.keepAliveInterval = null;
         }
-        console.log('[AudioInput] Resumed streaming');
+
+        const socketState = this.socket?.readyState ?? -1;
+        const recorderState = this.mediaRecorder?.state ?? 'null';
+        const track = this.stream?.getAudioTracks()[0];
+        const trackState = track ? `${track.readyState}, enabled=${track.enabled}, muted=${track.muted}` : 'no track';
+
+        log(
+            `[AudioInput] Resumed (socket: ${socketState}, recorder: ${recorderState}, track: ${trackState})`,
+        );
+
+        if (socketState !== WebSocket.OPEN) {
+            log('[AudioInput] WARNING: WebSocket is NOT open after resume!');
+        }
+        if (recorderState !== 'recording') {
+            log(`[AudioInput] WARNING: MediaRecorder state is "${recorderState}", expected "recording"!`);
+        }
+
+        // Verify data is flowing 2s after resume
+        const chunksAtResume = this.chunksSent;
+        setTimeout(() => {
+            if (!this.enabled || this.paused) return;
+            const chunksSinceResume = this.chunksSent - chunksAtResume;
+            if (chunksSinceResume === 0) {
+                log('[AudioInput] WARNING: No audio chunks sent in 2s after resume! Mic data is NOT flowing.');
+            } else {
+                log(`[AudioInput] Heartbeat OK: ${chunksSinceResume} chunks sent in 2s after resume`);
+            }
+        }, 2000);
     }
 
-    private async connectWebSocket(url: string): Promise<void> {
+    /**
+     * Handle recording request from server (matches voxta-talk RecordingService logic).
+     * START: start or resume streaming
+     * STOP: pause streaming + arm 30s timeout to fully stop
+     */
+    handleRecordingRequest(
+        enabled: boolean,
+        sessionId: string,
+        voxtaBaseUrl: string,
+        apiKey: string | null,
+    ): void {
+        if (enabled) {
+            if (this.recordingOffTimeout) {
+                clearTimeout(this.recordingOffTimeout);
+                this.recordingOffTimeout = null;
+            }
+
+            const isNewSession = this.sessionId !== sessionId;
+
+            if (!this.enabled || isNewSession) {
+                if (isNewSession && this.enabled) {
+                    this.stopStreaming();
+                }
+                void this.startStreaming(sessionId, voxtaBaseUrl, apiKey);
+            } else if (this.paused) {
+                this.resumeStreaming();
+            }
+        } else {
+            if (this.enabled) {
+                if (!this.paused) {
+                    this.pauseStreaming();
+                }
+                // Arm 30s timeout to fully stop (matches voxta-talk)
+                if (!this.recordingOffTimeout) {
+                    this.recordingOffTimeout = setTimeout(() => {
+                        if (this.enabled) {
+                            log('[AudioInput] Recording off timeout (30s) — stopping');
+                            this.stopStreaming();
+                        }
+                    }, RECORDING_OFF_TIMEOUT_MS);
+                }
+            }
+        }
+    }
+
+    private async connectWebSocket(sessionId: string, url: string): Promise<void> {
         this.readyToSend = false;
 
         if (this.socket) {
@@ -203,6 +273,7 @@ export class AudioInputService {
             this.socket = null;
         }
 
+        log('[AudioInput] Connecting WebSocket...');
         const ws = new WebSocket(url);
         this.socket = ws;
 
@@ -213,7 +284,6 @@ export class AudioInputService {
                     return;
                 }
 
-                // Send audio specs as the first message (same as Voxta Talk)
                 ws.send(
                     JSON.stringify({
                         contentType: 'audio/wav',
@@ -224,25 +294,25 @@ export class AudioInputService {
                     }),
                 );
                 this.readyToSend = true;
-                console.log('[AudioInput] WebSocket connected');
+                log('[AudioInput] WebSocket connected');
                 resolve();
             };
 
             ws.onerror = (event) => {
                 if (this.socket !== ws) return;
-                console.error('[AudioInput] WebSocket error:', event);
+                log(`[AudioInput] WebSocket error: ${JSON.stringify(event)}`);
                 ws.onerror = () => {
                     /* noop */
                 };
                 ws.onclose = () => {
                     /* noop */
                 };
-                this.handleReconnect(url, resolve, reject);
+                this.handleReconnect(sessionId, url, resolve, reject);
             };
 
             ws.onclose = (event) => {
                 if (this.socket !== ws) return;
-                console.warn(
+                log(
                     `[AudioInput] WebSocket closed (code: ${event.code}, reason: "${event.reason}", clean: ${event.wasClean})`,
                 );
                 ws.onerror = () => {
@@ -251,22 +321,33 @@ export class AudioInputService {
                 ws.onclose = () => {
                     /* noop */
                 };
-                this.handleReconnect(url, resolve, reject);
+                this.handleReconnect(sessionId, url, resolve, reject);
             };
         });
     }
 
-    private handleReconnect(url: string, resolve: () => void, reject: (e: Error) => void): void {
+    private handleReconnect(
+        sessionId: string,
+        url: string,
+        resolve: () => void,
+        reject: (e: Error) => void,
+    ): void {
+        if (this.retryInProgress) return;
+        if (this.sessionId !== sessionId) return;
         if (!this.shouldRetry) return;
 
-        console.log('[AudioInput] WebSocket disconnected, retrying...');
+        this.retryInProgress = true;
+        log('[AudioInput] WebSocket disconnected, retrying...');
         setTimeout(() => {
-            if (!this.shouldRetry) return;
-            this.connectWebSocket(url).then(resolve).catch(reject);
+            if (this.sessionId !== sessionId) {
+                this.retryInProgress = false;
+                return;
+            }
+            this.connectWebSocket(sessionId, url).then(resolve).catch(reject);
+            this.retryInProgress = false;
         }, RECONNECT_RETRY_MS);
     }
 
-    /** Clean up everything */
     dispose(): void {
         this.stopStreaming();
     }

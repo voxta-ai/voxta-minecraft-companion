@@ -215,4 +215,5 @@ export const IPC_CHANNELS = {
     // Renderer → Main (audio ack)
     AUDIO_STARTED: 'bot:audio-started',
     AUDIO_COMPLETE: 'bot:audio-complete',
+    LOG: 'bot:log',
 } as const;

@@ -59,6 +59,9 @@ const api = {
 
     audioComplete: (messageId: string): void => ipcRenderer.send(IPC_CHANNELS.AUDIO_COMPLETE, messageId),
 
+    /** Forward a renderer log message to the main process terminal */
+    log: (message: string): void => ipcRenderer.send(IPC_CHANNELS.LOG, message),
+
     onStatusChanged: (callback: StatusCallback): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, status: BotStatus): void => callback(status);
         ipcRenderer.on(IPC_CHANNELS.STATUS_CHANGED, handler);
