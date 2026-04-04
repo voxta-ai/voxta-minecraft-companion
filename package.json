@@ -1,6 +1,6 @@
 {
     "name": "voxta-minecraft-companion",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "AI-powered Minecraft companion using Voxta and Mineflayer",
     "main": "./out/main/index.js",
     "scripts": {
@@ -30,7 +30,10 @@
             "node_modules/mineflayer-pathfinder/**"
         ],
         "win": {
-            "target": ["nsis", "zip"],
+            "target": [
+                "nsis",
+                "zip"
+            ],
             "icon": "resources/icon.png"
         },
         "nsis": {
