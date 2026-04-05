@@ -1,5 +1,7 @@
-import { For, Show, createSignal, createEffect } from 'solid-js';
+import { For, Show, createSignal, createEffect, createMemo } from 'solid-js';
 import { chatMessages, sendMessage, status } from '../stores/app-store';
+import { speechPartialText, setSpeechPartialText } from '../stores/audio-store';
+import AudioIcons from './AudioIcons';
 
 interface ChatViewProps {
     onConnect: () => void;
@@ -22,10 +24,17 @@ export default function ChatView(props: ChatViewProps) {
         }
     });
 
+    // Show partial speech text in the input, or the user's typed text
+    const displayValue = createMemo(() => {
+        const partial = speechPartialText();
+        return partial || inputText();
+    });
+
     const handleSend = async () => {
         const text = inputText().trim();
         if (!text) return;
         setInputText('');
+        setSpeechPartialText('');
         await sendMessage(text);
     };
 
@@ -80,15 +89,21 @@ export default function ChatView(props: ChatViewProps) {
             </Show>
 
             <div class="chat-input-bar">
-                <input
-                    type="text"
-                    placeholder={isConnected() ? 'Type a message...' : 'Connect first to chat'}
-                    value={inputText()}
-                    onInput={(e) => setInputText(e.currentTarget.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={!isConnected()}
-                />
-                <button onClick={handleSend} disabled={!isConnected() || !inputText().trim()}>
+                <div class="chat-input-wrapper">
+                    <input
+                        type="text"
+                        placeholder={isConnected() ? 'Type a message...' : 'Connect first to chat'}
+                        value={displayValue()}
+                        onInput={(e) => {
+                            setSpeechPartialText('');
+                            setInputText(e.currentTarget.value);
+                        }}
+                        onKeyDown={handleKeyDown}
+                        disabled={!isConnected()}
+                    />
+                    <AudioIcons />
+                </div>
+                <button class="btn-send" onClick={handleSend} disabled={!isConnected() || !inputText().trim()}>
                     Send
                 </button>
             </div>

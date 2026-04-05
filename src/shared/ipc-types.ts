@@ -213,6 +213,7 @@ export const IPC_CHANNELS = {
     STOP_AUDIO: 'bot:stop-audio',
     RECORDING_START: 'bot:recording-start',
     RECORDING_STOP: 'bot:recording-stop',
+    SPEECH_PARTIAL: 'bot:speech-partial',
 
     // Renderer → Main (audio ack)
     AUDIO_STARTED: 'bot:audio-started',

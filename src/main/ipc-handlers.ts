@@ -59,6 +59,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         win.webContents.send(IPC_CHANNELS.RECORDING_STOP);
     });
 
+    engine.on('speech-partial', (text: string) => {
+        win.webContents.send(IPC_CHANNELS.SPEECH_PARTIAL, text);
+    });
+
     // Audio ack from renderer
     ipcMain.on(IPC_CHANNELS.AUDIO_STARTED, (_event, payload: AudioPlaybackEvent) => {
         engine.handleAudioStarted(payload);

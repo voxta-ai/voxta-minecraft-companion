@@ -627,9 +627,16 @@ body {
     background: var(--bg-secondary);
 }
 
-.chat-input-bar input {
+.chat-input-wrapper {
     flex: 1;
-    padding: 10px 14px;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.chat-input-bar input {
+    width: 100%;
+    padding: 10px 72px 10px 14px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
@@ -644,7 +651,7 @@ body {
     border-color: var(--accent-green);
 }
 
-.chat-input-bar button {
+.chat-input-bar .btn-send {
     padding: 10px 18px;
     background: var(--accent-purple);
     border: none;
@@ -656,13 +663,58 @@ body {
     transition: background var(--transition);
 }
 
-.chat-input-bar button:hover {
+.chat-input-bar .btn-send:hover {
     background: #c4b5fd;
 }
 
-.chat-input-bar button:disabled {
+.chat-input-bar .btn-send:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+}
+
+/* ---- Audio Icons (Mic & Speaker) ---- */
+.audio-icons {
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.audio-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 15px;
+    transition: color var(--transition), opacity var(--transition);
+    padding: 0;
+    opacity: 0.85;
+}
+
+.audio-icon-btn:hover {
+    opacity: 1;
+}
+
+/* Disabled / muted — gray */
+.audio-icon-btn.audio-icon-disabled {
+    color: rgb(134, 133, 136);
+}
+
+/* On / waiting — reddish (matches voxta-talk) */
+.audio-icon-btn.audio-icon-on {
+    color: rgb(179, 95, 95);
+}
+
+/* Active / listening / speaking — green */
+.audio-icon-btn.audio-icon-active {
+    color: rgb(39, 240, 20);
 }
 
 /* ---- Action Toggles ---- */
