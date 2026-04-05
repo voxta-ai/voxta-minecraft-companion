@@ -31,7 +31,7 @@ import { resetActionFired } from './action-orchestrator';
 
 // Centralized version constant
 const CLIENT_NAME = 'Voxta.Minecraft';
-const CLIENT_VERSION = '0.2.0';
+const CLIENT_VERSION = '0.3.2';
 
 type BotEngineEvent =
     | 'status-changed'
