@@ -687,7 +687,6 @@ export class BotEngine extends EventEmitter {
                 console.log(
                     `[Bot] Follow watchdog: still stuck — resetting pathfinder movements (tier 2)`,
                 );
-                const mcData = require('minecraft-data')(bot.version);
                 const freshMovements = new (require('mineflayer-pathfinder').Movements)(bot);
                 freshMovements.canDig = true;
                 freshMovements.allow1by1towers = true;

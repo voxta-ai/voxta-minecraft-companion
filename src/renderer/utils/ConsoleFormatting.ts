@@ -45,14 +45,14 @@ const StackTraceRegex = /^\s*(at)\s+([^ (]+)(\(.*)/;
 const StackTraceLocationRegex = /(.*)(\\s+in\\s+)(.+:line\\s+\\d+.*)/;
 
 // Exception headers
-const ExceptionLineRegex = /^(\s*---\>|\s*Unhandled exception|\s*--- End of|[\w.]*Exception:)/;
+const ExceptionLineRegex = /^(\s*--->|\s*Unhandled exception|\s*--- End of|[\w.]*Exception:)/;
 
 // URLs
 const UrlRegex = /(https?:\/\/\S+)/gi;
 
 // Paths (Windows + Unix)
 const PathRegex =
-    /([a-zA-Z]:\\[\w\-.\\\+]+|\(Voxta\)\\[\w\-.\\\+]+|\.{0,2}\/[\w\-.\\\/]+\/[\w\-.\\\/]+)/gi;
+    /([a-zA-Z]:\\[\w\-.\\+]+|\(Voxta\)\\[\w\-.\\+]+|\.{0,2}\/[\w\-.\\/]+\/[\w\-.\\/]+)/gi;
 
 // GUIDs
 const GuidRegex = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/gi;
