@@ -13,7 +13,7 @@ import type { Bot } from 'mineflayer';
 import type { NameRegistry } from '../bot/name-registry';
 import type { CharacterInfo } from '../shared/ipc-types';
 import { handleVisionCaptureRequest } from './vision-capture';
-import { handleActionMessage } from './action-orchestrator';
+import { handleActionMessage, resetActionFired } from './action-orchestrator';
 
 // ---- Context passed to each handler ----
 
@@ -216,10 +216,16 @@ function handleSpeechRecognitionStart(_message: ServerMessage, ctx: MessageHandl
     ctx.audioPipeline.fireAckNow();
 }
 
+function handleSpeechRecognitionPartial(message: ServerMessage, ctx: MessageHandlerContext): void {
+    const text = (message as { text?: string }).text ?? '';
+    ctx.emit('speech-partial', text);
+}
+
 function handleSpeechRecognitionEnd(message: ServerMessage, ctx: MessageHandlerContext): void {
     const text = (message as { text?: string }).text;
     console.log(`[User >>] said: "${text ?? '(empty)'}"`);
     if (text) {
+        resetActionFired();
         ctx.addChat('player', `You (voice)`, text);
         void ctx.getVoxta()?.sendMessage(text);
     }
@@ -281,6 +287,7 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
     interruptSpeech: handleInterruptSpeech,
     chatFlow: handleChatFlow,
     speechRecognitionStart: handleSpeechRecognitionStart,
+    speechRecognitionPartial: handleSpeechRecognitionPartial,
     speechRecognitionEnd: handleSpeechRecognitionEnd,
     visionCaptureRequest: handleVisionCaptureRequestMsg,
     recordingRequest: handleRecordingRequest,

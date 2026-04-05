@@ -39,6 +39,33 @@ export const TOOL_REQUIREMENTS: Record<string, ToolCategory> = {
 
 export const TOOL_TIERS = ['netherite', 'diamond', 'iron', 'stone', 'golden', 'wooden'];
 
+/**
+ * Minimum tool tier required for a block to actually drop items.
+ * If the bot's best pickaxe is below this tier, mining is pointless.
+ * Blocks not listed here can be mined with any tier of the required tool.
+ */
+export const TOOL_MIN_TIER: Record<string, string> = {
+    // Stone tier minimum (wooden pickaxe won't drop these)
+    iron_ore: 'stone',
+    deepslate_iron_ore: 'stone',
+    copper_ore: 'stone',
+    deepslate_copper_ore: 'stone',
+    lapis_ore: 'stone',
+    deepslate_lapis_ore: 'stone',
+    // Iron tier minimum
+    gold_ore: 'iron',
+    deepslate_gold_ore: 'iron',
+    diamond_ore: 'iron',
+    deepslate_diamond_ore: 'iron',
+    emerald_ore: 'iron',
+    deepslate_emerald_ore: 'iron',
+    redstone_ore: 'iron',
+    deepslate_redstone_ore: 'iron',
+    // Diamond tier minimum
+    obsidian: 'diamond',
+    ancient_debris: 'diamond',
+};
+
 // ---- Food & Cooking data ----
 
 /** Food items sorted by hunger restoration (the best first) */

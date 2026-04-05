@@ -153,6 +153,29 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         bookshelf: 'bookshelf',
     };
 
+    // Ore blocks — scanned at a wider radius (16) for resource awareness
+    const ORE_BLOCKS: Record<string, string> = {
+        coal_ore: 'coal ore',
+        deepslate_coal_ore: 'coal ore',
+        iron_ore: 'iron ore',
+        deepslate_iron_ore: 'iron ore',
+        gold_ore: 'gold ore',
+        deepslate_gold_ore: 'gold ore',
+        diamond_ore: 'diamond ore',
+        deepslate_diamond_ore: 'diamond ore',
+        emerald_ore: 'emerald ore',
+        deepslate_emerald_ore: 'emerald ore',
+        lapis_ore: 'lapis ore',
+        deepslate_lapis_ore: 'lapis ore',
+        redstone_ore: 'redstone ore',
+        deepslate_redstone_ore: 'redstone ore',
+        copper_ore: 'copper ore',
+        deepslate_copper_ore: 'copper ore',
+        nether_quartz_ore: 'nether quartz ore',
+        nether_gold_ore: 'nether gold ore',
+        ancient_debris: 'ancient debris',
+    };
+
     let hasRoof = false;
     try {
         for (let dy = 1; dy <= 6; dy++) {
@@ -187,6 +210,31 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         }
     } catch {
         /* chunk not loaded */
+    }
+
+    // Scan for ore blocks at a wider radius — ores on surfaces are resource opportunities
+    const oreCounts = new Map<string, number>();
+    try {
+        const oreRadius = 16;
+        for (let dx = -oreRadius; dx <= oreRadius; dx++) {
+            for (let dy = -3; dy <= 3; dy++) {
+                for (let dz = -oreRadius; dz <= oreRadius; dz++) {
+                    const block = bot.blockAt(pos.offset(dx, dy, dz));
+                    if (!block) continue;
+                    const oreLabel = ORE_BLOCKS[block.name];
+                    if (oreLabel) {
+                        oreCounts.set(oreLabel, (oreCounts.get(oreLabel) ?? 0) + 1);
+                    }
+                }
+            }
+        }
+    } catch {
+        /* chunk not loaded */
+    }
+
+    // Merge ore counts into block counts for the summary
+    for (const [label, count] of oreCounts) {
+        blockCounts.set(label, (blockCounts.get(label) ?? 0) + count);
     }
 
     // Build nearby blocks summary (skip torches — too noisy)

@@ -125,6 +125,12 @@ const api = {
         ipcRenderer.on(IPC_CHANNELS.RECORDING_STOP, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.RECORDING_STOP, handler);
     },
+
+    onSpeechPartial: (callback: (text: string) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, text: string): void => callback(text);
+        ipcRenderer.on(IPC_CHANNELS.SPEECH_PARTIAL, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.SPEECH_PARTIAL, handler);
+    },
 };
 
 contextBridge.exposeInMainWorld('api', api);

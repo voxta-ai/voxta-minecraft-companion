@@ -4,7 +4,7 @@ const { goals } = pkg;
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import type { ToolCategory } from '../game-data';
-import { getToolCategory, getBestTool } from './action-helpers.js';
+import { getToolCategory, getBestTool, getToolIfStrongEnough } from './action-helpers.js';
 import { getActionAbort, setSuppressPickups } from './action-state.js';
 
 export async function mineBlock(
@@ -168,8 +168,13 @@ export async function mineBlock(
     const resolvedName = (mcData.blocks[blockIds[0]] as { name?: string })?.name ?? blockType;
     const toolCategory = getToolCategory(resolvedName);
     if (toolCategory !== 'none') {
-        const tool = getBestTool(bot, toolCategory);
+        const tool = getToolIfStrongEnough(bot, toolCategory, resolvedName);
         if (!tool) {
+            // Check if they have ANY tool of the right type (just too weak)
+            const weakTool = getBestTool(bot, toolCategory);
+            if (weakTool) {
+                return `Cannot mine ${blockType} with a ${weakTool.name} — need a stronger ${toolCategory}`;
+            }
             return `Cannot mine ${blockType} without a ${toolCategory}`;
         }
         // Auto-equip the required tool
@@ -259,6 +264,7 @@ export async function mineBlock(
     // Block type flags (used for sort/filter behavior inside the loop)
     const isTreeBlock = resolvedName.includes('log');
     const isStoneBlock = STONE_ALIASES.includes(blockType.toLowerCase());
+    const isOreBlock = resolvedName.endsWith('_ore');
 
     // Stone mining: anchor position prevents Y-drift when bot falls into dug holes
     const anchorY = bot.entity.position.y;
@@ -288,7 +294,7 @@ export async function mineBlock(
         const botX = Math.floor(bot.entity.position.x);
         const botZ = Math.floor(bot.entity.position.z);
         const maxAbove = isTreeBlock ? 6 : 2;
-        const maxBelow = isTreeBlock ? 3 : 2;
+        const maxBelow = isTreeBlock ? 3 : (isOreBlock ? 3 : 2);
 
         // Stone mining: use ANCHORED Y reference so digging one block and falling
         // doesn't shift the "current level" and cause scattered holes.
@@ -307,9 +313,10 @@ export async function mineBlock(
                         (pos.x - anchorX) ** 2 + (pos.z - anchorZ) ** 2,
                     );
                     if (hDist > stoneMaxHDist) return false;
-                    // Only mine at anchor level (walls around bot) — foot, head, 1 above
+                    // Mine stone within a reasonable Y range (surface stone can be
+                    // 2 blocks below bot when grass/dirt sits on top of it)
                     const dy = pos.y - refY;
-                    if (dy > 1 || dy < -1) return false;
+                    if (dy > 2 || dy < -3) return false;
                     // Don't mine directly below feet
                     if (pos.y < Math.floor(botY) && pos.x === botX && pos.z === botZ) return false;
                     return true;
@@ -317,8 +324,9 @@ export async function mineBlock(
 
                 const dy = pos.y - botY;
                 if (dy > maxAbove || dy < -maxBelow) return false;
-                // Don't mine directly below feet (safety: lava, void, etc.)
-                if (dy < 0 && pos.x === botX && pos.z === botZ) return false;
+                // Don't mine directly below feet (safety) — but allow ores
+                // since surface-exposed ore at feet level is common and safe
+                if (!isOreBlock && dy < 0 && pos.x === botX && pos.z === botZ) return false;
                 return true;
             })
             .sort((a, b) => {

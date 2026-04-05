@@ -3,7 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { ActionInvocationArgument } from '../../voxta/types.js';
 import type { NameRegistry } from '../../name-registry';
 import type { ToolCategory } from '../game-data';
-import { TOOL_REQUIREMENTS, TOOL_TIERS } from '../game-data';
+import { TOOL_REQUIREMENTS, TOOL_TIERS, TOOL_MIN_TIER } from '../game-data';
 
 // ---- Tool helpers ----
 
@@ -21,6 +21,31 @@ export function getBestTool(bot: Bot, category: ToolCategory): { item: unknown; 
         if (found) return { item: found, name: toolName };
     }
     return null;
+}
+
+/**
+ * Check if the bot's best tool meets the minimum tier to actually get drops.
+ * Returns the tool if good enough, null if too weak or missing.
+ */
+export function getToolIfStrongEnough(
+    bot: Bot,
+    category: ToolCategory,
+    blockName: string,
+): { item: unknown; name: string } | null {
+    const tool = getBestTool(bot, category);
+    if (!tool) return null;
+
+    const minTier = TOOL_MIN_TIER[blockName];
+    if (!minTier) return tool; // No minimum — any tier works
+
+    const minTierIdx = TOOL_TIERS.indexOf(minTier);
+    // Extract tier from tool name (e.g., 'stone_pickaxe' → 'stone')
+    const toolTier = tool.name.replace(`_${category}`, '');
+    const toolTierIdx = TOOL_TIERS.indexOf(toolTier);
+
+    // Lower index = stronger tier (netherite=0, wooden=5)
+    if (toolTierIdx > minTierIdx) return null; // Too weak
+    return tool;
 }
 
 /** Find the best weapon in the inventory: swords first, then axes, then other tools as fallback */

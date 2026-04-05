@@ -13,6 +13,7 @@ interface SavedConfig {
     playerMcUsername?: string;
     voxtaUrl?: string;
     voxtaApiKey?: string;
+    lastCharacterId?: string;
 }
 
 function loadSavedConfig(): SavedConfig {
@@ -100,10 +101,14 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         });
     });
 
-    // Auto-select the first character when available
+    // Auto-select: saved character if available, otherwise default assistant
     createEffect(() => {
         if (voxtaInfo.characters.length > 0 && !selectedCharacterId()) {
-            setSelectedCharacterId(voxtaInfo.defaultAssistantId ?? voxtaInfo.characters[0]?.id ?? null);
+            const savedId = saved.lastCharacterId;
+            const savedExists = savedId && voxtaInfo.characters.some((c) => c.id === savedId);
+            setSelectedCharacterId(
+                savedExists ? savedId : (voxtaInfo.defaultAssistantId ?? voxtaInfo.characters[0]?.id ?? null),
+            );
         }
     });
 
@@ -204,6 +209,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             playerMcUsername: playerMcName(),
             voxtaUrl: voxtaUrl(),
             voxtaApiKey: apiKey(),
+            lastCharacterId: charId,
         });
         setLaunching(true);
         try {

@@ -50,6 +50,16 @@ export function setCurrentCombatTarget(target: string | null): void {
     currentCombatTarget = target;
 }
 
+// Auto-defense flag — when true, the event system is handling combat.
+// AI-generated combat actions should be silently skipped to avoid spam loops.
+let autoDefending = false;
+export function isAutoDefending(): boolean {
+    return autoDefending;
+}
+export function setAutoDefending(value: boolean): void {
+    autoDefending = value;
+}
+
 // ---- Fishing callback ----
 
 let onFishCaught: ((itemName: string, count: number) => void) | null = null;

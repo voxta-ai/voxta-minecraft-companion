@@ -27,6 +27,7 @@ import type { MinecraftBot } from '../bot/minecraft/bot';
 import type { ScenarioAction } from '../bot/voxta/types';
 import { AudioPipeline } from './audio-pipeline';
 import { dispatchVoxtaMessage } from './voxta-message-handler';
+import { resetActionFired } from './action-orchestrator';
 
 // Centralized version constant
 const CLIENT_NAME = 'Voxta.Minecraft';
@@ -642,6 +643,7 @@ export class BotEngine extends EventEmitter {
                 onPlayerChat: (text) => {
                     if (!this.voxta?.sessionId) return;
                     console.log(`[User >>] MC chat: "${text}"`);
+                    resetActionFired();
 
                     if (this.isReplying) {
                         // Interrupt the current speech first, then send after server settles
@@ -695,15 +697,31 @@ export class BotEngine extends EventEmitter {
         );
 
         // Auto-follow: companion should follow the player by default on spawn
+        // Small delay to let pathfinder initialize after bot spawn
         if (this.playerMcUsername) {
             this.followingPlayer = this.playerMcUsername;
-            void executeAction(
-                bot,
-                'mc_follow_player',
-                [{ name: 'player_name', value: this.playerMcUsername }],
-                this.names,
-            );
-            console.log(`[Bot] Auto-following ${this.playerMcUsername} on spawn`);
+            const playerName = this.playerMcUsername;
+            console.log(`[Bot] Auto-following ${playerName} on spawn`);
+            setTimeout(() => {
+                if (!this.mcBot) return;
+                executeAction(
+                    this.mcBot.bot,
+                    'mc_follow_player',
+                    [{ name: 'player_name', value: playerName }],
+                    this.names,
+                ).catch((err) => {
+                    console.log(`[Bot] Auto-follow failed, retrying in 2s:`, err);
+                    setTimeout(() => {
+                        if (!this.mcBot || this.followingPlayer !== playerName) return;
+                        void executeAction(
+                            this.mcBot.bot,
+                            'mc_follow_player',
+                            [{ name: 'player_name', value: playerName }],
+                            this.names,
+                        );
+                    }, 2000);
+                });
+            }, 1000);
         }
     }
 
@@ -884,6 +902,7 @@ export class BotEngine extends EventEmitter {
     async sendMessage(text: string): Promise<void> {
         if (!this.voxta?.sessionId) return;
         console.log(`[User >>] sendMessage: "${text}"`);
+        resetActionFired();
 
         const name = this.voxtaUserName ?? 'You';
         this.addChat('player', `${name} (text)`, text);

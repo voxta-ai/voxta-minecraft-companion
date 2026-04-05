@@ -4,7 +4,7 @@ import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
 import { isActionBusy, getCurrentActivity } from './actions';
-import { isPickupSuppressed } from './actions/action-state.js';
+import { isPickupSuppressed, setAutoDefending } from './actions/action-state.js';
 import { FOOD_ITEMS } from './game-data';
 
 // ---- Callback interface ----
@@ -196,7 +196,8 @@ export class McEventBridge {
                 // Skip if we're already auto-defending — getting hit back is expected
                 if (this.isAutoDefending) return;
                 const botName = this.callbacks.getAssistantName();
-                this.callbacks.onChat('event', 'Event', `${botName} is under attack by ${this.lastAttacker}!`);
+                // Only send the urgent event (triggers short AI reply).
+                // No separate chat event — that caused double notifications.
                 this.callbacks.onUrgentEvent(
                     `[URGENT] ${botName} is being attacked by ${this.lastAttacker}! IMPORTANT: Reply in ONE sentence only, maximum 10 words.`,
                 );
@@ -220,10 +221,12 @@ export class McEventBridge {
                 }
                 if (targetName) {
                     this.isAutoDefending = true;
+                    setAutoDefending(true);
                     const botName = this.callbacks.getAssistantName();
                     this.callbacks.onChat('action', 'Action', `${botName} auto-defending against ${targetName}!`);
                     void this.onAutoDefenseAction(this.bot, targetName).finally(() => {
                         this.isAutoDefending = false;
+                        setAutoDefending(false);
                     });
                 }
             }
@@ -256,14 +259,16 @@ export class McEventBridge {
             const mobName = attacker.name ?? 'unknown';
             const playerName = entity.username ?? entity.displayName ?? 'player';
             this.isAutoDefending = true;
+            setAutoDefending(true);
             const botName = this.callbacks.getAssistantName();
             const voxtaName = this.names.resolveToVoxta(playerName);
-            this.callbacks.onChat('event', 'Event', `${botName} protecting ${voxtaName} from ${mobName}!`);
+            // Only send the urgent event — no separate chat event to avoid spam
             this.callbacks.onUrgentEvent(
                 `[URGENT] ${voxtaName} is being attacked by a ${mobName}! ${botName} is rushing to protect them. IMPORTANT: Reply in ONE sentence only, maximum 10 words.`,
             );
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
+                setAutoDefending(false);
             });
         }) as (...args: never[]) => void);
 
