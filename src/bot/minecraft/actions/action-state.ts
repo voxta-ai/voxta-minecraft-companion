@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Bot } from 'mineflayer';
 
 // ---- Cancellation & busy tracking ----
 
@@ -60,6 +61,28 @@ export function setAutoDefending(value: boolean): void {
     autoDefending = value;
 }
 
+// ---- Behavior mode ----
+
+export type BotMode = 'passive' | 'hunt' | 'guard';
+
+let botMode: BotMode = 'passive';
+export function getBotMode(): BotMode {
+    return botMode;
+}
+export function setBotMode(mode: BotMode): void {
+    botMode = mode;
+    console.log(`[Bot] Mode changed to: ${mode}`);
+}
+
+// Guard center — the position the bot should patrol around in guard mode
+let guardCenter: { x: number; y: number; z: number } | null = null;
+export function getGuardCenter(): { x: number; y: number; z: number } | null {
+    return guardCenter;
+}
+export function setGuardCenter(pos: { x: number; y: number; z: number } | null): void {
+    guardCenter = pos;
+}
+
 // ---- Fishing callback ----
 
 let onFishCaught: ((itemName: string, count: number) => void) | null = null;
@@ -102,11 +125,23 @@ function saveHomeData(data: HomeData): void {
 }
 
 /** Call after bot connects to load any saved home position for this server */
-export function initHomePosition(host: string, port: number): void {
+export function initHomePosition(host: string, port: number, bot?: Bot): void {
     homeServerKey = `${host}:${port}`;
     const data = loadHomeData();
     const saved = data[homeServerKey];
     if (saved) {
+        // Verify the bed still exists (world may have changed)
+        if (bot) {
+            const { Vec3 } = require('vec3');
+            const block = bot.blockAt(new Vec3(saved.x, saved.y, saved.z));
+            if (!block || !block.name.includes('bed')) {
+                console.log(`[MC Action] Saved home at ${saved.x}, ${saved.y}, ${saved.z} is not a bed (found: ${block?.name ?? 'unloaded'}). Clearing stale data.`);
+                homePosition = null;
+                delete data[homeServerKey];
+                saveHomeData(data);
+                return;
+            }
+        }
         homePosition = saved;
         console.log(`[MC Action] Loaded home position for ${homeServerKey}: ${saved.x}, ${saved.y}, ${saved.z}`);
     } else {
@@ -124,4 +159,15 @@ export function saveHome(bedBlock: { position: { x: number; y: number; z: number
         saveHomeData(data);
     }
     console.log(`[MC Action] Home position saved: ${homePosition.x}, ${homePosition.y}, ${homePosition.z}`);
+}
+
+/** Clear saved home (bed no longer exists at saved position) */
+export function clearHome(): void {
+    homePosition = null;
+    if (homeServerKey) {
+        const data = loadHomeData();
+        delete data[homeServerKey];
+        saveHomeData(data);
+    }
+    console.log('[MC Action] Home position cleared (stale data)');
 }

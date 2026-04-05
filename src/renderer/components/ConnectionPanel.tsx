@@ -171,11 +171,12 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     };
 
     const handleConnectVoxta = async () => {
+        const trimmedKey = apiKey().trim();
         const config: VoxtaConnectConfig = {
-            voxtaUrl: voxtaUrl(),
-            voxtaApiKey: apiKey(),
+            voxtaUrl: voxtaUrl().trim(),
+            voxtaApiKey: trimmedKey,
         };
-        saveConfig({ ...loadSavedConfig(), voxtaUrl: voxtaUrl(), voxtaApiKey: apiKey() });
+        saveConfig({ ...loadSavedConfig(), voxtaUrl: voxtaUrl().trim(), voxtaApiKey: trimmedKey });
         setConnectingVoxta(true);
         try {
             await connectVoxta(config);
@@ -207,8 +208,8 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcUsername: mcUsername(),
             mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
-            voxtaUrl: voxtaUrl(),
-            voxtaApiKey: apiKey(),
+            voxtaUrl: voxtaUrl().trim(),
+            voxtaApiKey: apiKey().trim(),
             lastCharacterId: charId,
         });
         setLaunching(true);
@@ -250,7 +251,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                         <input
                             type="password"
                             value={apiKey()}
-                            onInput={(e) => setApiKey(e.currentTarget.value)}
+                            onInput={(e) => setApiKey(e.currentTarget.value.trim())}
                             placeholder="Leave empty if no password set"
                             disabled={isVoxtaConnected()}
                         />

@@ -1,5 +1,6 @@
-import { createSignal, Show } from 'solid-js';
+import { createSignal, Show, onMount, onCleanup } from 'solid-js';
 import { useStatusListener, useChatListener, status, stopSession } from './stores/app-store';
+import { addLogEntry } from './stores/console-store';
 import ConnectionPanel from './components/ConnectionPanel';
 import SettingsPanel from './components/SettingsPanel';
 import ChatView from './components/ChatView';
@@ -9,6 +10,7 @@ import Modal from './components/Modal';
 import ToastContainer from './components/ToastContainer';
 import AudioPlayer from './components/AudioPlayer';
 import InspectorDrawer from './components/InspectorDrawer';
+import TerminalPanel from './components/TerminalPanel';
 
 type Popup = 'connection' | 'actions' | 'settings' | null;
 
@@ -18,10 +20,32 @@ export default function App() {
 
     const [activePopup, setActivePopup] = createSignal<Popup>(null);
     const [inspectorOpen, setInspectorOpen] = createSignal(false);
+    const [terminalOpen, setTerminalOpen] = createSignal(false);
 
     const togglePopup = (popup: Popup) => {
         setActivePopup(activePopup() === popup ? null : popup);
     };
+
+    // Subscribe to console logs from main process at app level
+    // (not inside TerminalPanel, which only mounts when visible)
+    onMount(() => {
+        const unsub = window.api.onConsoleLog((entry) => {
+            addLogEntry(entry);
+        });
+        onCleanup(unsub);
+    });
+
+    // F2 to toggle terminal
+    onMount(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'F2') {
+                e.preventDefault();
+                setTerminalOpen((prev) => !prev);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        onCleanup(() => window.removeEventListener('keydown', handleKeyDown));
+    });
 
     return (
         <div class="app">
@@ -73,6 +97,14 @@ export default function App() {
                         <span class="header-btn-label">Settings</span>
                     </button>
                     <button
+                        class={`header-btn ${terminalOpen() ? 'active' : ''}`}
+                        onClick={() => setTerminalOpen(!terminalOpen())}
+                        title="Terminal (F2)"
+                    >
+                        <span class="header-btn-icon" style={{ color: 'var(--text-secondary)' }}><i class="bi bi-terminal-fill"></i></span>
+                        <span class="header-btn-label">Terminal</span>
+                    </button>
+                    <button
                         class={`header-btn ${inspectorOpen() ? 'active' : ''}`}
                         onClick={() => setInspectorOpen(!inspectorOpen())}
                         title="Inspector"
@@ -83,12 +115,17 @@ export default function App() {
                 </div>
             </header>
 
-            <div class="app-body">
-                <div class="main-panel">
-                    <ChatView onConnect={() => setActivePopup('connection')} />
+            <Show
+                when={!terminalOpen()}
+                fallback={<TerminalPanel />}
+            >
+                <div class="app-body">
+                    <div class="main-panel">
+                        <ChatView onConnect={() => setActivePopup('connection')} />
+                    </div>
+                    <InspectorDrawer open={inspectorOpen()} />
                 </div>
-                <InspectorDrawer open={inspectorOpen()} />
-            </div>
+            </Show>
 
             <StatusBar />
             <ToastContainer />
@@ -108,3 +145,4 @@ export default function App() {
         </div>
     );
 }
+

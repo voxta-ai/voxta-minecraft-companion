@@ -3,10 +3,16 @@ import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity } from './action-helpers.js';
-import { getActionAbort, getHomePosition } from './action-state.js';
+import { getActionAbort, getHomePosition, clearHome } from './action-state.js';
 
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
+
+    // Guard: bot position can be NaN after combat/respawn
+    const pos = bot.entity.position;
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) {
+        return 'Cannot follow right now — position not available, try again in a moment';
+    }
 
     // Don't follow ourselves — AI sometimes sends the bot's own name.
     // Auto-reroute to the first online human player instead.
@@ -64,7 +70,21 @@ export async function followPlayer(bot: Bot, playerName: string | undefined, nam
  * executeAction's physical action handling (actionAbort.abort(), actionBusy) interferes
  * with the pathfinder after combat. This function directly sets the goal.
  */
-export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegistry): string {
+export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegistry, retryCount = 0): string {
+    // Guard: bot position can be NaN after combat/respawn — pathfinder can't
+    // compute a path from NaN coordinates. Schedule a retry instead.
+    // The NaN recovery in bot.ts will fix the position on the next physics tick.
+    const pos = bot.entity.position;
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) {
+        if (retryCount >= 5) {
+            console.log(`[MC Action] Bot position still NaN after ${retryCount} retries, giving up`);
+            return 'Cannot resume following — position unavailable';
+        }
+        console.log(`[MC Action] Bot position is NaN, retrying follow in 500ms (attempt ${retryCount + 1})`);
+        setTimeout(() => resumeFollowPlayer(bot, playerName, names, retryCount + 1), 500);
+        return `Waiting for valid position to resume following`;
+    }
+
     const player = findPlayerEntity(bot, playerName, names);
     const displayName = names.resolveToVoxta(names.resolveToMc(playerName));
     if (!player) return `Cannot find player "${displayName}" nearby`;
@@ -112,6 +132,15 @@ export async function goTo(
 export async function goHome(bot: Bot): Promise<string> {
     const homePosition = getHomePosition();
     if (!homePosition) return 'No home bed set yet. I need to sleep in a bed first to remember where home is.';
+
+    // Verify the bed still exists (world may have changed)
+    const { Vec3 } = require('vec3');
+    const block = bot.blockAt(new Vec3(homePosition.x, homePosition.y, homePosition.z));
+    if (!block || !block.name.includes('bed')) {
+        console.log(`[MC Action] Saved home at ${homePosition.x}, ${homePosition.y}, ${homePosition.z} is no longer a bed (found: ${block?.name ?? 'unloaded'}). Clearing stale home.`);
+        clearHome();
+        return 'No home bed set yet. The previously saved bed no longer exists — I need to sleep in a new bed first.';
+    }
 
     const dx = bot.entity.position.x - homePosition.x;
     const dy = bot.entity.position.y - homePosition.y;

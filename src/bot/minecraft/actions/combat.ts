@@ -103,6 +103,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
 
             // Attack if in range
             const dist = target.position.distanceTo(bot.entity.position);
+            if (!Number.isFinite(dist)) return; // Stale entity — skip this tick
             if (dist < 3.5) {
                 // Lower shield briefly to attack
                 if (hasShield) bot.deactivateItem();

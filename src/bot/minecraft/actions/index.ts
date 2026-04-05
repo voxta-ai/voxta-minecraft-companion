@@ -14,6 +14,10 @@ export {
     resetActionAbort,
     setActionBusy,
     setSuppressPickups,
+    getBotMode,
+    setBotMode,
+    getGuardCenter,
+    setGuardCenter,
 } from './action-state.js';
 
 // Helpers (re-exported for consumers that need them directly)

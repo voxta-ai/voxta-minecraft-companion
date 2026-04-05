@@ -2,7 +2,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import { BED_BLOCKS } from './game-data';
-import { getCurrentActivity } from './actions';
+import { getCurrentActivity, getBotMode, getHomePosition } from './actions';
 
 export interface WorldState {
     position: { x: number; y: number; z: number };
@@ -39,14 +39,19 @@ export interface NearbyEntity {
 export function readWorldState(bot: Bot, entityRange: number): WorldState {
     const pos = bot.entity.position;
 
+    // Guard: bot position can go NaN after combat/respawn — skip entity
+    // scanning entirely so NaN doesn't propagate to distances and context.
+    const positionValid = Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z);
+
     // Nearby entities
     const nearbyPlayers: NearbyEntity[] = [];
     const nearbyMobs: NearbyEntity[] = [];
 
+    if (positionValid) {
     for (const entity of Object.values(bot.entities)) {
         if (entity === bot.entity) continue;
         const dist = entity.position.distanceTo(pos);
-        if (dist > entityRange) continue;
+        if (!Number.isFinite(dist) || dist > entityRange) continue;
 
         const entry: NearbyEntity = {
             name: entity.username ?? entity.displayName ?? entity.name ?? 'unknown',
@@ -75,6 +80,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
             }
         }
     }
+    } // end positionValid guard
 
     // Sort by distance
     nearbyPlayers.sort((a, b) => a.distance - b.distance);
@@ -276,9 +282,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     return {
         position: {
-            x: Math.round(pos.x),
-            y: Math.round(pos.y),
-            z: Math.round(pos.z),
+            x: positionValid ? Math.round(pos.x) : 0,
+            y: positionValid ? Math.round(pos.y) : 0,
+            z: positionValid ? Math.round(pos.z) : 0,
         },
         health: Math.round(bot.health * 10) / 10,
         food: bot.food,
@@ -344,6 +350,26 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     // Current activity (task-level)
     const activity = state.currentActivity ?? 'idle';
     lines.push(`${who}'s current activity: ${activity}`);
+
+    // Behavior mode
+    const mode = getBotMode();
+    if (mode !== 'passive') {
+        const modeDesc = mode === 'hunt'
+            ? 'HUNT MODE — actively seeking and attacking hostile mobs while following'
+            : 'GUARD MODE — patrolling and defending this area';
+        lines.push(`${who}'s behavior mode: ${modeDesc}`);
+    }
+
+    // Home status
+    const home = getHomePosition();
+    if (home) {
+        const dx = state.position.x - home.x;
+        const dz = state.position.z - home.z;
+        const homeDist = Math.round(Math.sqrt(dx * dx + dz * dz));
+        lines.push(`Home bed: set at ${home.x}, ${home.y}, ${home.z} (${homeDist} blocks away)`);
+    } else {
+        lines.push('Home bed: not set (no bed slept in yet)');
+    }
 
     // Movement (physical state)
     lines.push(`${who}'s movement: ${state.movement}`);

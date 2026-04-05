@@ -4,7 +4,7 @@ import type { ActionCategory } from '../bot/minecraft/action-definitions';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, setFishCaughtCallback } from '../bot/minecraft/action-dispatcher';
 import { isActionBusy, getCurrentActivity } from '../bot/minecraft/actions';
-import { isAutoDefending } from '../bot/minecraft/actions/action-state.js';
+import { isAutoDefending, getBotMode } from '../bot/minecraft/actions/action-state.js';
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { ServerActionMessage } from '../bot/voxta/types';
 import type { McSettings, ChatMessage } from '../shared/ipc-types';
@@ -68,10 +68,10 @@ export function handleActionMessage(
         return;
     }
 
-    // Skip AI-generated combat actions when auto-defense is already handling the fight.
+    // Skip AI-generated combat actions when auto-defense or mode scan is handling the fight.
     const COMBAT_ACTIONS = ['mc_attack', 'mc_go_to_entity'];
-    if (COMBAT_ACTIONS.includes(actionName) && isAutoDefending()) {
-        console.log(`[Bot] Ignoring ${actionName} — auto-defense is already handling combat`);
+    if (COMBAT_ACTIONS.includes(actionName) && (isAutoDefending() || getBotMode() !== 'passive')) {
+        console.log(`[Bot] Ignoring ${actionName} — ${isAutoDefending() ? 'auto-defense' : getBotMode() + ' mode'} is handling combat`);
         return;
     }
 
@@ -160,10 +160,12 @@ export function handleActionMessage(
         const followingPlayer = callbacks.getFollowingPlayer();
         const shouldResume =
             followingPlayer &&
+            getBotMode() !== 'guard' &&
             actionName !== 'mc_follow_player' &&
             actionName !== 'mc_stop' &&
             actionName !== 'mc_go_home' &&
-            actionName !== 'mc_go_to';
+            actionName !== 'mc_go_to' &&
+            actionName !== 'mc_set_mode';
         console.log(
             `[Bot] Action done: ${actionName}, followingPlayer: ${followingPlayer}, shouldResume: ${!!shouldResume}`,
         );
