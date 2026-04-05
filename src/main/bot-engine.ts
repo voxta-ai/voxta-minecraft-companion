@@ -3,6 +3,8 @@ import { createMinecraftBot } from '../bot/minecraft/bot';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, initHomePosition, resumeFollowPlayer } from '../bot/minecraft/action-dispatcher';
+import { isAutoDefending, isActionBusy, getCurrentCombatTarget } from '../bot/minecraft/actions/action-state';
+import { findPlayerEntity } from '../bot/minecraft/actions/action-helpers';
 import { McEventBridge } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
@@ -49,6 +51,7 @@ export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
     private voxta: VoxtaClient | null = null;
     private perceptionLoop: ReturnType<typeof setInterval> | null = null;
+    private followWatchdog: ReturnType<typeof setInterval> | null = null;
     private eventBridge: McEventBridge | null = null;
     private assistantName: string | null = null;
     private activeCharacterId: string | null = null;
@@ -291,6 +294,10 @@ export class BotEngine extends EventEmitter {
                 clearInterval(this.perceptionLoop);
                 this.perceptionLoop = null;
             }
+            if (this.followWatchdog) {
+                clearInterval(this.followWatchdog);
+                this.followWatchdog = null;
+            }
             this.emit('stop-audio');
 
             // Auto-resume the chat if we had an active session
@@ -315,6 +322,10 @@ export class BotEngine extends EventEmitter {
             if (this.perceptionLoop) {
                 clearInterval(this.perceptionLoop);
                 this.perceptionLoop = null;
+            }
+            if (this.followWatchdog) {
+                clearInterval(this.followWatchdog);
+                this.followWatchdog = null;
             }
             this.emit('stop-audio');
             this.updateStatus({
@@ -609,6 +620,76 @@ export class BotEngine extends EventEmitter {
             }
         }, config.perception.intervalMs);
 
+        // ---- Follow watchdog ----
+        // The pathfinder can silently stop computing paths after combat/death/respawn
+        // even though the goal is still set. This watchdog uses escalating strategies:
+        //   1. Re-set the pathfinder goal
+        //   2. Fully reset movements + goal
+        //   3. Bypass pathfinder — manually walk toward the player
+        let followWatchdogLastPos = bot.entity.position.clone();
+        let followStuckCount = 0;
+        this.followWatchdog = setInterval(() => {
+            if (!this.mcBot || !this.followingPlayer) return;
+            if (isAutoDefending() || isActionBusy()) return;
+
+            const pos = bot.entity.position;
+            if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
+
+            const player = findPlayerEntity(bot, this.followingPlayer, this.names);
+            if (!player) return;
+
+            const distToPlayer = pos.distanceTo(player.position);
+            const movedSinceLastCheck = pos.distanceTo(followWatchdogLastPos);
+            followWatchdogLastPos = pos.clone();
+
+            // If we're close enough to the player, reset counter
+            if (distToPlayer < 5) {
+                followStuckCount = 0;
+                bot.setControlState('forward', false);
+                bot.setControlState('sprint', false);
+                return;
+            }
+
+            // If we moved more than 0.5 blocks since last check, pathfinder is working
+            if (movedSinceLastCheck > 0.5) {
+                followStuckCount = 0;
+                return;
+            }
+
+            followStuckCount++;
+
+            if (followStuckCount <= 1) {
+                // Tier 1: Re-set the pathfinder goal
+                console.log(
+                    `[Bot] Follow watchdog: stuck ${distToPlayer.toFixed(1)} blocks from player, ` +
+                    `moved ${movedSinceLastCheck.toFixed(2)} blocks — re-setting goal (tier 1)`,
+                );
+                resumeFollowPlayer(bot, this.followingPlayer, this.names);
+            } else if (followStuckCount === 2) {
+                // Tier 2: Full pathfinder reset — fresh movements + goal
+                console.log(
+                    `[Bot] Follow watchdog: still stuck — resetting pathfinder movements (tier 2)`,
+                );
+                const mcData = require('minecraft-data')(bot.version);
+                const freshMovements = new (require('mineflayer-pathfinder').Movements)(bot);
+                freshMovements.canDig = true;
+                freshMovements.allow1by1towers = true;
+                bot.pathfinder.setMovements(freshMovements);
+                resumeFollowPlayer(bot, this.followingPlayer, this.names);
+            } else {
+                // Tier 3: Bypass pathfinder — look at player and walk forward
+                console.log(
+                    `[Bot] Follow watchdog: pathfinder failed — manual walking toward player (tier 3, ` +
+                    `dist=${distToPlayer.toFixed(1)})`,
+                );
+                bot.pathfinder.stop();
+                bot.pathfinder.setGoal(null);
+                void bot.lookAt(player.position.offset(0, 1.6, 0));
+                bot.setControlState('forward', true);
+                bot.setControlState('sprint', true);
+            }
+        }, 5000);
+
         // ---- 3. Register MC event bridge ----
         this.eventBridge = new McEventBridge(
             bot,
@@ -680,7 +761,8 @@ export class BotEngine extends EventEmitter {
                         [{ name: 'entity_name', value: mobName }],
                         this.names,
                     );
-                    this.addChat('system', 'System', `${botName}: ${result}`);
+                    this.addChat('note', 'Note', `${botName}: ${result}`);
+                    this.queueNote(`${botName}: ${result}`);
                     console.log(`[Bot] Auto-defense attack result: ${result}`);
                 } catch (err) {
                     console.log(`[Bot] Auto-defense attack failed:`, err);
@@ -688,7 +770,12 @@ export class BotEngine extends EventEmitter {
                     console.log(
                         `[Bot] Auto-defense finished, followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`,
                     );
-                    if (this.followingPlayer && this.mcBot) {
+                    // Don't resume follow if combat is still active — another mc_attack is
+                    // running with GoalFollow(target). Overwriting it with GoalFollow(player)
+                    // would cause the bot to stop fighting and just absorb arrows.
+                    if (getCurrentCombatTarget()) {
+                        console.log(`[Bot] Combat still active (${getCurrentCombatTarget()}), NOT overriding with follow`);
+                    } else if (this.followingPlayer && this.mcBot) {
                         // Small delay: pathfinder.stop() in combat sets an internal
                         // "stopPathing" flag that takes one tick to clear. Without
                         // this delay, setGoal(null)+setGoal(follow) races with the
@@ -831,6 +918,10 @@ export class BotEngine extends EventEmitter {
         if (this.perceptionLoop) {
             clearInterval(this.perceptionLoop);
             this.perceptionLoop = null;
+        }
+        if (this.followWatchdog) {
+            clearInterval(this.followWatchdog);
+            this.followWatchdog = null;
         }
         if (this.eventBridge) {
             this.eventBridge.destroy();

@@ -172,13 +172,18 @@ export class McEventBridge {
             if (this.bot.food === 0) return;
 
             // Priority 1: Check for nearby hostile mobs (handles explosions, ranged, AOE)
-            const hostileMob = Object.values(this.bot.entities).find(
-                (e) =>
-                    e !== this.bot.entity &&
-                    e.type === 'hostile' &&
-                    e.position.distanceTo(this.bot.entity.position) < 28 &&
-                    Math.abs(e.position.y - this.bot.entity.position.y) < 3,
-            );
+            // Pick the CLOSEST hostile mob — not the first in the dictionary.
+            // Using find() could target a distant spider while a skeleton shoots us.
+            let hostileMob: Entity | undefined;
+            let hostileDist = Infinity;
+            for (const e of Object.values(this.bot.entities)) {
+                if (e === this.bot.entity || e.type !== 'hostile') continue;
+                const d = e.position.distanceTo(this.bot.entity.position);
+                if (d < 28 && Math.abs(e.position.y - this.bot.entity.position.y) < 3 && d < hostileDist) {
+                    hostileMob = e;
+                    hostileDist = d;
+                }
+            }
             if (hostileMob) {
                 const mcName = hostileMob.username ?? hostileMob.displayName ?? hostileMob.name ?? 'something';
                 this.lastAttacker = this.names.resolveToVoxta(mcName);
@@ -458,17 +463,13 @@ export class McEventBridge {
             const settings = this.callbacks.getSettings();
             if (!settings.enableNoteChat) return;
 
-            // Skip Minecraft command output (cheat codes like /give, /tp, /gamemode, etc.)
-            // These come through chat but aren't actual player messages
-            const commandPatterns = [
-                /^Gave \d+/i, // /give command output
-                /^Teleported /i, // /tp command output
-                /^Set own game mode/i, // /gamemode command output
-                /^Set the time to/i, // /time command output
-                /^Set the weather to/i, // /weather command output
-                /^\[Server]/i, // Server broadcast messages
-            ];
-            if (commandPatterns.some((p) => p.test(message))) {
+            // Skip Minecraft command output (cheat codes like /give, /tp, /summon, etc.)
+            // These come through the 'chat' event attributed to the player who ran the
+            // command, but aren't actual player messages. Command feedback always follows
+            // predictable patterns: "Verb + rest" (e.g. "Summoned new Skeleton",
+            // "Teleported Emptyngton to 0, 64, 0", "Set the time to 1000").
+            const isCommandOutput = /^(Gave|Teleported|Summoned|Killed|Applied|Enchanted|Cleared|Set |Added |Removed |Changed |Filled |Cloned |Played |Stopped |Enabled |Disabled |Made |Nothing |Data |Gamerule |\[Server])/i.test(message);
+            if (isCommandOutput) {
                 const cleanMsg = message.replace(/^\[|]$/g, '');
                 this.callbacks.onChat('system', 'System', cleanMsg);
                 return; // Don't forward to AI

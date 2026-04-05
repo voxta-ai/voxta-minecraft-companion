@@ -70,13 +70,18 @@ export async function followPlayer(bot: Bot, playerName: string | undefined, nam
  * executeAction's physical action handling (actionAbort.abort(), actionBusy) interferes
  * with the pathfinder after combat. This function directly sets the goal.
  */
-export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegistry): string {
+export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegistry, retryCount = 0): string {
     // Guard: bot position can be NaN after combat/respawn — pathfinder can't
     // compute a path from NaN coordinates. Schedule a retry instead.
+    // The NaN recovery in bot.ts will fix the position on the next physics tick.
     const pos = bot.entity.position;
     if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) {
-        console.log(`[MC Action] Bot position is NaN, retrying follow in 500ms`);
-        setTimeout(() => resumeFollowPlayer(bot, playerName, names), 500);
+        if (retryCount >= 5) {
+            console.log(`[MC Action] Bot position still NaN after ${retryCount} retries, giving up`);
+            return 'Cannot resume following — position unavailable';
+        }
+        console.log(`[MC Action] Bot position is NaN, retrying follow in 500ms (attempt ${retryCount + 1})`);
+        setTimeout(() => resumeFollowPlayer(bot, playerName, names, retryCount + 1), 500);
         return `Waiting for valid position to resume following`;
     }
 

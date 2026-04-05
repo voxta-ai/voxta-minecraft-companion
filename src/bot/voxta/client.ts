@@ -38,7 +38,10 @@ export class VoxtaClient {
     constructor(private config: CompanionConfig) {
         const hubOptions: signalR.IHttpConnectionOptions = {};
         if (config.voxta.apiKey) {
+            console.log(`[Voxta] API key present (${config.voxta.apiKey.length} chars)`);
             hubOptions.accessTokenFactory = () => config.voxta.apiKey;
+        } else {
+            console.log('[Voxta] No API key configured');
         }
 
         this.connection = new signalR.HubConnectionBuilder()
