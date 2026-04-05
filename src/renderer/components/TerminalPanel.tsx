@@ -1,4 +1,4 @@
-import { For, Show, createEffect } from 'solid-js';
+import { For, Show, createEffect, createSignal } from 'solid-js';
 import { consoleLogs, clearLogs } from '../stores/console-store';
 import ConsoleLine from './ConsoleLine';
 
@@ -10,6 +10,7 @@ import ConsoleLine from './ConsoleLine';
  */
 export default function TerminalPanel() {
     let logsContainerRef: HTMLDivElement | undefined;
+    const [copied, setCopied] = createSignal(false);
 
     // Auto-scroll to bottom when new entries arrive
     createEffect(() => {
@@ -69,11 +70,14 @@ export default function TerminalPanel() {
                                     return `${time} ${e.text}`;
                                 })
                                 .join('\n');
-                            void navigator.clipboard.writeText(text);
+                            void navigator.clipboard.writeText(text).then(() => {
+                                setCopied(true);
+                                setTimeout(() => setCopied(false), 1500);
+                            });
                         }}
                         title="Copy to Clipboard"
                     >
-                        <i class="bi bi-clipboard"></i> Copy
+                        <i class={copied() ? 'bi bi-check-lg' : 'bi bi-clipboard'}></i> {copied() ? 'Copied!' : 'Copy'}
                     </button>
                     <button
                         class="terminal-toolbar-btn"

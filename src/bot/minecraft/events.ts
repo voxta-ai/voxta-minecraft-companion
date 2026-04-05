@@ -28,6 +28,13 @@ export interface McEventCallbacks {
     isReplying(): boolean;
 }
 
+// Mineflayer entity.type is 'hostile' for most hostile mobs, but some
+// (e.g. phantom) have type 'mob' with category 'Hostile mobs'.
+// entity.kind maps to the minecraft-data category field.
+function isHostileEntity(e: Entity): boolean {
+    return e.type === 'hostile' || (e as unknown as Record<string, unknown>).kind === 'Hostile mobs';
+}
+
 // ---- MC Event Bridge ----
 
 /**
@@ -177,9 +184,9 @@ export class McEventBridge {
             let hostileMob: Entity | undefined;
             let hostileDist = Infinity;
             for (const e of Object.values(this.bot.entities)) {
-                if (e === this.bot.entity || e.type !== 'hostile') continue;
+                if (e === this.bot.entity || !isHostileEntity(e)) continue;
                 const d = e.position.distanceTo(this.bot.entity.position);
-                if (d < 28 && Math.abs(e.position.y - this.bot.entity.position.y) < 3 && d < hostileDist) {
+                if (d < 28 && Math.abs(e.position.y - this.bot.entity.position.y) < 16 && d < hostileDist) {
                     hostileMob = e;
                     hostileDist = d;
                 }
@@ -255,9 +262,9 @@ export class McEventBridge {
                 (e) =>
                     e !== this.bot.entity &&
                     e.id !== entity.id &&
-                    e.type === 'hostile' &&
-                    e.position.distanceTo(entity.position) < 8 &&
-                    Math.abs(e.position.y - entity.position.y) < 3,
+                    isHostileEntity(e) &&
+                    e.position.distanceTo(entity.position) < 16 &&
+                    Math.abs(e.position.y - entity.position.y) < 16, // High for flying mobs (phantoms)
             );
             if (!attacker) return;
 
