@@ -33,6 +33,8 @@ const api = {
 
     disconnect: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.DISCONNECT),
 
+    stopSession: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.STOP_SESSION),
+
     sendMessage: (text: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.SEND_MESSAGE, text),
 
     getStatus: (): Promise<BotStatus> => ipcRenderer.invoke(IPC_CHANNELS.GET_STATUS),

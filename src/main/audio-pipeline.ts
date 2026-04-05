@@ -120,8 +120,9 @@ export class AudioPipeline {
         this.tryFireAck();
     }
 
-    /** Bump epoch to discard stale downloads — call on interrupt */
+    /** Bump epoch to discard stale downloads and fire pending ack — call on interrupt */
     interrupt(): void {
         this.epoch++;
+        this.fireAckNow();
     }
 }

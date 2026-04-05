@@ -16,11 +16,19 @@ type MessageHandler = (message: ServerMessage) => void;
 export class VoxtaClient {
     private connection: signalR.HubConnection;
     private handlers: MessageHandler[] = [];
+    private closeHandlers: Array<() => void> = [];
+    private reconnectingHandlers: Array<() => void> = [];
+    private reconnectedHandlers: Array<() => void> = [];
     private _sessionId: string | null = null;
+    private _chatId: string | null = null;
     private _authenticated = false;
 
     get sessionId(): string | null {
         return this._sessionId;
+    }
+
+    get chatId(): string | null {
+        return this._chatId;
     }
 
     get authenticated(): boolean {
@@ -46,21 +54,39 @@ export class VoxtaClient {
         this.connection.onreconnecting(() => {
             console.log('[Voxta] Reconnecting...');
             this._authenticated = false;
+            this._sessionId = null;
+            for (const handler of this.reconnectingHandlers) handler();
         });
 
         this.connection.onreconnected(() => {
             console.log('[Voxta] Reconnected, re-authenticating...');
             void this.authenticate();
+            for (const handler of this.reconnectedHandlers) handler();
         });
 
         this.connection.onclose(() => {
             console.log('[Voxta] Connection closed');
             this._authenticated = false;
+            this._sessionId = null;
+            this._chatId = null;
+            for (const handler of this.closeHandlers) handler();
         });
     }
 
     onMessage(handler: MessageHandler): void {
         this.handlers.push(handler);
+    }
+
+    onClose(handler: () => void): void {
+        this.closeHandlers.push(handler);
+    }
+
+    onReconnecting(handler: () => void): void {
+        this.reconnectingHandlers.push(handler);
+    }
+
+    onReconnected(handler: () => void): void {
+        this.reconnectedHandlers.push(handler);
     }
 
     private handleMessage(message: ServerMessage): void {
@@ -69,14 +95,15 @@ export class VoxtaClient {
             const welcome = message as ServerWelcomeMessage;
             console.log(`[Voxta] Welcome, ${welcome.user.name}!`);
             if (welcome.assistant) {
-                console.log(`[Voxta] Assistant: ${welcome.assistant.name} (${welcome.assistant.id})`);
+                console.log(`[Voxta] Default assistant: ${welcome.assistant.name} (${welcome.assistant.id})`);
             }
         } else if (message.$type === 'authenticationRequired') {
             console.log('[Voxta] Authentication required — please create a profile in Voxta first.');
         } else if (message.$type === 'chatStarted') {
             const started = message as ServerChatStartedMessage;
             this._sessionId = started.sessionId;
-            console.log(`[Voxta] Chat started (session: ${started.sessionId})`);
+            this._chatId = started.chatId;
+            console.log(`[Voxta] Chat started (session: ${started.sessionId}, chat: ${started.chatId})`);
             // Enable inspector so contextUpdated includes contexts & actions
             void this.send({ $type: 'inspect', enabled: true, sessionId: started.sessionId });
         } else if (message.$type === 'error') {
@@ -250,6 +277,17 @@ export class VoxtaClient {
             $type: 'interrupt',
             sessionId: this._sessionId,
         });
+    }
+
+    /** End the current chat session without closing the SignalR connection */
+    async endSession(): Promise<void> {
+        if (this._sessionId) {
+            await this.send({
+                $type: 'stopChat',
+                sessionId: this._sessionId,
+            });
+            this._sessionId = null;
+        }
     }
 
     async disconnect(): Promise<void> {

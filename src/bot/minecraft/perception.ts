@@ -9,6 +9,7 @@ export interface WorldState {
     health: number;
     food: number;
     experience: { level: number; points: number };
+    gameMode: string;
     biome: string;
     biomeTemperature: number;
     dimension: string;
@@ -237,6 +238,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
             level: bot.experience.level,
             points: bot.experience.points,
         },
+        gameMode: bot.game.gameMode,
         biome,
         biomeTemperature,
         dimension: bot.game.dimension,
@@ -281,7 +283,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
 
     lines.push(
         `${who}'s position: ${state.position.x}, ${state.position.y}, ${state.position.z} | ` +
-            `Biome: ${state.biome} | Dimension: ${state.dimension}`,
+            `Game Mode: ${state.gameMode} | Biome: ${state.biome} | Dimension: ${state.dimension}`,
     );
 
     lines.push(
@@ -297,6 +299,19 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
 
     // Movement (physical state)
     lines.push(`${who}'s movement: ${state.movement}`);
+
+    // Game mode rules — help AI understand what's possible
+    if (state.gameMode === 'creative') {
+        lines.push(
+            'GAME MODE RULES (Creative): You have unlimited items — do NOT mine, gather, or craft. ' +
+                'You can fly and are invulnerable. Focus on building, exploring, and conversation.',
+        );
+    } else if (state.gameMode === 'adventure') {
+        lines.push(
+            'GAME MODE RULES (Adventure): You cannot break or place blocks. ' +
+                'Focus on exploration, combat, and interaction.',
+        );
+    }
 
     // Survival status warnings — helps AI understand Minecraft mechanics
     const warnings: string[] = [];

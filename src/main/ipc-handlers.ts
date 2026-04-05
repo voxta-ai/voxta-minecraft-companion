@@ -85,6 +85,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         await engine.disconnect();
     });
 
+    ipcMain.handle(IPC_CHANNELS.STOP_SESSION, async () => {
+        await engine.stopSession();
+    });
+
     ipcMain.handle(IPC_CHANNELS.SEND_MESSAGE, async (_event, text: string) => {
         await engine.sendMessage(text);
     });

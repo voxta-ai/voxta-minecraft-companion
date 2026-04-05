@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import { useStatusListener, useChatListener } from './stores/app-store';
+import { createSignal, Show } from 'solid-js';
+import { useStatusListener, useChatListener, status, stopSession } from './stores/app-store';
 import ConnectionPanel from './components/ConnectionPanel';
 import SettingsPanel from './components/SettingsPanel';
 import ChatView from './components/ChatView';
@@ -32,33 +32,53 @@ export default function App() {
                     <h1>Voxta Minecraft Companion</h1>
                 </div>
                 <div class="header-actions">
-                    <button
-                        class={`header-btn ${activePopup() === 'connection' ? 'active' : ''}`}
-                        onClick={() => togglePopup('connection')}
-                        title="Connection"
+                    <Show
+                        when={status.sessionId !== null}
+                        fallback={
+                            <button
+                                class={`header-btn ${activePopup() === 'connection' ? 'active' : ''}`}
+                                onClick={() => togglePopup('connection')}
+                                title="Connection"
+                            >
+                                <span class="header-btn-icon">🔗</span>
+                                <span class="header-btn-label">Connect</span>
+                            </button>
+                        }
                     >
-                        🔗
-                    </button>
+                        <button
+                            class="header-btn header-btn-disconnect"
+                            onClick={() => {
+                                void stopSession().then(() => setActivePopup('connection'));
+                            }}
+                            title="Stop Session"
+                        >
+                            <span class="header-btn-icon">■</span>
+                            <span class="header-btn-label">Stop</span>
+                        </button>
+                    </Show>
                     <button
                         class={`header-btn ${activePopup() === 'actions' ? 'active' : ''}`}
                         onClick={() => togglePopup('actions')}
                         title="Actions"
                     >
-                        🎮
-                    </button>
-                    <button
-                        class={`header-btn ${inspectorOpen() ? 'active' : ''}`}
-                        onClick={() => setInspectorOpen(!inspectorOpen())}
-                        title="Inspector"
-                    >
-                        🔍
+                        <span class="header-btn-icon">🎮</span>
+                        <span class="header-btn-label">Actions</span>
                     </button>
                     <button
                         class={`header-btn ${activePopup() === 'settings' ? 'active' : ''}`}
                         onClick={() => togglePopup('settings')}
                         title="Settings"
                     >
-                        ⚙️
+                        <span class="header-btn-icon">⚙️</span>
+                        <span class="header-btn-label">Settings</span>
+                    </button>
+                    <button
+                        class={`header-btn ${inspectorOpen() ? 'active' : ''}`}
+                        onClick={() => setInspectorOpen(!inspectorOpen())}
+                        title="Inspector"
+                    >
+                        <span class="header-btn-icon">🔍</span>
+                        <span class="header-btn-label">Inspector {inspectorOpen() ? '▸' : '◂'}</span>
                     </button>
                 </div>
             </header>
@@ -67,7 +87,7 @@ export default function App() {
                 <div class="main-panel">
                     <ChatView onConnect={() => setActivePopup('connection')} />
                 </div>
-                <InspectorDrawer open={inspectorOpen()} onClose={() => setInspectorOpen(false)} />
+                <InspectorDrawer open={inspectorOpen()} />
             </div>
 
             <StatusBar />

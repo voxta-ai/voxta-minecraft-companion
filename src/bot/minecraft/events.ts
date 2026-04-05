@@ -464,7 +464,8 @@ export class McEventBridge {
                 /^\[Server]/i, // Server broadcast messages
             ];
             if (commandPatterns.some((p) => p.test(message))) {
-                this.callbacks.onChat('system', 'System', message);
+                const cleanMsg = message.replace(/^\[|]$/g, '');
+                this.callbacks.onChat('system', 'System', cleanMsg);
                 return; // Don't forward to AI
             }
 

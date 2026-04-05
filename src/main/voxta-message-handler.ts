@@ -41,7 +41,7 @@ export interface MessageHandlerContext {
     setFollowingPlayer(player: string | null): void;
 
     // Actions
-    addChat(type: ChatMessage['type'], sender: string, text: string): void;
+    addChat(type: ChatMessage['type'], sender: string, text: string, badge?: string): void;
     updateStatus(patch: Record<string, unknown>): void;
     flushPendingNotes(): void;
     flushPendingEvents(): void;
@@ -83,6 +83,12 @@ function handleChatStarted(message: ServerMessage, ctx: MessageHandlerContext): 
         }>;
         characters?: Array<{ id: string; name: string }>;
     };
+
+    // Set the assistant name from the server's authoritative character data
+    if (started.characters?.length) {
+        const assistantChar = started.characters[0];
+        ctx.setAssistantName(assistantChar.name);
+    }
 
     if (started.messages && started.messages.length > 0) {
         for (const m of started.messages) {
@@ -174,7 +180,7 @@ function handleAction(message: ServerMessage, ctx: MessageHandlerContext): void 
         isReplying: () => ctx.isReplying(),
         getFollowingPlayer: () => ctx.getFollowingPlayer(),
         setFollowingPlayer: (p) => ctx.setFollowingPlayer(p),
-        addChat: (type, sender, text) => ctx.addChat(type, sender, text),
+        addChat: (type, sender, text, badge) => ctx.addChat(type, sender, text, badge),
         updateCurrentAction: (a) => ctx.updateStatus({ currentAction: a }),
         queueNote: (text) => ctx.queueNote(text),
         sendNoteNow: (text) => {
