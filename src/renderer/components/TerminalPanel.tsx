@@ -1,22 +1,15 @@
-import { For, Show, createEffect, onMount, onCleanup } from 'solid-js';
-import { consoleLogs, addLogEntry, clearLogs } from '../stores/console-store';
+import { For, Show, createEffect } from 'solid-js';
+import { consoleLogs, clearLogs } from '../stores/console-store';
 import ConsoleLine from './ConsoleLine';
 
 /**
  * In-app terminal panel.
  * Toggled open/closed by F2 key or a header button.
  * Displays main-process console output with VS Code-style coloring.
+ * Note: Log subscription is in App.tsx so logs are captured even when the panel is hidden.
  */
 export default function TerminalPanel() {
     let logsContainerRef: HTMLDivElement | undefined;
-
-    // Subscribe to console logs from main process
-    onMount(() => {
-        const unsub = window.api.onConsoleLog((entry) => {
-            addLogEntry(entry);
-        });
-        onCleanup(unsub);
-    });
 
     // Auto-scroll to bottom when new entries arrive
     createEffect(() => {

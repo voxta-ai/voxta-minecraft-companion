@@ -1,5 +1,6 @@
 import { createSignal, Show, onMount, onCleanup } from 'solid-js';
 import { useStatusListener, useChatListener, status, stopSession } from './stores/app-store';
+import { addLogEntry } from './stores/console-store';
 import ConnectionPanel from './components/ConnectionPanel';
 import SettingsPanel from './components/SettingsPanel';
 import ChatView from './components/ChatView';
@@ -24,6 +25,15 @@ export default function App() {
     const togglePopup = (popup: Popup) => {
         setActivePopup(activePopup() === popup ? null : popup);
     };
+
+    // Subscribe to console logs from main process at app level
+    // (not inside TerminalPanel, which only mounts when visible)
+    onMount(() => {
+        const unsub = window.api.onConsoleLog((entry) => {
+            addLogEntry(entry);
+        });
+        onCleanup(unsub);
+    });
 
     // F2 to toggle terminal
     onMount(() => {

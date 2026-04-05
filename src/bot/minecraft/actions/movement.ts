@@ -8,6 +8,12 @@ import { getActionAbort, getHomePosition } from './action-state.js';
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
+    // Guard: bot position can be NaN after combat/respawn
+    const pos = bot.entity.position;
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) {
+        return 'Cannot follow right now — position not available, try again in a moment';
+    }
+
     // Don't follow ourselves — AI sometimes sends the bot's own name.
     // Auto-reroute to the first online human player instead.
     const mcName = names.resolveToMc(playerName);
@@ -65,6 +71,15 @@ export async function followPlayer(bot: Bot, playerName: string | undefined, nam
  * with the pathfinder after combat. This function directly sets the goal.
  */
 export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegistry): string {
+    // Guard: bot position can be NaN after combat/respawn — pathfinder can't
+    // compute a path from NaN coordinates. Schedule a retry instead.
+    const pos = bot.entity.position;
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) {
+        console.log(`[MC Action] Bot position is NaN, retrying follow in 500ms`);
+        setTimeout(() => resumeFollowPlayer(bot, playerName, names), 500);
+        return `Waiting for valid position to resume following`;
+    }
+
     const player = findPlayerEntity(bot, playerName, names);
     const displayName = names.resolveToVoxta(names.resolveToMc(playerName));
     if (!player) return `Cannot find player "${displayName}" nearby`;

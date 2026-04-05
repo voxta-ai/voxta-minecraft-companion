@@ -39,14 +39,19 @@ export interface NearbyEntity {
 export function readWorldState(bot: Bot, entityRange: number): WorldState {
     const pos = bot.entity.position;
 
+    // Guard: bot position can go NaN after combat/respawn — skip entity
+    // scanning entirely so NaN doesn't propagate to distances and context.
+    const positionValid = Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z);
+
     // Nearby entities
     const nearbyPlayers: NearbyEntity[] = [];
     const nearbyMobs: NearbyEntity[] = [];
 
+    if (positionValid) {
     for (const entity of Object.values(bot.entities)) {
         if (entity === bot.entity) continue;
         const dist = entity.position.distanceTo(pos);
-        if (dist > entityRange) continue;
+        if (!Number.isFinite(dist) || dist > entityRange) continue;
 
         const entry: NearbyEntity = {
             name: entity.username ?? entity.displayName ?? entity.name ?? 'unknown',
@@ -75,6 +80,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
             }
         }
     }
+    } // end positionValid guard
 
     // Sort by distance
     nearbyPlayers.sort((a, b) => a.distance - b.distance);
@@ -276,9 +282,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     return {
         position: {
-            x: Math.round(pos.x),
-            y: Math.round(pos.y),
-            z: Math.round(pos.z),
+            x: positionValid ? Math.round(pos.x) : 0,
+            y: positionValid ? Math.round(pos.y) : 0,
+            z: positionValid ? Math.round(pos.z) : 0,
         },
         health: Math.round(bot.health * 10) / 10,
         food: bot.food,

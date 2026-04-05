@@ -584,14 +584,18 @@ export class BotEngine extends EventEmitter {
 
                 const contextHash = contextStrings.join('|');
 
+                // Only update position if it's valid (perception returns 0,0,0 when bot pos is NaN)
+                const posValid = state.position.x !== 0 || state.position.y !== 0 || state.position.z !== 0;
                 this.updateStatus({
-                    position: state.position
+                    ...(posValid
                         ? {
-                              x: Math.round(state.position.x),
-                              y: Math.round(state.position.y),
-                              z: Math.round(state.position.z),
+                              position: {
+                                  x: Math.round(state.position.x),
+                                  y: Math.round(state.position.y),
+                                  z: Math.round(state.position.z),
+                              },
                           }
-                        : null,
+                        : {}),
                     health: state.health,
                     food: state.food,
                 });
@@ -685,8 +689,17 @@ export class BotEngine extends EventEmitter {
                         `[Bot] Auto-defense finished, followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`,
                     );
                     if (this.followingPlayer && this.mcBot) {
-                        const resumeResult = resumeFollowPlayer(this.mcBot.bot, this.followingPlayer, this.names);
-                        console.log(`[Bot] Resumed following after defense: ${resumeResult}`);
+                        // Small delay: pathfinder.stop() in combat sets an internal
+                        // "stopPathing" flag that takes one tick to clear. Without
+                        // this delay, setGoal(null)+setGoal(follow) races with the
+                        // async path reset and the bot appears stuck.
+                        const playerToFollow = this.followingPlayer;
+                        const mcBotRef = this.mcBot;
+                        setTimeout(() => {
+                            if (this.followingPlayer !== playerToFollow) return; // state changed
+                            const resumeResult = resumeFollowPlayer(mcBotRef.bot, playerToFollow, this.names);
+                            console.log(`[Bot] Resumed following after defense: ${resumeResult}`);
+                        }, 150);
                     } else {
                         console.log(
                             `[Bot] NOT resuming follow — followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`,
