@@ -27,6 +27,7 @@ import type { MinecraftBot } from '../bot/minecraft/bot';
 import type { ScenarioAction } from '../bot/voxta/types';
 import { AudioPipeline } from './audio-pipeline';
 import { dispatchVoxtaMessage } from './voxta-message-handler';
+import { resetActionFired } from './action-orchestrator';
 
 // Centralized version constant
 const CLIENT_NAME = 'Voxta.Minecraft';
@@ -642,6 +643,7 @@ export class BotEngine extends EventEmitter {
                 onPlayerChat: (text) => {
                     if (!this.voxta?.sessionId) return;
                     console.log(`[User >>] MC chat: "${text}"`);
+                    resetActionFired();
 
                     if (this.isReplying) {
                         // Interrupt the current speech first, then send after server settles
@@ -900,6 +902,7 @@ export class BotEngine extends EventEmitter {
     async sendMessage(text: string): Promise<void> {
         if (!this.voxta?.sessionId) return;
         console.log(`[User >>] sendMessage: "${text}"`);
+        resetActionFired();
 
         const name = this.voxtaUserName ?? 'You';
         this.addChat('player', `${name} (text)`, text);

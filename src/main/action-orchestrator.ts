@@ -4,6 +4,7 @@ import type { ActionCategory } from '../bot/minecraft/action-definitions';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, setFishCaughtCallback } from '../bot/minecraft/action-dispatcher';
 import { isActionBusy, getCurrentActivity } from '../bot/minecraft/actions';
+import { isAutoDefending } from '../bot/minecraft/actions/action-state.js';
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { ServerActionMessage } from '../bot/voxta/types';
 import type { McSettings, ChatMessage } from '../shared/ipc-types';
@@ -29,6 +30,17 @@ export interface ActionOrchestratorCallbacks {
  * feedback. Extracted from BotEngine to keep the orchestration
  * logic self-contained.
  */
+
+// Reentrance guard: only one action per user turn. Resets when the user
+// sends a new message (voice, text, or MC chat). Prevents action result →
+// AI reply → new action inference → spam loops.
+let actionFiredThisTurn = false;
+
+/** Call when the user sends a new message (voice/text/MC chat) */
+export function resetActionFired(): void {
+    actionFiredThisTurn = false;
+}
+
 export function handleActionMessage(
     action: ServerActionMessage,
     bot: Bot,
@@ -54,6 +66,23 @@ export function handleActionMessage(
     if (LONG_RUNNING_ACTIONS.includes(actionName) && isActionBusy() && getCurrentActivity()) {
         console.log(`[Bot] Ignoring duplicate ${actionName} — already busy with: ${getCurrentActivity()}`);
         return;
+    }
+
+    // Skip AI-generated combat actions when auto-defense is already handling the fight.
+    const COMBAT_ACTIONS = ['mc_attack', 'mc_go_to_entity'];
+    if (COMBAT_ACTIONS.includes(actionName) && isAutoDefending()) {
+        console.log(`[Bot] Ignoring ${actionName} — auto-defense is already handling combat`);
+        return;
+    }
+
+    // Reentrance guard: only one real action per user turn.
+    // mc_none is exempt (it's a no-op that doesn't cause feedback loops).
+    if (actionName !== 'mc_none' && actionFiredThisTurn) {
+        console.log(`[Bot] Ignoring ${actionName} — action already fired this turn`);
+        return;
+    }
+    if (actionName !== 'mc_none') {
+        actionFiredThisTurn = true;
     }
 
     const timingLabel = timing === 'user' ? 'before reply' : 'after reply';
@@ -175,6 +204,15 @@ export function handleActionMessage(
         const voxta = callbacks.getVoxta();
         const timing = callbacks.getSettings().actionInferenceTiming;
 
+        // Transactional actions (give, toss, store, equip) — the AI already announced
+        // them in its reply, so the result is always a silent note, never a voiced event.
+        const ALWAYS_SILENT_ACTIONS = ['mc_give_item', 'mc_toss', 'mc_store_item', 'mc_take_item', 'mc_equip'];
+        if (ALWAYS_SILENT_ACTIONS.includes(actionName) && !isFailure) {
+            callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+            callbacks.queueNote(`${botName}: ${result}`);
+            return;
+        }
+
         if (timing === 'user') {
             // With user action inference, the server generates a reply simultaneously.
             const noteText = `[ACTION ${isFailure ? 'FAILED' : 'COMPLETE'}: ${actionName}] ${botName}: ${result}`;
@@ -194,7 +232,7 @@ export function handleActionMessage(
         } else if (isFailure && !callbacks.isReplying()) {
             // Failures always voiced — AI must acknowledge what went wrong
             // Disable action inference so hints like "kill spiders" don't auto-trigger actions
-            callbacks.addChat('system', 'System', `${botName}: ${result}`);
+            callbacks.addChat('event', 'Event', `${botName}: ${result}`);
             void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
         } else {
             // Voice chance roll — like an Elite Dangerous probability system
@@ -202,7 +240,7 @@ export function handleActionMessage(
             const roll = Math.random() * 100;
             if (roll < voiceChance && !callbacks.isReplying()) {
                 // Voiced: send it as an event so the AI replies about the result
-                callbacks.addChat('system', 'System', `${botName}: ${result}`);
+                callbacks.addChat('event', 'Event', `${botName}: ${result}`);
                 void voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
             } else {
                 // Silent: AI sees it but stays quiet — single note, no duplicate
