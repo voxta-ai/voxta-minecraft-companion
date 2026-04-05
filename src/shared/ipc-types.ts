@@ -166,6 +166,16 @@ export interface RecordingStartEvent {
     voxtaApiKey: string | null;
 }
 
+// ---- Console Log ----
+
+export type ConsoleLogLevel = 'log' | 'warn' | 'error';
+
+export interface ConsoleLogEntry {
+    timestamp: number;
+    level: ConsoleLogLevel;
+    text: string;
+}
+
 // ---- Inspector Data ----
 
 export interface InspectorAction {
@@ -219,4 +229,5 @@ export const IPC_CHANNELS = {
     AUDIO_STARTED: 'bot:audio-started',
     AUDIO_COMPLETE: 'bot:audio-complete',
     LOG: 'bot:log',
+    CONSOLE_LOG: 'bot:console-log',
 } as const;

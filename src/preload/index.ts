@@ -14,6 +14,7 @@ import type {
     AudioPlaybackEvent,
     RecordingStartEvent,
     InspectorData,
+    ConsoleLogEntry,
 } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
@@ -130,6 +131,12 @@ const api = {
         const handler = (_event: Electron.IpcRendererEvent, text: string): void => callback(text);
         ipcRenderer.on(IPC_CHANNELS.SPEECH_PARTIAL, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.SPEECH_PARTIAL, handler);
+    },
+
+    onConsoleLog: (callback: (entry: ConsoleLogEntry) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, entry: ConsoleLogEntry): void => callback(entry);
+        ipcRenderer.on(IPC_CHANNELS.CONSOLE_LOG, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.CONSOLE_LOG, handler);
     },
 };
 
