@@ -69,6 +69,11 @@ export async function disconnect(): Promise<void> {
     setVoxtaInfo({ userName: null, characters: [], defaultAssistantId: null });
 }
 
+/** End the current chat/MC session but keep the Voxta connection alive */
+export async function stopSession(): Promise<void> {
+    await window.api.stopSession();
+}
+
 // ---- Chat Store ----
 
 const [chatMessages, setChatMessages] = createStore<{ messages: ChatMessage[] }>({

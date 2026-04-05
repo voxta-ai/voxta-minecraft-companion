@@ -137,6 +137,11 @@ export interface ClientInspectMessage {
     sessionId: string;
 }
 
+export interface ClientStopChatMessage {
+    $type: 'stopChat';
+    sessionId: string;
+}
+
 export type ClientMessage =
     | ClientAuthenticateMessage
     | ClientRegisterAppMessage
@@ -146,7 +151,8 @@ export type ClientMessage =
     | ClientInterruptMessage
     | ClientSpeechPlaybackStartMessage
     | ClientSpeechPlaybackCompleteMessage
-    | ClientInspectMessage;
+    | ClientInspectMessage
+    | ClientStopChatMessage;
 
 // ---- Server → Client messages ----
 

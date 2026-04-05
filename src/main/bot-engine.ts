@@ -50,6 +50,7 @@ export class BotEngine extends EventEmitter {
     private perceptionLoop: ReturnType<typeof setInterval> | null = null;
     private eventBridge: McEventBridge | null = null;
     private assistantName: string | null = null;
+    private activeCharacterId: string | null = null;
     private currentReply = '';
     private messageCounter = 0;
     private actionToggles: Map<string, boolean> = new Map();
@@ -239,13 +240,14 @@ export class BotEngine extends EventEmitter {
         this.pendingEvents = [];
     }
 
-    private addChat(type: ChatMessage['type'], sender: string, text: string): void {
+    private addChat(type: ChatMessage['type'], sender: string, text: string, badge?: string): void {
         const msg: ChatMessage = {
             id: `msg-${++this.messageCounter}`,
             timestamp: Date.now(),
             type,
             sender,
             text,
+            badge,
         };
         this.emit('chat-message', msg);
     }
@@ -274,6 +276,59 @@ export class BotEngine extends EventEmitter {
 
         this.voxta.onMessage((message: ServerMessage) => {
             this.handleVoxtaMessage(message);
+        });
+
+        this.voxta.onReconnecting(() => {
+            this.updateStatus({ voxta: 'connecting' });
+            this.addChat('system', 'System', 'Voxta connection lost — reconnecting...');
+            this.toast('warning', 'Voxta connection lost — reconnecting...');
+        });
+
+        this.voxta.onReconnected(() => {
+            // Session is gone after server restart — stop sending stale context updates
+            if (this.perceptionLoop) {
+                clearInterval(this.perceptionLoop);
+                this.perceptionLoop = null;
+            }
+            this.emit('stop-audio');
+
+            // Auto-resume the chat if we had an active session
+            if (this.activeCharacterId && this.mcBot) {
+                this.addChat('system', 'System', 'Voxta reconnected — resuming chat...');
+                this.toast('info', 'Reconnected to Voxta — resuming chat...');
+                void this.autoResumeChat();
+            } else {
+                this.updateStatus({
+                    voxta: 'connected',
+                    sessionId: null,
+                    assistantName: null,
+                    currentAction: null,
+                });
+                this.addChat('system', 'System', 'Voxta reconnected — start a new chat to continue.');
+                this.toast('warning', 'Reconnected to Voxta — start a new chat to continue.');
+            }
+        });
+
+        this.voxta.onClose(() => {
+            // Full teardown — server is gone
+            if (this.perceptionLoop) {
+                clearInterval(this.perceptionLoop);
+                this.perceptionLoop = null;
+            }
+            this.emit('stop-audio');
+            this.updateStatus({
+                voxta: 'disconnected',
+                mc: 'disconnected',
+                sessionId: null,
+                assistantName: null,
+                currentAction: null,
+                position: null,
+                health: null,
+                food: null,
+            });
+            this.voxta = null;
+            this.addChat('system', 'System', 'Voxta server disconnected');
+            this.toast('error', 'Voxta server disconnected — the server may have been shut down.');
         });
 
         try {
@@ -403,6 +458,13 @@ export class BotEngine extends EventEmitter {
             throw new Error('Must connect to Voxta first');
         }
 
+        // Reset session state from any previous chat
+        this.followingPlayer = null;
+        this.isReplying = false;
+        this.currentReply = '';
+        this.pendingNotes = [];
+        this.pendingEvents = [];
+
         const config: CompanionConfig = {
             mc: {
                 host: uiConfig.mcHost,
@@ -446,6 +508,7 @@ export class BotEngine extends EventEmitter {
         const bot = this.mcBot.bot;
         const character = this.characters.find((c) => c.id === uiConfig.characterId);
         this.assistantName = character?.name ?? 'AI';
+        this.activeCharacterId = uiConfig.characterId;
 
         // Auto-detect the player's actual MC username from the server
         const botUsername = config.mc.username;
@@ -631,9 +694,109 @@ export class BotEngine extends EventEmitter {
             },
         );
 
+        // Auto-follow: companion should follow the player by default on spawn
+        if (this.playerMcUsername) {
+            this.followingPlayer = this.playerMcUsername;
+            void executeAction(
+                bot,
+                'mc_follow_player',
+                [{ name: 'player_name', value: this.playerMcUsername }],
+                this.names,
+            );
+            console.log(`[Bot] Auto-following ${this.playerMcUsername} on spawn`);
+        }
     }
 
-    async disconnect(): Promise<void> {
+    /** Auto-resume a chat session after Voxta reconnection */
+    private async autoResumeChat(): Promise<void> {
+        if (!this.voxta || !this.activeCharacterId || !this.mcBot) return;
+
+        try {
+            // Wait for re-authentication
+            const authStart = Date.now();
+            while (!this.voxta.authenticated && Date.now() - authStart < 10000) {
+                await new Promise((r) => setTimeout(r, 200));
+            }
+            if (!this.voxta.authenticated) {
+                this.toast('error', 'Failed to re-authenticate with Voxta.');
+                return;
+            }
+
+            this.updateStatus({ voxta: 'connected' });
+            await this.voxta.registerApp();
+
+            // Build initial context from current world state
+            const bot = this.mcBot.bot;
+            let initialContextStrings: string[] = [];
+            try {
+                const state = readWorldState(bot, 32);
+                initialContextStrings = buildContextStrings(state, this.names, this.assistantName);
+            } catch {
+                // Perception can fail
+            }
+
+            // Resume the same conversation (pass chatId to continue history)
+            const lastChatId = this.voxta.chatId;
+            console.log(`[Voxta] Auto-resuming chat: character=${this.activeCharacterId}, chatId=${lastChatId ?? 'new'}`);
+            await this.voxta.startChat(this.activeCharacterId, lastChatId ?? undefined, {
+                contextKey: 'minecraft',
+                contexts: initialContextStrings.map((text) => ({ text })),
+                actions: this.getEnabledActions(),
+            });
+
+            // Wait for session
+            const chatStart = Date.now();
+            while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
+                await new Promise((r) => setTimeout(r, 200));
+            }
+
+            this.updateStatus({
+                sessionId: this.voxta.sessionId,
+                assistantName: this.assistantName,
+                currentAction: null,
+            });
+
+            this.addChat('system', 'System', `Chat resumed with ${this.assistantName}`);
+            this.toast('success', `Chat resumed with ${this.assistantName}!`);
+
+            // Restart perception loop
+            let lastContextHash = initialContextStrings.join('|');
+            this.perceptionLoop = setInterval(() => {
+                if (!this.voxta?.sessionId) return;
+                try {
+                    const state = readWorldState(bot, 32);
+                    const contextStrings = buildContextStrings(state, this.names, this.assistantName);
+                    const contextHash = contextStrings.join('|');
+
+                    this.updateStatus({
+                        position: state.position
+                            ? {
+                                  x: Math.round(state.position.x),
+                                  y: Math.round(state.position.y),
+                                  z: Math.round(state.position.z),
+                              }
+                            : null,
+                        health: state.health,
+                        food: state.food,
+                    });
+
+                    if (contextHash !== lastContextHash) {
+                        lastContextHash = contextHash;
+                        void this.voxta.updateContext(contextStrings.map((text) => ({ text })));
+                    }
+                } catch {
+                    // Perception can fail during respawn/chunk loading
+                }
+            }, 3000);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.addChat('system', 'System', `Auto-resume failed: ${message}`);
+            this.toast('error', `Failed to resume chat: ${message}`);
+        }
+    }
+
+    /** Stop the current chat session + MC bot, but keep the Voxta connection alive */
+    async stopSession(): Promise<void> {
         if (this.perceptionLoop) {
             clearInterval(this.perceptionLoop);
             this.perceptionLoop = null;
@@ -653,6 +816,45 @@ export class BotEngine extends EventEmitter {
             this.mcBot = null;
         }
 
+        // End the Voxta chat session but keep the SignalR connection
+        if (this.voxta?.sessionId) {
+            try {
+                await this.voxta.endSession();
+            } catch {
+                // Ignore — session may already be closed
+            }
+        }
+
+        // Reset session-related state
+        this.assistantName = null;
+        this.activeCharacterId = null;
+        this.currentReply = '';
+        this.followingPlayer = null;
+        this.isReplying = false;
+        this.pendingNotes = [];
+        this.pendingEvents = [];
+
+        this.updateStatus({
+            ...this.status,
+            mc: 'disconnected',
+            voxta: this.voxta ? 'connected' : 'disconnected',
+            position: null,
+            health: null,
+            food: null,
+            currentAction: null,
+            assistantName: null,
+            sessionId: null,
+        });
+
+        // Stop any playing audio immediately
+        this.emit('stop-audio');
+
+        this.addChat('system', 'System', 'Session ended');
+    }
+
+    async disconnect(): Promise<void> {
+        await this.stopSession();
+
         if (this.voxta) {
             try {
                 await this.voxta.disconnect();
@@ -662,8 +864,6 @@ export class BotEngine extends EventEmitter {
             this.voxta = null;
         }
 
-        this.assistantName = null;
-        this.currentReply = '';
         this.voxtaUrl = null;
         this.voxtaApiKey = null;
 
@@ -719,6 +919,7 @@ export class BotEngine extends EventEmitter {
             // State mutators
             setAssistantName: (name) => {
                 this.assistantName = name;
+                this.updateStatus({ assistantName: name });
             },
             setVoxtaUserName: (name) => {
                 this.voxtaUserName = name;
@@ -744,7 +945,7 @@ export class BotEngine extends EventEmitter {
             },
 
             // Actions
-            addChat: (type, sender, text) => this.addChat(type, sender, text),
+            addChat: (type, sender, text, badge) => this.addChat(type, sender, text, badge),
             updateStatus: (patch) => this.updateStatus(patch),
             flushPendingNotes: () => this.flushPendingNotes(),
             flushPendingEvents: () => this.flushPendingEvents(),

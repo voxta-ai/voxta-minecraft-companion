@@ -14,7 +14,7 @@ export interface ActionOrchestratorCallbacks {
     isReplying(): boolean;
     getFollowingPlayer(): string | null;
     setFollowingPlayer(player: string | null): void;
-    addChat(type: ChatMessage['type'], sender: string, text: string): void;
+    addChat(type: ChatMessage['type'], sender: string, text: string, badge?: string): void;
     updateCurrentAction(action: string | null): void;
     queueNote(text: string): void;
     /** Send a note immediately, bypassing the isReplying queue */
@@ -56,11 +56,13 @@ export function handleActionMessage(
         return;
     }
 
+    const timingLabel = timing === 'user' ? 'before reply' : 'after reply';
     callbacks.updateCurrentAction(actionName);
     callbacks.addChat(
         'action',
         'Action',
         `${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`,
+        timingLabel,
     );
 
     // Track follow state

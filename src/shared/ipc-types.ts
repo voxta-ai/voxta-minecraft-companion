@@ -50,6 +50,7 @@ export interface ChatMessage {
     sender: string;
     text: string;
     repeatCount?: number;
+    badge?: string;
 }
 
 export interface ActionToggle {
@@ -190,6 +191,7 @@ export const IPC_CHANNELS = {
     CONNECT_VOXTA: 'bot:connect-voxta',
     LAUNCH_BOT: 'bot:launch-bot',
     DISCONNECT: 'bot:disconnect',
+    STOP_SESSION: 'bot:stop-session',
     SEND_MESSAGE: 'bot:send-message',
     GET_STATUS: 'bot:get-status',
     TOGGLE_ACTION: 'bot:toggle-action',

@@ -45,7 +45,7 @@ export default function ChatView(props: ChatViewProps) {
                 fallback={
                     <div class="empty-chat">
                         <div class="empty-chat-content">
-                            <span class="empty-chat-icon">⛏️</span>
+                            <img src="./icon.png" alt="Voxta Minecraft" class="empty-chat-icon" />
                             <p>No active session</p>
                             <button class="btn btn-connect" onClick={() => props.onConnect()}>
                                 🔗 Connect
@@ -65,6 +65,14 @@ export default function ChatView(props: ChatViewProps) {
                                         <span class="repeat-count"> (×{msg.repeatCount})</span>
                                     )}
                                 </div>
+                                <Show when={msg.badge}>
+                                    <span
+                                        class="chat-badge"
+                                        data-variant={msg.badge?.includes('before') ? 'before' : 'after'}
+                                    >
+                                        {msg.badge}
+                                    </span>
+                                </Show>
                             </div>
                         )}
                     </For>

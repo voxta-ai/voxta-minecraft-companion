@@ -155,14 +155,22 @@ function VisionModeSelector() {
         setTimeout(() => setSwitchResult(null), 4000);
     };
 
+    const visionHint = () => {
+        switch (settings.visionMode) {
+            case 'screen':
+                return 'Captures your Minecraft window — shares what you see to enrich AI context';
+            case 'eyes':
+                return 'Requires a second MC instance spectating the bot — sees through the bot\'s eyes';
+            default:
+                return 'Vision is disabled — no visual context is sent to the AI';
+        }
+    };
+
     return (
         <div class="action-category">
             <div class="action-category-title">👁️ Vision</div>
-            <div class="setting-card">
-                <div class="setting-card-info">
-                    <div class="setting-card-name">Vision Mode</div>
-                    <div class="setting-card-desc">How the bot sees the Minecraft world</div>
-                </div>
+            <div class="setting-card" style={{ 'flex-direction': 'column', 'align-items': 'stretch', gap: '8px' }}>
+                <div class="setting-card-name">Vision Mode</div>
                 <select
                     class="vision-select"
                     value={settings.visionMode}
@@ -170,12 +178,13 @@ function VisionModeSelector() {
                 >
                     <For each={VISION_OPTIONS}>
                         {(opt) => (
-                            <option value={opt.value} title={opt.description}>
+                            <option value={opt.value}>
                                 {opt.label}
                             </option>
                         )}
                     </For>
                 </select>
+                <span class="field-hint">{visionHint()}</span>
             </div>
             <Show when={settings.visionMode === 'eyes'}>
                 <div class="setting-card">
@@ -206,11 +215,8 @@ export default function SettingsPanel() {
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
             <div class="action-category">
                 <div class="action-category-title">🧠 Action Inference</div>
-                <div class="setting-card">
-                    <div class="setting-card-info">
-                        <div class="setting-card-name">Timing</div>
-                        <div class="setting-card-desc">When the AI decides which actions to perform</div>
-                    </div>
+                <div class="setting-card" style={{ 'flex-direction': 'column', 'align-items': 'stretch', gap: '8px' }}>
+                    <div class="setting-card-name">Timing</div>
                     <select
                         class="vision-select"
                         value={settings.actionInferenceTiming}
@@ -221,6 +227,11 @@ export default function SettingsPanel() {
                         <option value="user">On user message</option>
                         <option value="afterChar">After character reply</option>
                     </select>
+                    <span class="field-hint">
+                        {settings.actionInferenceTiming === 'user'
+                            ? 'More precise actions, but slower — AI decides the action before replying'
+                            : 'Faster replies — AI speaks first, then picks an action (recommended)'}
+                    </span>
                 </div>
             </div>
             <VisionModeSelector />
