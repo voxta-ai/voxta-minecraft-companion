@@ -9,6 +9,9 @@ import {
     getCurrentActivity,
     setCurrentActivity,
     getCurrentCombatTarget,
+    getBotMode,
+    setBotMode,
+    setGuardCenter,
 } from './actions';
 import {
     followPlayer,
@@ -46,6 +49,10 @@ export {
     setFishCaughtCallback,
     getHomePosition,
     initHomePosition,
+    getBotMode,
+    setBotMode,
+    getGuardCenter,
+    setGuardCenter,
 } from './actions/action-state.js';
 export { resumeFollowPlayer } from './actions/movement.js';
 
@@ -92,6 +99,12 @@ export async function executeAction(
             case 'mc_follow_player': {
                 const followTarget = getArg(args, 'player_name') ?? 'player';
                 setCurrentActivity(`following ${followTarget}`);
+                // Following cancels guard mode (bot was staying put, now returns to player)
+                // but preserves hunt mode (bot follows + attacks, following is expected)
+                if (getBotMode() === 'guard') {
+                    setBotMode('passive');
+                    setGuardCenter(null);
+                }
                 return await followPlayer(bot, getArg(args, 'player_name'), names);
             }
 
@@ -148,6 +161,9 @@ export async function executeAction(
                     bot.activateItem();
                 }
                 setCurrentActivity(null);
+                // Stopping resets to passive mode
+                setBotMode('passive');
+                setGuardCenter(null);
                 return 'Stopped current action';
 
             case 'mc_equip':
@@ -224,6 +240,29 @@ export async function executeAction(
 
             case 'mc_use_item':
                 return await useHeldItem(bot, getArg(args, 'item_name'));
+
+            case 'mc_set_mode': {
+                const mode = (getArg(args, 'mode') ?? 'passive').toLowerCase();
+                if (mode !== 'passive' && mode !== 'hunt' && mode !== 'guard') {
+                    return `Unknown mode '${mode}'. Valid modes: passive, hunt, guard`;
+                }
+                setBotMode(mode);
+                if (mode === 'guard') {
+                    const pos = bot.entity.position;
+                    setGuardCenter({ x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) });
+                    setCurrentActivity('guarding area');
+                    bot.pathfinder.stop();
+                    bot.pathfinder.setGoal(null);
+                    return `Guard mode activated. Patrolling this area.`;
+                }
+                setGuardCenter(null);
+                if (mode === 'hunt') {
+                    setCurrentActivity('hunting');
+                    return `Hunt mode activated. Will attack any hostile mob in sight.`;
+                }
+                setCurrentActivity(null);
+                return `Passive mode. Following and defending only when attacked.`;
+            }
 
             default:
                 return `Unknown action: ${actionName}`;

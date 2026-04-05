@@ -4,7 +4,7 @@ import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
 import { isActionBusy, getCurrentActivity } from './actions';
-import { isPickupSuppressed, setAutoDefending } from './actions/action-state.js';
+import { isPickupSuppressed, setAutoDefending, isAutoDefending, getBotMode } from './actions/action-state.js';
 import { FOOD_ITEMS } from './game-data';
 
 // ---- Callback interface ----
@@ -31,7 +31,7 @@ export interface McEventCallbacks {
 // Mineflayer entity.type is 'hostile' for most hostile mobs, but some
 // (e.g. phantom) have type 'mob' with category 'Hostile mobs'.
 // entity.kind maps to the minecraft-data category field.
-function isHostileEntity(e: Entity): boolean {
+export function isHostileEntity(e: Entity): boolean {
     return e.type === 'hostile' || (e as unknown as Record<string, unknown>).kind === 'Hostile mobs';
 }
 
@@ -211,7 +211,7 @@ export class McEventBridge {
                 // Only send the urgent event (triggers short AI reply).
                 // No separate chat event — that caused double notifications.
                 this.callbacks.onUrgentEvent(
-                    `[URGENT] ${botName} is being attacked by ${this.lastAttacker}! IMPORTANT: Reply in ONE sentence only, maximum 10 words.`,
+                    `[URGENT] ${botName} is being attacked by ${this.lastAttacker}!`,
                 );
             }
 
@@ -219,7 +219,8 @@ export class McEventBridge {
             // Case 1: hostile mob nearby (skeletons, zombies, etc.)
             // Case 2: any entity that swung at us recently (provoked bears, wolves, etc.)
             // NEVER auto-defend against the player we're following — accidental hits happen
-            if (settings.enableAutoDefense && !this.isAutoDefending) {
+            // Skip if guard/hunt mode is handling combat (global flag) or we started defense
+            if (settings.enableAutoDefense && !this.isAutoDefending && !isAutoDefending() && getBotMode() === 'passive') {
                 let targetName: string | null = null;
                 if (hostileMob) {
                     targetName = hostileMob.name ?? 'unknown';

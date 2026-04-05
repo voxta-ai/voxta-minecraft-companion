@@ -2,7 +2,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import { BED_BLOCKS } from './game-data';
-import { getCurrentActivity } from './actions';
+import { getCurrentActivity, getBotMode, getHomePosition } from './actions';
 
 export interface WorldState {
     position: { x: number; y: number; z: number };
@@ -350,6 +350,26 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     // Current activity (task-level)
     const activity = state.currentActivity ?? 'idle';
     lines.push(`${who}'s current activity: ${activity}`);
+
+    // Behavior mode
+    const mode = getBotMode();
+    if (mode !== 'passive') {
+        const modeDesc = mode === 'hunt'
+            ? 'HUNT MODE — actively seeking and attacking hostile mobs while following'
+            : 'GUARD MODE — patrolling and defending this area';
+        lines.push(`${who}'s behavior mode: ${modeDesc}`);
+    }
+
+    // Home status
+    const home = getHomePosition();
+    if (home) {
+        const dx = state.position.x - home.x;
+        const dz = state.position.z - home.z;
+        const homeDist = Math.round(Math.sqrt(dx * dx + dz * dz));
+        lines.push(`Home bed: set at ${home.x}, ${home.y}, ${home.z} (${homeDist} blocks away)`);
+    } else {
+        lines.push('Home bed: not set (no bed slept in yet)');
+    }
 
     // Movement (physical state)
     lines.push(`${who}'s movement: ${state.movement}`);

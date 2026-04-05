@@ -3,7 +3,7 @@ import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity } from './action-helpers.js';
-import { getActionAbort, getHomePosition } from './action-state.js';
+import { getActionAbort, getHomePosition, clearHome } from './action-state.js';
 
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
@@ -132,6 +132,15 @@ export async function goTo(
 export async function goHome(bot: Bot): Promise<string> {
     const homePosition = getHomePosition();
     if (!homePosition) return 'No home bed set yet. I need to sleep in a bed first to remember where home is.';
+
+    // Verify the bed still exists (world may have changed)
+    const { Vec3 } = require('vec3');
+    const block = bot.blockAt(new Vec3(homePosition.x, homePosition.y, homePosition.z));
+    if (!block || !block.name.includes('bed')) {
+        console.log(`[MC Action] Saved home at ${homePosition.x}, ${homePosition.y}, ${homePosition.z} is no longer a bed (found: ${block?.name ?? 'unloaded'}). Clearing stale home.`);
+        clearHome();
+        return 'No home bed set yet. The previously saved bed no longer exists — I need to sleep in a new bed first.';
+    }
 
     const dx = bot.entity.position.x - homePosition.x;
     const dy = bot.entity.position.y - homePosition.y;

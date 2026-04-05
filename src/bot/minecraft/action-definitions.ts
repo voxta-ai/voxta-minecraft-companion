@@ -53,7 +53,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_go_home',
         description:
-            'Go back home to the shelter/base where the bed is. Use when told to return home, go to base, go to shelter, or head back. Do NOT use for questions about where home is.',
+            'Go back home to the shelter/base where the bed is. ONLY use when the player EXPLICITLY tells the bot to go home, return to base, or head back to shelter. Do NOT use on your own initiative (e.g. because it is getting dark). Do NOT use for questions about where home is.',
         disabled: false,
         layer: '',
         effect: {},
@@ -136,7 +136,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_stop',
-        description: 'Stop the current action and stand still',
+        description:
+            'Stop the current action and stand still. WARNING: this also cancels guard and hunt modes, returning to passive. Do NOT use if the bot is in guard/hunt mode and should stay in that mode — use mc_none instead.',
         disabled: false,
         layer: '',
         effect: {},
@@ -213,7 +214,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_none',
         description:
-            'ONLY use when just talking and absolutely no game action is needed. Do NOT use if the player asked you to do something.',
+            'ONLY use when just talking and absolutely no game action is needed. Also use when the bot is already doing what was asked (e.g. already guarding, already following). Do NOT use if the player asked you to do something new.',
         disabled: false,
         layer: '',
         effect: {},
@@ -447,6 +448,25 @@ export const MINECRAFT_ACTIONS: McAction[] = [
             },
         ],
         category: 'interaction',
+        isQuick: true,
+        isPhysical: false,
+    },
+    {
+        name: 'mc_set_mode',
+        description:
+            "Switch the bot's behavior mode. Use 'hunt' when the player wants to go hunting, fight mobs, or kill everything nearby — the bot will proactively attack hostile mobs while following. Use 'guard' when the player wants the bot to stay in an area and patrol/defend it — the bot stops following and patrols within 8 blocks, attacking any hostile that approaches. Use 'passive' to return to normal following (only fights when attacked). Also triggered by mc_stop or mc_follow_player.",
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            {
+                name: 'mode',
+                type: 'String',
+                description: "Behavior mode: 'passive' (follow, defend only), 'hunt' (follow + attack all hostiles), 'guard' (patrol area + defend)",
+                required: true,
+            },
+        ],
+        category: 'meta',
         isQuick: true,
         isPhysical: false,
     },
