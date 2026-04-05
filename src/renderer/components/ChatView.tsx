@@ -2,6 +2,7 @@ import { For, Show, createSignal, createEffect, createMemo } from 'solid-js';
 import { chatMessages, sendMessage, status } from '../stores/app-store';
 import { speechPartialText, setSpeechPartialText } from '../stores/audio-store';
 import AudioIcons from './AudioIcons';
+import iconPng from '../icon.png';
 
 interface ChatViewProps {
     onConnect: () => void;
@@ -54,7 +55,7 @@ export default function ChatView(props: ChatViewProps) {
                 fallback={
                     <div class="empty-chat">
                         <div class="empty-chat-content">
-                            <img src="./icon.png" alt="Voxta Minecraft" class="empty-chat-icon" />
+                            <img src={iconPng} alt="Voxta Minecraft" class="empty-chat-icon" />
                             <p>No active session</p>
                             <button class="btn btn-connect" onClick={() => props.onConnect()}>
                                 🔗 Connect
