@@ -110,6 +110,8 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         //   1. Vec3 level: block NaN writes to x/y/z properties
         //   2. Entity level: when a new Vec3 is assigned, auto-guard it
         let guardCounter = 0;
+        let lastNaNWarnTime = 0;
+        let suppressedNaNCount = 0;
         function guardVec3(vec: { x: number; y: number; z: number }, label: string): void {
             const id = ++guardCounter;
             for (const axis of ['x', 'y', 'z'] as const) {
@@ -123,8 +125,19 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                     set(v: number) {
                         if (Number.isFinite(v)) { _val = v; }
                         else {
-                            console.warn(`[MC Guard] NaN ${label}.${axis} BLOCKED (kept ${_val}, guard #${id})`);
-                            console.warn(new Error('[MC Guard] NaN source stack').stack);
+                            // Rate-limit NaN warnings — mineflayer sends bursts of
+                            // NaN velocity from entity packets, no need to log each one.
+                            const now = Date.now();
+                            if (now - lastNaNWarnTime > 10_000) {
+                                if (suppressedNaNCount > 0) {
+                                    console.warn(`[MC Guard] (suppressed ${suppressedNaNCount} NaN blocks in the last 10s)`);
+                                }
+                                console.warn(`[MC Guard] NaN ${label}.${axis} BLOCKED (kept ${_val}, guard #${id})`);
+                                lastNaNWarnTime = now;
+                                suppressedNaNCount = 0;
+                            } else {
+                                suppressedNaNCount++;
+                            }
                         }
                     },
                     configurable: true,

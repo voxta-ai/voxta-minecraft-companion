@@ -786,27 +786,34 @@ export class BotEngine extends EventEmitter {
             }
         }, 5000);
 
-        // ---- Mode scan loop (hunt + guard/patrol) ----
+        // ---- Mode scan loop (aggro + hunt + guard/patrol) ----
         let patrolTarget: { x: number; z: number } | null = null;
-        const huntCooldowns: Record<string, number> = {};
+        const aggroCooldowns: Record<string, number> = {};
 
-        // Batch hunt kills to save LLM context — instead of sending
-        // "Defeated the slime" x10, send one "Defeated 10 slimes in hunt mode."
-        const huntKillCounts: Record<string, number> = {};
-        let huntBatchTimer: ReturnType<typeof setTimeout> | null = null;
-        const flushHuntBatch = (): void => {
-            if (huntBatchTimer) { clearTimeout(huntBatchTimer); huntBatchTimer = null; }
-            const entries = Object.entries(huntKillCounts).filter(([, count]) => count > 0);
+        // Batch mode kills to save LLM context — instead of sending
+        // "Defeated the slime" x10, send one "Defeated 10 slimes in aggro mode."
+        const modeKillCounts: Record<string, number> = {};
+        let modeBatchTimer: ReturnType<typeof setTimeout> | null = null;
+        let modeBatchLabel = 'aggro'; // Tracks which mode the batch belongs to
+        const flushModeBatch = (): void => {
+            if (modeBatchTimer) { clearTimeout(modeBatchTimer); modeBatchTimer = null; }
+            const entries = Object.entries(modeKillCounts).filter(([, count]) => count > 0);
             if (entries.length === 0) return;
             const botName = this.assistantName ?? 'Bot';
             const summary = entries.map(([mob, count]) => `${count} ${mob}${count > 1 ? 's' : ''}`).join(', ');
-            this.queueNote(`${botName}: Defeated ${summary} in hunt mode.`);
-            console.log(`[Bot] Hunt batch note: Defeated ${summary}`);
-            for (const key of Object.keys(huntKillCounts)) {
-                huntKillCounts[key] = 0;
+            const verb = modeBatchLabel === 'hunt' ? 'Hunted' : 'Defeated';
+            this.queueNote(`${botName}: ${verb} ${summary} in ${modeBatchLabel} mode.`);
+            console.log(`[Bot] ${modeBatchLabel} batch note: ${verb} ${summary}`);
+            for (const key of Object.keys(modeKillCounts)) {
+                modeKillCounts[key] = 0;
             }
         };
-        this.flushHuntBatch = flushHuntBatch;
+        this.flushHuntBatch = flushModeBatch;
+
+        // Farm animals that the hunt mode will target
+        const HUNTABLE_ANIMALS = ['pig', 'cow', 'mooshroom', 'sheep', 'chicken', 'rabbit'];
+        let huntCooldownUntil = 0; // Post-kill cooldown to let the bot settle
+
         let patrolPauseUntil = 0;
         this.modeScanLoop = setInterval(() => {
             if (!this.mcBot) return;
@@ -817,8 +824,8 @@ export class BotEngine extends EventEmitter {
             const pos = bot.entity.position;
             if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
 
-            // ---- Hunt mode: attack nearest hostile while following player ----
-            if (mode === 'hunt') {
+            // ---- Aggro mode: attack nearest hostile while following player ----
+            if (mode === 'aggro') {
                 const player = this.followingPlayer
                     ? findPlayerEntity(bot, this.followingPlayer, this.names)
                     : null;
@@ -828,13 +835,18 @@ export class BotEngine extends EventEmitter {
                 // tiny split babies that the attack action can't reliably hit.
                 const SPLIT_MOBS = ['slime', 'magma_cube'];
 
+                // Mobs classified as hostile but actually neutral — they only attack
+                // when provoked. Don't auto-target them; the user can still say "attack the enderman".
+                const NEUTRAL_HOSTILE = ['enderman', 'spider', 'cave_spider', 'zombified_piglin'];
+
                 let nearestHostile: (typeof bot.entities)[number] | undefined;
                 let nearestDist = Infinity;
                 for (const e of Object.values(bot.entities)) {
                     if (e === bot.entity || !isHostileEntity(e)) continue;
                     const name = e.name ?? '';
+                    if (NEUTRAL_HOSTILE.includes(name)) continue;
                     // Skip split-mob babies during cooldown
-                    if (SPLIT_MOBS.includes(name) && huntCooldowns[name] && Date.now() < huntCooldowns[name]) continue;
+                    if (SPLIT_MOBS.includes(name) && aggroCooldowns[name] && Date.now() < aggroCooldowns[name]) continue;
                     const d = e.position.distanceTo(pos);
                     // Within 16 blocks of bot AND within 20 blocks of player (leash)
                     if (d < 16 && d < nearestDist) {
@@ -846,37 +858,109 @@ export class BotEngine extends EventEmitter {
 
                 if (nearestHostile && !getCurrentCombatTarget()) {
                     const mobName = nearestHostile.name ?? 'unknown';
-                    console.log(`[Bot] Hunt mode: attacking ${mobName} (${nearestDist.toFixed(1)} blocks)`);
+                    console.log(`[Bot] Aggro mode: attacking ${mobName} (${nearestDist.toFixed(1)} blocks)`);
                     setAutoDefending(true);
-                    this.addChat('action', 'Action', `${this.assistantName ?? 'Bot'} hunting ${mobName}!`);
+                    this.addChat('action', 'Action', `${this.assistantName ?? 'Bot'} fighting ${mobName}!`);
                     void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], this.names)
                         .then((result) => {
-                            this.addChat('note', 'Note', `${this.assistantName ?? 'Bot'}: ${result}`);
-                            console.log(`[Bot] Hunt attack result: ${result}`);
+                            console.log(`[Bot] Aggro attack result: ${result}`);
 
                             // Only batch successful kills, send failures immediately
                             if (result.toLowerCase().includes('defeated')) {
-                                huntKillCounts[mobName] = (huntKillCounts[mobName] ?? 0) + 1;
+                                this.addChat('note', 'Note', `${this.assistantName ?? 'Bot'}: ${result}`);
+                                modeBatchLabel = 'aggro';
+                                modeKillCounts[mobName] = (modeKillCounts[mobName] ?? 0) + 1;
                                 // Reset batch timer — flush after 5s of no new kills
-                                if (huntBatchTimer) clearTimeout(huntBatchTimer);
-                                huntBatchTimer = setTimeout(flushHuntBatch, 5000);
-                            } else {
+                                if (modeBatchTimer) clearTimeout(modeBatchTimer);
+                                modeBatchTimer = setTimeout(flushModeBatch, 5000);
+                            } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
+                                this.addChat('note', 'Note', `${this.assistantName ?? 'Bot'}: ${result}`);
                                 this.queueNote(`${this.assistantName ?? 'Bot'}: ${result}`);
                             }
 
                             // Set cooldown for split mobs
                             if (SPLIT_MOBS.includes(mobName)) {
-                                huntCooldowns[mobName] = Date.now() + 5000;
-                                console.log(`[Bot] Hunt: ${mobName} split cooldown set for 5s`);
+                                aggroCooldowns[mobName] = Date.now() + 5000;
+                                console.log(`[Bot] Aggro: ${mobName} split cooldown set for 5s`);
+                            }
+                        })
+                        .catch((err) => console.log(`[Bot] Aggro attack failed:`, err))
+                        .finally(() => {
+                            setAutoDefending(false);
+                            console.log(`[Bot] Aggro: combat ended, scheduling follow resume in 2s`);
+                            // Wait 2s before resuming follow — if another fight starts
+                            // in that window, the scan will pick it up and this timer
+                            // becomes irrelevant (the new fight sets its own goal).
+                            setTimeout(() => {
+                                const combatTarget = getCurrentCombatTarget();
+                                const defending = isAutoDefending();
+                                console.log(`[Bot] Aggro: follow resume check — following=${this.followingPlayer}, combatTarget=${combatTarget}, defending=${defending}`);
+                                if (this.followingPlayer && !combatTarget && !defending) {
+                                    void executeAction(
+                                        bot,
+                                        'mc_follow_player',
+                                        [{ name: 'player_name', value: this.followingPlayer }],
+                                        this.names,
+                                    ).then((r) => console.log(`[Bot] Aggro: resumed following after kill: ${r}`));
+                                } else {
+                                    console.log(`[Bot] Aggro: skipped follow resume (busy or no player)`);
+                                }
+                            }, 2000);
+                        });
+                }
+                return;
+            }
+
+            // ---- Hunt mode: attack nearest farm animal while following player ----
+            if (mode === 'hunt') {
+                // Post-kill cooldown — let the bot settle, pick up loot, and breathe
+                if (Date.now() < huntCooldownUntil) return;
+
+                const player = this.followingPlayer
+                    ? findPlayerEntity(bot, this.followingPlayer, this.names)
+                    : null;
+
+                let nearestAnimal: (typeof bot.entities)[number] | undefined;
+                let nearestDist = Infinity;
+                for (const e of Object.values(bot.entities)) {
+                    if (e === bot.entity) continue;
+                    const name = e.name ?? '';
+                    if (!HUNTABLE_ANIMALS.includes(name)) continue;
+                    const d = e.position.distanceTo(pos);
+                    // Within 12 blocks of bot AND within 20 blocks of player (leash)
+                    if (d < 12 && d < nearestDist) {
+                        if (player && e.position.distanceTo(player.position) > 20) continue;
+                        nearestAnimal = e;
+                        nearestDist = d;
+                    }
+                }
+
+                if (nearestAnimal && !getCurrentCombatTarget()) {
+                    const animalName = nearestAnimal.name ?? 'unknown';
+                    console.log(`[Bot] Hunt mode: targeting ${animalName} (${nearestDist.toFixed(1)} blocks)`);
+                    setAutoDefending(true);
+                    this.addChat('action', 'Action', `${this.assistantName ?? 'Bot'} hunting ${animalName}!`);
+                    void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: animalName }], this.names)
+                        .then((result) => {
+                            console.log(`[Bot] Hunt attack result: ${result}`);
+
+                            if (result.toLowerCase().includes('defeated')) {
+                                this.addChat('note', 'Note', `${this.assistantName ?? 'Bot'}: ${result}`);
+                                modeBatchLabel = 'hunt';
+                                modeKillCounts[animalName] = (modeKillCounts[animalName] ?? 0) + 1;
+                                if (modeBatchTimer) clearTimeout(modeBatchTimer);
+                                modeBatchTimer = setTimeout(flushModeBatch, 5000);
+                            } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
+                                this.addChat('note', 'Note', `${this.assistantName ?? 'Bot'}: ${result}`);
+                                this.queueNote(`${this.assistantName ?? 'Bot'}: ${result}`);
                             }
                         })
                         .catch((err) => console.log(`[Bot] Hunt attack failed:`, err))
                         .finally(() => {
                             setAutoDefending(false);
-                            console.log(`[Bot] Hunt: combat ended, scheduling follow resume in 2s`);
-                            // Wait 2s before resuming follow — if another fight starts
-                            // in that window, the scan will pick it up and this timer
-                            // becomes irrelevant (the new fight sets its own goal).
+                            // 1.5-second cooldown before hunting the next animal
+                            huntCooldownUntil = Date.now() + 1500;
+                            console.log(`[Bot] Hunt: kill ended, scheduling follow resume in 2s`);
                             setTimeout(() => {
                                 const combatTarget = getCurrentCombatTarget();
                                 const defending = isAutoDefending();
@@ -902,11 +986,14 @@ export class BotEngine extends EventEmitter {
                 const center = getGuardCenter();
                 if (!center) return;
 
-                // Check for hostiles near guard center
+                // Check for hostiles near guard center (skip neutral mobs like endermen)
+                const GUARD_NEUTRAL = ['enderman', 'spider', 'cave_spider', 'zombified_piglin'];
                 let nearestHostile: (typeof bot.entities)[number] | undefined;
                 let nearestDist = Infinity;
                 for (const e of Object.values(bot.entities)) {
                     if (e === bot.entity || !isHostileEntity(e)) continue;
+                    const name = e.name ?? '';
+                    if (GUARD_NEUTRAL.includes(name)) continue;
                     const d = e.position.distanceTo(pos);
                     if (d < 16 && d < nearestDist) {
                         nearestHostile = e;
@@ -973,6 +1060,7 @@ export class BotEngine extends EventEmitter {
                     if (this.isReplying) {
                         this.queueNote(text);
                     } else {
+                        console.log(`[Bot >>] event: "${text.substring(0, 80)}"`);
                         void this.voxta.sendEvent(text);
                     }
                 },
@@ -987,6 +1075,7 @@ export class BotEngine extends EventEmitter {
                     this.isReplying = false;
                     this.currentReply = '';
                     // Send the urgent event immediately
+                    console.log(`[Bot >>] event (urgent): "${text.substring(0, 80)}"`);
                     void this.voxta.sendEvent(text);
                 },
                 onPlayerChat: (text) => {
@@ -1026,8 +1115,15 @@ export class BotEngine extends EventEmitter {
                         [{ name: 'entity_name', value: mobName }],
                         this.names,
                     );
-                    this.addChat('note', 'Note', `${botName}: ${result}`);
-                    this.queueNote(`${botName}: ${result}`);
+                    // Don't send redundant notes — "Already fighting" is noise,
+                    // "Stopped fighting" and "Died while fighting" are covered by the death event.
+                    const isNoise = result.startsWith('Already fighting')
+                        || result.startsWith('Stopped fighting')
+                        || result.startsWith('Died while fighting');
+                    if (!isNoise) {
+                        this.addChat('note', 'Note', `${botName}: ${result}`);
+                        this.queueNote(`${botName}: ${result}`);
+                    }
                     console.log(`[Bot] Auto-defense attack result: ${result}`);
                 } catch (err) {
                     console.log(`[Bot] Auto-defense attack failed:`, err);

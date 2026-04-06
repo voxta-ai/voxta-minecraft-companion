@@ -12,6 +12,74 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
         return 'Failed to equip fishing rod';
     }
 
+    // Find nearest SURFACE water block (water with air above it)
+    const pos = bot.entity.position;
+    let nearestWater: { x: number; y: number; z: number; dist: number } | null = null;
+    const SCAN_RANGE = 10;
+    for (let dx = -SCAN_RANGE; dx <= SCAN_RANGE; dx++) {
+        for (let dz = -SCAN_RANGE; dz <= SCAN_RANGE; dz++) {
+            for (let dy = -3; dy <= 1; dy++) {
+                const block = bot.blockAt(pos.offset(dx, dy, dz));
+                if (!block || block.name !== 'water') continue;
+                // Must be surface water — air (or non-solid) above it
+                const above = bot.blockAt(pos.offset(dx, dy + 1, dz));
+                if (above && above.name !== 'air' && above.name !== 'water') continue;
+                const dist = Math.sqrt(dx * dx + dz * dz); // Horizontal distance only
+                if (!nearestWater || dist < nearestWater.dist) {
+                    nearestWater = { x: pos.x + dx, y: pos.y + dy, z: pos.z + dz, dist };
+                }
+            }
+        }
+    }
+    if (!nearestWater) return 'Cannot fish here — no water nearby. Need to find a lake, river, or ocean first';
+
+    const { Vec3 } = require('vec3');
+    const waterVec = new Vec3(nearestWater.x + 0.5, nearestWater.y, nearestWater.z + 0.5);
+
+    // Find a solid shore block adjacent to the water to stand on
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    let shoreBlock: { x: number; y: number; z: number } | null = null;
+    let bestShoreDist = Infinity;
+    for (const [ddx, ddz] of directions) {
+        const sx = nearestWater.x + ddx;
+        const sz = nearestWater.z + ddz;
+        // Check a few Y levels to find solid ground
+        for (let sy = nearestWater.y - 1; sy <= nearestWater.y + 2; sy++) {
+            const block = bot.blockAt(new Vec3(sx, sy, sz));
+            const above = bot.blockAt(new Vec3(sx, sy + 1, sz));
+            if (block && block.boundingBox === 'block' && block.name !== 'water'
+                && above && (above.name === 'air' || above.name === 'tall_grass' || above.name === 'short_grass')) {
+                const dist = Math.sqrt((sx - pos.x) ** 2 + (sz - pos.z) ** 2);
+                if (dist < bestShoreDist) {
+                    bestShoreDist = dist;
+                    shoreBlock = { x: sx, y: sy + 1, z: sz }; // Stand ON TOP of the solid block
+                }
+            }
+        }
+    }
+
+    // Walk to the shore block (or near the water if no shore found)
+    const targetPos = shoreBlock
+        ? new Vec3(shoreBlock.x + 0.5, shoreBlock.y, shoreBlock.z + 0.5)
+        : waterVec;
+
+    const distToTarget = Math.sqrt((targetPos.x - pos.x) ** 2 + (targetPos.z - pos.z) ** 2);
+    if (distToTarget > 1.5) {
+        console.log(`[Fish] Walking to shore at (${Math.round(targetPos.x)}, ${Math.round(targetPos.y)}, ${Math.round(targetPos.z)})...`);
+        const pkg = (await import('mineflayer-pathfinder')).default;
+        const goal = new pkg.goals.GoalNear(targetPos.x, targetPos.y, targetPos.z, 1);
+        bot.pathfinder.setGoal(goal, false);
+        await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => { bot.pathfinder.stop(); resolve(); }, 5000);
+            bot.once('goal_reached', () => { clearTimeout(timeout); resolve(); });
+        });
+    }
+
+    // Face the water surface and give the server time to register
+    await bot.lookAt(new Vec3(waterVec.x, nearestWater.y + 1, waterVec.z));
+    await new Promise((r) => setTimeout(r, 350));
+    console.log(`[Fish] Facing water at (${Math.round(nearestWater.x)}, ${nearestWater.y}, ${Math.round(nearestWater.z)})`);
+
     const targetCount = countStr ? parseInt(countStr, 10) : 5;
     if (isNaN(targetCount) || targetCount <= 0) return 'Invalid count';
 

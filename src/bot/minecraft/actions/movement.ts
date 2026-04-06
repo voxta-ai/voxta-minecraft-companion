@@ -240,5 +240,51 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
         }, 30000);
     });
 
+    // If it's a villager or trader, try to read their trades
+    const traderType = (nearest.entity.name ?? '').toLowerCase();
+    const TRADER_TYPES = ['villager', 'wandering_trader'];
+    if (TRADER_TYPES.includes(traderType) && bot.entities[target.id]) {
+        try {
+            // openVillager asserts entityType === villager, which fails for
+            // wandering_trader. Temporarily spoof the entityType so the assert
+            // passes — openVillager handles trade_list packet registration
+            // that openEntity alone does NOT do.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const registry = (bot as any).registry;
+            const villagerTypeId = registry.entitiesByName.villager?.id ?? registry.entitiesByName.Villager?.id;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const entityObj = nearest.entity as any;
+            const originalType = entityObj.entityType;
+            entityObj.entityType = villagerTypeId;
+
+            let villager;
+            try {
+                villager = await bot.openVillager(nearest.entity);
+            } finally {
+                entityObj.entityType = originalType;
+            }
+
+            const trades = villager.trades ?? [];
+            bot.closeWindow(villager);
+
+            if (trades.length > 0) {
+                const tradeList = trades.map((t, i) => {
+                    const input1 = `${String(t.inputItem1.count)}x ${t.inputItem1.name.replace(/_/g, ' ')}`;
+                    const input2 = t.inputItem2 && t.inputItem2.type
+                        ? ` + ${String(t.inputItem2.count)}x ${t.inputItem2.name.replace(/_/g, ' ')}`
+                        : '';
+                    const output = `${String(t.outputItem.count)}x ${t.outputItem.name.replace(/_/g, ' ')}`;
+                    const stock = t.nbTradeUses < t.maximumNbTradeUses ? '' : ' (SOLD OUT)';
+                    return `  ${i + 1}. ${input1}${input2} -> ${output}${stock}`;
+                }).join('\n');
+                console.log(`[MC Action] ${displayName} trades:\n${tradeList}`);
+                return `Reached the ${displayName}. Their trades:\n${tradeList}`;
+            }
+            return `Reached the ${displayName} but they have no trades available`;
+        } catch (err) {
+            console.log(`[MC Action] Could not read trades from ${displayName}:`, err);
+        }
+    }
+
     return `Reached the ${displayName}`;
 }

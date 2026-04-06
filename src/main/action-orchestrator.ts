@@ -70,7 +70,7 @@ export function handleActionMessage(
 
     // Skip AI-generated combat actions only when auto-defense is actively fighting.
     // We do NOT block based on mode alone — the user may explicitly ask the bot to
-    // attack a specific target (e.g. "kill that pig") even while hunt/guard is active.
+    // attack a specific target (e.g. "kill that pig") even while aggro/hunt/guard is active.
     const COMBAT_ACTIONS = ['mc_attack', 'mc_go_to_entity'];
     if (COMBAT_ACTIONS.includes(actionName) && isAutoDefending()) {
         console.log(`[Bot] Ignoring ${actionName} — auto-defense is actively fighting`);
@@ -105,9 +105,10 @@ export function handleActionMessage(
         if (eqIdx >= 0) rawVal = rawVal.slice(eqIdx + 1);
         rawVal = rawVal.replace(/"/g, '').trim();
         callbacks.setFollowingPlayer(rawVal || null);
-        // AI explicitly chose "follow player" — switch out of hunt/guard so the
+        // AI explicitly chose "follow player" — switch out of guard/hunt so the
         // mode scan doesn't immediately override with a new attack target.
-        if (getBotMode() !== 'passive') {
+        // Aggro mode is preserved (bot follows + attacks hostiles, that's expected).
+        if (getBotMode() === 'guard' || getBotMode() === 'hunt') {
             const prevMode = getBotMode();
             console.log(`[Bot] mc_follow_player: auto-switching from ${prevMode} to passive`);
             setBotMode('passive');
@@ -130,11 +131,13 @@ export function handleActionMessage(
             const voiceChance = getVoiceChance(callbacks.getSettings(), 'survival');
             const roll = Math.random() * 100;
             if (roll < voiceChance && !callbacks.isReplying()) {
+                console.log(`[Bot >>] event: "${msg.substring(0, 80)}"`);
+                callbacks.addChat('event', 'Event', msg);
                 void callbacks.getVoxta()?.sendEvent(msg);
             } else {
+                callbacks.addChat('note', 'Note', msg);
                 callbacks.queueNote(msg);
             }
-            callbacks.addChat('note', 'Note', msg);
         });
     }
 
@@ -171,6 +174,7 @@ export function handleActionMessage(
         const shouldResume =
             followingPlayer &&
             getBotMode() !== 'guard' &&
+            actionName !== 'mc_none' &&
             actionName !== 'mc_follow_player' &&
             actionName !== 'mc_stop' &&
             actionName !== 'mc_go_home' &&
@@ -217,6 +221,7 @@ export function handleActionMessage(
         // Detect action failures — these must always trigger an AI reply
         // so the AI acknowledges the error instead of hallucinating success
         const isFailure = failureKeywords.some((kw) => result.toLowerCase().includes(kw));
+        const hasTrades = result.includes('Their trades:');
         const voxta = callbacks.getVoxta();
         const timing = callbacks.getSettings().actionInferenceTiming;
 
@@ -236,7 +241,7 @@ export function handleActionMessage(
             // Apply voice chance — if it passes, queue an event to trigger a
             // follow-up voiced reply once the current reply finishes.
             // Only send ONE of note or event, never both (avoids duplicate in LLM context).
-            const voiceChance = isFailure ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
+            const voiceChance = isFailure || hasTrades ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
             const roll = Math.random() * 100;
             if (roll < voiceChance) {
                 callbacks.addChat('event', 'Event', `${botName}: ${result}`);
@@ -249,14 +254,16 @@ export function handleActionMessage(
             // Failures always voiced — AI must acknowledge what went wrong
             // Disable action inference so hints like "kill spiders" don't auto-trigger actions
             callbacks.addChat('event', 'Event', `${botName}: ${result}`);
+            console.log(`[Bot >>] event (failure): "${result.substring(0, 80)}"`);
             void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
         } else {
             // Voice chance roll — like an Elite Dangerous probability system
-            const voiceChance = getVoiceChance(callbacks.getSettings(), actionDef?.category);
+            const voiceChance = hasTrades ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
             const roll = Math.random() * 100;
             if (roll < voiceChance && !callbacks.isReplying()) {
                 // Voiced: send it as an event so the AI replies about the result
                 callbacks.addChat('event', 'Event', `${botName}: ${result}`);
+                console.log(`[Bot >>] event (action result): "${result.substring(0, 80)}"`);
                 void voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
             } else {
                 // Silent: AI sees it but stays quiet — single note, no duplicate

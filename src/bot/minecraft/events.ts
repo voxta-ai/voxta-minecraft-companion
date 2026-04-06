@@ -4,7 +4,7 @@ import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
 import { isActionBusy, getCurrentActivity } from './actions';
-import { isPickupSuppressed, setAutoDefending, isAutoDefending, getBotMode } from './actions/action-state.js';
+import { isPickupSuppressed, setAutoDefending, isAutoDefending, getBotMode, getCurrentCombatTarget } from './actions/action-state.js';
 import { FOOD_ITEMS } from './game-data';
 
 // ---- Callback interface ----
@@ -51,6 +51,7 @@ export class McEventBridge {
     private lastAttackerTime = 0;
     private lastSwingAttacker: string | null = null;
     private lastSwingTime = 0;
+    private lastKnownAttacker: string | null = null; // Persists across getDamageSource() calls
     private isAutoDefending = false;
     private died = false;
     private deathCause: string | null = null;
@@ -133,18 +134,18 @@ export class McEventBridge {
             const settings = this.callbacks.getSettings();
             if (!settings.enableEventDeath) return;
             this.died = true;
-            const killer = this.lastAttacker ?? this.getDamageSource();
+            // Use lastKnownAttacker (persists) → lastAttacker (recent) → getDamageSource() (guess)
+            const killer = this.lastKnownAttacker ?? this.lastAttacker ?? this.getDamageSource();
             this.deathCause = killer;
             this.lastAttacker = null;
+            this.lastKnownAttacker = null;
             this.lastHealth = 20;
             this.pendingDamage = 0;
             if (this.damageTimer) {
                 clearTimeout(this.damageTimer);
                 this.damageTimer = null;
             }
-            const botName = this.callbacks.getAssistantName();
-            // Just log to chat — the respawn event handles the AI reply
-            this.callbacks.onChat('event', 'Event', `${botName} died from ${killer}!`);
+            // Don't log death separately — respawn handler sends one combined message
         }) as (...args: never[]) => void);
 
         // ---- Respawn (fires immediately after death) ----
@@ -154,9 +155,9 @@ export class McEventBridge {
             const botName = this.callbacks.getAssistantName();
             const cause = this.deathCause ?? 'unknown causes';
             this.deathCause = null;
-            this.callbacks.onChat('event', 'Event', `${botName} has respawned!`);
+            // Single combined message instead of separate death + respawn + urgent events
             this.callbacks.onUrgentEvent(
-                `[URGENT] ${botName} just died to ${cause}, lost all items, and respawned. IMPORTANT: Reply in ONE sentence only, maximum 10 words.`,
+                `[URGENT] ${botName} was killed by ${cause}, lost all items, and respawned.`,
             );
         }) as (...args: never[]) => void);
 
@@ -195,6 +196,7 @@ export class McEventBridge {
                 const mcName = hostileMob.username ?? hostileMob.displayName ?? hostileMob.name ?? 'something';
                 this.lastAttacker = this.names.resolveToVoxta(mcName);
                 this.lastAttackerTime = Date.now();
+                this.lastKnownAttacker = this.lastAttacker; // Persist for death handler
                 this.lastSwingAttacker = null; // Clear swing — mob takes priority
             } else if (this.lastSwingAttacker && Date.now() - this.lastSwingTime < 1500) {
                 // Priority 2: Player PvP — only if no hostile mob is nearby
@@ -219,8 +221,9 @@ export class McEventBridge {
             // Case 1: hostile mob nearby (skeletons, zombies, etc.)
             // Case 2: any entity that swung at us recently (provoked bears, wolves, etc.)
             // NEVER auto-defend against the player we're following — accidental hits happen
-            // Skip if guard/hunt mode is handling combat (global flag) or we started defense
-            if (settings.enableAutoDefense && !this.isAutoDefending && !isAutoDefending() && getBotMode() === 'passive') {
+            // Skip if aggro/hunt/guard mode is handling combat (global flag) or we started defense
+            // Also skip if any combat is already active (AI-directed mc_attack, mode scans, etc.)
+            if (settings.enableAutoDefense && !this.isAutoDefending && !isAutoDefending() && !getCurrentCombatTarget() && getBotMode() === 'passive') {
                 let targetName: string | null = null;
                 if (hostileMob) {
                     targetName = hostileMob.name ?? 'unknown';
@@ -533,10 +536,8 @@ export class McEventBridge {
         if (this.bot.entity.position.y < -60) return 'falling into the void';
 
         // Then check for a recent attacker (mob or player hit)
-        if (this.lastAttacker && Date.now() - this.lastAttackerTime < 2000) {
-            const source = this.lastAttacker;
-            this.lastAttacker = null;
-            return source;
+        if (this.lastAttacker && Date.now() - this.lastAttackerTime < 10_000) {
+            return this.lastAttacker;
         }
 
         if (!this.bot.entity.onGround) return 'fall damage';

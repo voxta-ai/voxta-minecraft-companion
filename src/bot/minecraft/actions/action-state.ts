@@ -63,7 +63,7 @@ export function setAutoDefending(value: boolean): void {
 
 // ---- Behavior mode ----
 
-export type BotMode = 'passive' | 'hunt' | 'guard';
+export type BotMode = 'passive' | 'aggro' | 'hunt' | 'guard';
 
 let botMode: BotMode = 'passive';
 export function getBotMode(): BotMode {

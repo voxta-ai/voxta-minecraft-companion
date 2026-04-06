@@ -9,7 +9,6 @@ import {
     getCurrentActivity,
     setCurrentActivity,
     getCurrentCombatTarget,
-    getBotMode,
     setBotMode,
     setGuardCenter,
 } from './actions';
@@ -99,12 +98,10 @@ export async function executeAction(
             case 'mc_follow_player': {
                 const followTarget = getArg(args, 'player_name') ?? 'player';
                 setCurrentActivity(`following ${followTarget}`);
-                // Following cancels guard mode (bot was staying put, now returns to player)
-                // but preserves hunt mode (bot follows + attacks, following is expected)
-                if (getBotMode() === 'guard') {
-                    setBotMode('passive');
-                    setGuardCenter(null);
-                }
+                // Mode cancellation (guard/hunt → passive) is handled by the
+                // orchestrator for AI-chosen actions. We do NOT cancel here
+                // because the scan loop also calls mc_follow_player internally
+                // to resume following after a kill — cancelling would break the mode.
                 return await followPlayer(bot, getArg(args, 'player_name'), names);
             }
 
@@ -243,8 +240,8 @@ export async function executeAction(
 
             case 'mc_set_mode': {
                 const mode = (getArg(args, 'mode') ?? 'passive').toLowerCase();
-                if (mode !== 'passive' && mode !== 'hunt' && mode !== 'guard') {
-                    return `Unknown mode '${mode}'. Valid modes: passive, hunt, guard`;
+                if (mode !== 'passive' && mode !== 'aggro' && mode !== 'hunt' && mode !== 'guard') {
+                    return `Unknown mode '${mode}'. Valid modes: passive, aggro, hunt, guard`;
                 }
                 setBotMode(mode);
                 if (mode === 'guard') {
@@ -256,9 +253,13 @@ export async function executeAction(
                     return `Guard mode activated. Patrolling this area.`;
                 }
                 setGuardCenter(null);
+                if (mode === 'aggro') {
+                    setCurrentActivity('in aggro mode');
+                    return `Aggro mode activated. Will attack any hostile mob in sight.`;
+                }
                 if (mode === 'hunt') {
-                    setCurrentActivity('hunting');
-                    return `Hunt mode activated. Will attack any hostile mob in sight.`;
+                    setCurrentActivity('hunting animals');
+                    return `Hunt mode activated. Hunting farm animals for food.`;
                 }
                 setCurrentActivity(null);
                 return `Passive mode. Following and defending only when attacked.`;
