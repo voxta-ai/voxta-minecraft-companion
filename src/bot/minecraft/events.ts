@@ -471,6 +471,14 @@ export class McEventBridge {
             const settings = this.callbacks.getSettings();
             if (!settings.enableNoteChat) return;
 
+            // Skip SkinsRestorer system messages — these come from the server
+            // when applying or changing skins and shouldn't be forwarded to the AI.
+            const isSkinsRestorerMsg = /^(Uploading skin|Your skin has been changed|You can change your skin again in|Skin data updated|Failed to set skin)/i.test(message);
+            if (isSkinsRestorerMsg) {
+                this.callbacks.onChat('system', 'SkinsRestorer', message);
+                return; // Don't forward to AI
+            }
+
             // Skip Minecraft command output (cheat codes like /give, /tp, /summon, etc.)
             // These come through the 'chat' event attributed to the player who ran the
             // command, but aren't actual player messages. Command feedback always follows

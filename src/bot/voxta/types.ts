@@ -72,11 +72,27 @@ export interface ClientAuthenticateMessage {
     };
 }
 
+export interface FormField {
+    $type: string;
+    name: string;
+    label: string;
+    text?: string;
+    defaultValue?: string | boolean | number;
+    contentTypes?: string[];
+    noneLabel?: string;
+}
+
+export interface Form {
+    fields: FormField[];
+}
+
 export interface ClientRegisterAppMessage {
     $type: 'registerApp';
     clientVersion?: string;
     iconBase64Url?: string;
     label?: string;
+    characterForm?: Form;
+    scenarioForm?: Form;
 }
 
 export interface ClientStartChatMessage {
@@ -175,7 +191,11 @@ export interface ServerChatStartedMessage {
     $type: 'chatStarted';
     chatId: string;
     sessionId: string;
-    characters: Array<{ id: string; name: string }>;
+    characters: Array<{
+        id: string;
+        name: string;
+        appConfiguration?: Record<string, string>;
+    }>;
 }
 
 export interface ServerReplyStartMessage {

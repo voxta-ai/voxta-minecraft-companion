@@ -9,11 +9,16 @@ export interface MinecraftBot {
     bot: mineflayer.Bot;
     connect(): Promise<void>;
     disconnect(): void;
+    /** Set the Mojang texture URL to apply via SkinsRestorer on spawn. */
+    setSkinUrl(url: string | null): void;
 }
 
 export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
     let resolveSpawn: (() => void) | null = null;
     let rejectSpawn: ((err: Error) => void) | null = null;
+    let pendingSkinUrl: string | null = null;
+    let botSpawned = false;
+    let skinApplied = false;
 
     const bot = mineflayer.createBot({
         host: config.mc.host,
@@ -32,6 +37,16 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
     bot.on('spawn', () => {
         console.log(`[MC] Spawned at ${String(bot.entity.position)}`);
+        botSpawned = true;
+
+        // Apply skin via SkinsRestorer chat command (if plugin is installed)
+        // Only apply once per session — SkinsRestorer respawns the bot to show
+        // the skin, which re-triggers this event. Without this guard, the second
+        // spawn causes a rate-limited duplicate /skin command.
+        if (pendingSkinUrl && !skinApplied) {
+            skinApplied = true;
+            applySkinCommand(bot, pendingSkinUrl);
+        }
 
         // Configure pathfinder default movements
         const mcData = require('minecraft-data')(bot.version);
@@ -361,5 +376,28 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         disconnect(): void {
             bot.quit('Companion shutting down');
         },
+        setSkinUrl(url: string | null): void {
+            pendingSkinUrl = url;
+            if (url) {
+                console.log(`[MC Skin] Skin URL set: ${url.substring(0, 80)}...`);
+                // If already spawned and not yet applied, apply immediately
+                if (botSpawned && !skinApplied) {
+                    skinApplied = true;
+                    applySkinCommand(bot, url);
+                }
+            } else {
+                // Reset flag when skin is cleared (session end)
+                skinApplied = false;
+            }
+        },
     };
+}
+
+/** Run SkinsRestorer /skin url command after a short delay */
+function applySkinCommand(bot: mineflayer.Bot, url: string): void {
+    setTimeout(() => {
+        const cmd = `/skin url "${url}" classic`;
+        console.log(`[MC Skin] Applying via SkinsRestorer: ${cmd}`);
+        bot.chat(cmd);
+    }, 300);
 }

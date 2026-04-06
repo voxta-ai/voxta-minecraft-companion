@@ -14,6 +14,7 @@ import type { NameRegistry } from '../bot/name-registry';
 import type { CharacterInfo } from '../shared/ipc-types';
 import { handleVisionCaptureRequest } from './vision-capture';
 import { handleActionMessage, resetActionFired } from './action-orchestrator';
+import { getPublicSkinUrl } from './skin-server';
 
 // ---- Context passed to each handler ----
 
@@ -39,6 +40,7 @@ export interface MessageHandlerContext {
     getCurrentReply(): string;
     setIsReplying(value: boolean): void;
     setFollowingPlayer(player: string | null): void;
+    setSkinUrl(url: string | null): void;
 
     // Actions
     addChat(type: ChatMessage['type'], sender: string, text: string, badge?: string): void;
@@ -101,6 +103,83 @@ function handleChatStarted(message: ServerMessage, ctx: MessageHandlerContext): 
             }
         }
         console.log(`[Server] chatStarted — loaded ${started.messages.length} old messages`);
+    }
+
+    // Apply character skin from Voxta assets (requires SkinsRestorer on MC server)
+    const voxta = ctx.getVoxta();
+    const skinUrn = voxta?.characterAppConfig?.skin;
+    if (skinUrn) {
+        const parsed = parseAssetUrn(skinUrn);
+        if (parsed) {
+            console.log(`[MC Skin] Downloading skin "${parsed.assetPath}" from character ${parsed.characterId}`);
+            void downloadAndServeSkin(parsed.characterId, parsed.assetPath, ctx);
+        }
+    }
+}
+
+/** Parse a Voxta resource URN into characterId + asset path */
+function parseAssetUrn(urn: string): { characterId: string; assetPath: string } | null {
+    // urn:voxta:resources:characters:<id>:assets:<path>
+    const match = urn.match(/^urn:voxta:resources:characters:([^:]+):assets:(.+)$/);
+    return match ? { characterId: match[1], assetPath: match[2] } : null;
+}
+
+/** Download a skin PNG from Voxta and upload it to a public URL for SkinsRestorer */
+async function downloadAndServeSkin(
+    characterId: string,
+    assetPath: string,
+    ctx: MessageHandlerContext,
+): Promise<void> {
+    const voxtaUrl = ctx.getVoxtaUrl();
+    if (!voxtaUrl) {
+        console.error('[MC Skin] No Voxta URL available');
+        return;
+    }
+
+    const baseUrl = voxtaUrl.replace(/\/hub\/?$/, '');
+    const downloadUrl = `${baseUrl}/api/characters/${characterId}/assets/download?path=${encodeURIComponent(assetPath)}`;
+
+    const headers: Record<string, string> = {};
+    const apiKey = ctx.getVoxtaApiKey();
+    if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+
+    try {
+        console.log(`[MC Skin] Fetching from Voxta: ${downloadUrl}`);
+        const response = await fetch(downloadUrl, { headers });
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error(`[MC Skin] Failed to download skin: ${response.status} — ${errorBody.substring(0, 200)}`);
+            return;
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const pngBytes = Buffer.from(arrayBuffer);
+        console.log(`[MC Skin] Downloaded ${pngBytes.length} bytes from Voxta`);
+
+        // Verify PNG magic bytes: 89 50 4E 47
+        const isPng = pngBytes.length > 4 &&
+            pngBytes[0] === 0x89 && pngBytes[1] === 0x50 &&
+            pngBytes[2] === 0x4E && pngBytes[3] === 0x47;
+        if (!isPng) {
+            const preview = pngBytes.subarray(0, 100).toString('utf8');
+            console.error(`[MC Skin] Downloaded data is NOT a valid PNG! First bytes: ${preview}`);
+            return;
+        }
+
+        // Upload to a public URL so SkinsRestorer/MineSkin can access it
+        const publicUrl = await getPublicSkinUrl(pngBytes);
+        if (!publicUrl) {
+            console.error('[MC Skin] Failed to get public URL for skin');
+            return;
+        }
+
+        console.log(`[MC Skin] Public URL: ${publicUrl}`);
+        ctx.setSkinUrl(publicUrl);
+    } catch (err) {
+        console.error('[MC Skin] Error processing skin:', err);
     }
 }
 

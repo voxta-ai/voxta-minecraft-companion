@@ -19,7 +19,22 @@ interface SavedConfig {
 function loadSavedConfig(): SavedConfig {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        return raw ? JSON.parse(raw) : {};
+        const config: SavedConfig = raw ? JSON.parse(raw) : {};
+
+        // Fix: detect host+port concatenation (e.g. "localhost25565")
+        if (config.mcHost) {
+            const match = config.mcHost.match(/^([a-zA-Z.\-]+)(\d{4,5})$/);
+            if (match) {
+                config.mcHost = match[1];
+                if (!config.mcPort || config.mcPort === 25565) {
+                    config.mcPort = parseInt(match[2], 10);
+                }
+                // Save the fix immediately
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+            }
+        }
+
+        return config;
     } catch {
         return {};
     }
@@ -43,7 +58,9 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
     // Phase 2 fields: MC connection
     const [mcHost, setMcHost] = createSignal(saved.mcHost ?? 'localhost');
-    const [mcPort, setMcPort] = createSignal(String(saved.mcPort ?? 25565));
+    const [mcPort, setMcPort] = createSignal(
+        saved.mcPort && saved.mcPort !== 25565 ? String(saved.mcPort) : '',
+    );
     const [mcVersion, setMcVersion] = createSignal(saved.mcVersion ?? '');
     const [mcUsername, setMcUsername] = createSignal(saved.mcUsername ?? '');
     const [playerMcName, setPlayerMcName] = createSignal(saved.playerMcUsername ?? '');
@@ -193,7 +210,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
         const config: BotConfig = {
             mcHost: mcHost(),
-            mcPort: parseInt(mcPort(), 10),
+            mcPort: parseInt(mcPort(), 10) || 25565,
             mcUsername: mcUsername(),
             mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
@@ -204,7 +221,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         };
         saveConfig({
             mcHost: mcHost(),
-            mcPort: parseInt(mcPort(), 10),
+            mcPort: parseInt(mcPort(), 10) || 25565,
             mcUsername: mcUsername(),
             mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
@@ -386,7 +403,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                 type="text"
                                 value={mcPort()}
                                 onInput={(e) => setMcPort(e.currentTarget.value)}
-                                placeholder="25565"
+                                placeholder="Default: 25565"
                             />
                         </div>
                         <div class="field">
