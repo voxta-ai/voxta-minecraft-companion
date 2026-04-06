@@ -256,6 +256,25 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             }
         });
 
+        // === Auto-swim (stay afloat) ===
+        // When the bot is in water, hold jump to swim upward and stay at the surface.
+        // Without this, the bot sinks and drowns if it enters water while idle.
+        let wasSwimming = false;
+        bot.on('physicsTick', () => {
+            const isInWater = (bot.entity as unknown as { isInWater?: boolean }).isInWater;
+            if (isInWater) {
+                if (!wasSwimming) {
+                    console.log('[Bot] Entered water — auto-swimming');
+                    wasSwimming = true;
+                }
+                bot.setControlState('jump', true);
+            } else if (wasSwimming) {
+                bot.setControlState('jump', false);
+                wasSwimming = false;
+                console.log('[Bot] Left water — stopped swimming');
+            }
+        });
+
         // === Narrow passage fix ===
         // Root cause: the pathfinder's physics simulation (canStraightLine) predicts
         // the bot CAN reach the next node (returns true → forward=true), but the
