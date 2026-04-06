@@ -382,17 +382,8 @@ export class BotEngine extends EventEmitter {
             // Register app
             await this.voxta.registerApp();
 
-            // Fetch characters from REST API
-            const baseUrl = voxtaConfig.voxtaUrl.replace(/\/hub\/?$/, '');
-            const headers: Record<string, string> = {};
-            if (voxtaConfig.voxtaApiKey) {
-                headers['Authorization'] = `Bearer ${voxtaConfig.voxtaApiKey}`;
-            }
-            const res = await fetch(`${baseUrl}/api/characters/?assistant=true`, { headers });
-            if (res.ok) {
-                const data = (await res.json()) as { characters: Array<{ id: string; name: string }> };
-                this.characters = data.characters.map((c) => ({ id: c.id, name: c.name }));
-            }
+            // Fetch characters from REST API (with MC config detection)
+            await this.fetchCharacterDetails();
 
             const userName = this.voxtaUserName ?? 'Player';
             this.addChat('system', 'System', `Welcome, ${userName}! ${this.characters.length} character(s) available.`);
@@ -409,6 +400,53 @@ export class BotEngine extends EventEmitter {
             this.toast('error', message);
             throw err;
         }
+    }
+
+    // ---- Fetch character list with MC config detection ----
+
+    private async fetchCharacterDetails(): Promise<void> {
+        if (!this.voxtaUrl) return;
+        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
+        const headers: Record<string, string> = {};
+        if (this.voxtaApiKey) {
+            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
+        }
+        const res = await fetch(`${baseUrl}/api/characters/?assistant=true`, { headers });
+        if (res.ok) {
+            const data = (await res.json()) as { characters: Array<{ id: string; name: string }> };
+
+            // Parallel-fetch full details to check for Minecraft Companion app config
+            const detailed = await Promise.all(
+                data.characters.map(async (c) => {
+                    try {
+                        const detailRes = await fetch(`${baseUrl}/api/characters/${c.id}`, { headers });
+                        if (detailRes.ok) {
+                            const detail = (await detailRes.json()) as {
+                                appConfiguration?: Record<string, Record<string, string>>;
+                            };
+                            const mcConfig = detail.appConfiguration?.[CLIENT_NAME];
+                            const enabledValue = mcConfig?.['enabled']?.toLowerCase();
+                            const hasMc = enabledValue === 'true' || (mcConfig?.['skin'] != null && mcConfig['skin'] !== '');
+                            return { id: c.id, name: c.name, hasMcConfig: hasMc };
+                        }
+                    } catch {
+                        // Ignore individual fetch failures
+                    }
+                    return { id: c.id, name: c.name, hasMcConfig: false };
+                }),
+            );
+            this.characters = detailed;
+        }
+    }
+
+    /** Re-fetch character details (MC config) without reconnecting */
+    async refreshCharacters(): Promise<VoxtaInfo> {
+        await this.fetchCharacterDetails();
+        return {
+            userName: this.voxtaUserName ?? 'Player',
+            characters: this.characters,
+            defaultAssistantId: this.defaultAssistantId,
+        };
     }
 
     // ---- Load previous chats for a character ----

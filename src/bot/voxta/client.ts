@@ -181,6 +181,13 @@ export class VoxtaClient {
             characterForm: {
                 fields: [
                     {
+                        $type: 'bool',
+                        name: 'enabled',
+                        label: 'Minecraft Ready',
+                        text: 'Mark this character as designed for Minecraft gameplay',
+                        defaultValue: false,
+                    },
+                    {
                         $type: 'asset',
                         name: 'skin',
                         label: 'Minecraft Skin',

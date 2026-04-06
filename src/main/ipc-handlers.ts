@@ -128,4 +128,8 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     ipcMain.handle(IPC_CHANNELS.DELETE_CHAT, async (_event, chatId: string) => {
         return engine.deleteChat(chatId);
     });
+
+    ipcMain.handle(IPC_CHANNELS.REFRESH_CHARACTERS, async () => {
+        return engine.refreshCharacters();
+    });
 }

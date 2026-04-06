@@ -64,7 +64,7 @@ type MessageHandler = (message: ServerMessage, ctx: MessageHandlerContext) => vo
 
 function handleWelcome(message: ServerMessage, ctx: MessageHandlerContext): void {
     const welcome = message as ServerWelcomeMessage;
-    ctx.setCharacters((welcome.characters ?? []).map((c) => ({ id: c.id, name: c.name })));
+    ctx.setCharacters((welcome.characters ?? []).map((c) => ({ id: c.id, name: c.name, hasMcConfig: false })));
     ctx.setVoxtaUserName(welcome.user?.name ?? null);
     if (welcome.assistant) {
         ctx.setDefaultAssistantId(welcome.assistant.id);
