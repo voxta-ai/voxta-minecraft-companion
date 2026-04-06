@@ -22,6 +22,7 @@ export class VoxtaClient {
     private _sessionId: string | null = null;
     private _chatId: string | null = null;
     private _authenticated = false;
+    private _characterAppConfig: Record<string, string> | undefined = undefined;
 
     get sessionId(): string | null {
         return this._sessionId;
@@ -33,6 +34,10 @@ export class VoxtaClient {
 
     get authenticated(): boolean {
         return this._authenticated;
+    }
+
+    get characterAppConfig(): Record<string, string> | undefined {
+        return this._characterAppConfig;
     }
 
     constructor(private config: CompanionConfig) {
@@ -106,6 +111,12 @@ export class VoxtaClient {
             const started = message as ServerChatStartedMessage;
             this._sessionId = started.sessionId;
             this._chatId = started.chatId;
+            // Capture the character's app configuration (e.g. skin asset)
+            const companion = started.characters[0];
+            this._characterAppConfig = companion?.appConfiguration;
+            if (this._characterAppConfig?.skin) {
+                console.log(`[Voxta] Character skin asset: ${this._characterAppConfig.skin}`);
+            }
             console.log(`[Voxta] Chat started (session: ${started.sessionId}, chat: ${started.chatId})`);
             // Enable inspector so contextUpdated includes contexts & actions
             void this.send({ $type: 'inspect', enabled: true, sessionId: started.sessionId });
@@ -167,6 +178,18 @@ export class VoxtaClient {
             clientVersion: this.config.voxta.clientVersion,
             iconBase64Url: MinecraftCompanionIconBase64Url,
             label: 'Minecraft Companion',
+            characterForm: {
+                fields: [
+                    {
+                        $type: 'asset',
+                        name: 'skin',
+                        label: 'Minecraft Skin',
+                        text: 'A 64×64 skin PNG for the bot in Minecraft (requires SkinsRestorer on the server)',
+                        contentTypes: ['image/*'],
+                        noneLabel: 'Default (Steve)',
+                    },
+                ],
+            },
         });
         console.log('[Voxta] App registered');
     }

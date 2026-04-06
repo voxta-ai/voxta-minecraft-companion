@@ -519,6 +519,8 @@ export class BotEngine extends EventEmitter {
 
         try {
             this.mcBot = createMinecraftBot(config);
+
+
             await this.mcBot.connect();
             initHomePosition(config.mc.host, config.mc.port, this.mcBot.bot);
             this.updateStatus({ mc: 'connected' });
@@ -1192,6 +1194,9 @@ export class BotEngine extends EventEmitter {
             },
             setFollowingPlayer: (player) => {
                 this.followingPlayer = player;
+            },
+            setSkinUrl: (url) => {
+                this.mcBot?.setSkinUrl(url);
             },
 
             // Actions
