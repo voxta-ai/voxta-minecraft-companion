@@ -57,6 +57,8 @@ const api = {
 
     deleteChat: (chatId: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.DELETE_CHAT, chatId),
 
+    refreshCharacters: (): Promise<VoxtaInfo> => ipcRenderer.invoke(IPC_CHANNELS.REFRESH_CHARACTERS),
+
     // Audio: renderer → main (ack that playback started/completed)
     audioStarted: (event: AudioPlaybackEvent): void => ipcRenderer.send(IPC_CHANNELS.AUDIO_STARTED, event),
 

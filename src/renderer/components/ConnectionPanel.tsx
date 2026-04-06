@@ -1,5 +1,5 @@
 import { createSignal, createMemo, Show, For, createEffect } from 'solid-js';
-import { status, connectVoxta, launchBot, disconnect, voxtaInfo } from '../stores/app-store';
+import { status, connectVoxta, launchBot, disconnect, voxtaInfo, refreshCharacters } from '../stores/app-store';
 import type { BotConfig, CharacterInfo, ChatListItem, VoxtaConnectConfig } from '../../shared/ipc-types';
 import CustomDropdown from './CustomDropdown';
 
@@ -117,6 +117,27 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             return 0;
         });
     });
+
+    // MC-only filter
+    const [mcOnly, setMcOnly] = createSignal(false);
+    const displayCharacters = createMemo((): CharacterInfo[] => {
+        const all = sortedCharacters();
+        if (!mcOnly()) return all;
+        return all.filter((c) => c.hasMcConfig);
+    });
+
+    // Refresh characters
+    const [refreshing, setRefreshing] = createSignal(false);
+    const handleRefreshCharacters = async (): Promise<void> => {
+        setRefreshing(true);
+        try {
+            await refreshCharacters();
+        } catch (err) {
+            console.error('Failed to refresh characters:', err);
+        } finally {
+            setRefreshing(false);
+        }
+    };
 
     // Auto-select: saved character if available, otherwise default assistant
     createEffect(() => {
@@ -291,11 +312,33 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                     <div class="section-title">Minecraft Setup</div>
                     <div class="connection-fields">
                         <div class="field full-width">
-                            <label>Voxta Character</label>
+                            <div class="field-label-row">
+                                <label>Voxta Character</label>
+                                <div class="field-label-row-actions">
+                                    <button
+                                        class="char-refresh-btn"
+                                        title="Refresh character list"
+                                        disabled={refreshing()}
+                                        onClick={handleRefreshCharacters}
+                                    >
+                                        {refreshing() ? '⏳' : '🔄'}
+                                    </button>
+                                    <Show when={sortedCharacters().some((c) => c.hasMcConfig)}>
+                                        <label class="mc-only-toggle" title="Show only characters with Minecraft Companion configured">
+                                            <input
+                                                type="checkbox"
+                                                checked={mcOnly()}
+                                                onChange={(e) => setMcOnly(e.currentTarget.checked)}
+                                            />
+                                            <span class="mc-only-label">⛏️ MC only</span>
+                                        </label>
+                                    </Show>
+                                </div>
+                            </div>
                             <CustomDropdown
-                                options={sortedCharacters().map((char) => ({
+                                options={displayCharacters().map((char) => ({
                                     value: char.id,
-                                    label: `${char.name}${char.id === voxtaInfo.defaultAssistantId ? ' ⭐' : ''}`,
+                                    label: `${char.hasMcConfig ? '⛏️ ' : ''}${char.name}${char.id === voxtaInfo.defaultAssistantId ? ' ⭐' : ''}`,
                                 }))}
                                 value={selectedCharacterId()}
                                 onChange={(val) => {

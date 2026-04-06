@@ -120,6 +120,8 @@ export const DEFAULT_SETTINGS: McSettings = {
 export interface CharacterInfo {
     id: string;
     name: string;
+    /** True if the character has Minecraft Companion app configuration */
+    hasMcConfig: boolean;
 }
 
 export interface ChatListItem {
@@ -211,6 +213,7 @@ export const IPC_CHANNELS = {
     LOAD_CHATS: 'bot:load-chats',
     FAVORITE_CHAT: 'bot:favorite-chat',
     DELETE_CHAT: 'bot:delete-chat',
+    REFRESH_CHARACTERS: 'bot:refresh-characters',
 
     // Main → Renderer
     STATUS_CHANGED: 'bot:status-changed',

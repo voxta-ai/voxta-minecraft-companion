@@ -60,6 +60,16 @@ export async function connectVoxta(config: VoxtaConnectConfig): Promise<VoxtaInf
     return info;
 }
 
+export async function refreshCharacters(): Promise<VoxtaInfo> {
+    const info = await window.api.refreshCharacters();
+    setVoxtaInfo({
+        userName: info.userName,
+        characters: info.characters,
+        defaultAssistantId: info.defaultAssistantId,
+    });
+    return info;
+}
+
 export async function launchBot(config: Parameters<typeof window.api.launchBot>[0]): Promise<void> {
     await window.api.launchBot(config);
 }
