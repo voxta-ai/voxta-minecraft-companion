@@ -204,6 +204,214 @@ function VisionModeSelector() {
     );
 }
 
+// ── Audio effects section ────────────────────────────────────
+
+function AudioEffects() {
+    const [testing, setTesting] = createSignal(false);
+    // Lazy-init a dedicated engine for test previews
+    let testEngine: import('../services/SpatialAudioEngine').SpatialAudioEngine | null = null;
+
+    const getTestEngine = async (): Promise<import('../services/SpatialAudioEngine').SpatialAudioEngine> => {
+        if (!testEngine) {
+            const { SpatialAudioEngine } = await import('../services/SpatialAudioEngine');
+            testEngine = new SpatialAudioEngine();
+        }
+        testEngine.applySettings(settings);
+        return testEngine;
+    };
+
+    const handleTestVoice = async (): Promise<void> => {
+        setTesting(true);
+        try {
+            const engine = await getTestEngine();
+            await engine.playTestVoice();
+        } catch (err) {
+            console.error('[Audio] Test voice failed:', err);
+        } finally {
+            setTesting(false);
+        }
+    };
+
+    return (
+        <div class="action-category">
+            <div class="action-category-title">🔊 Audio Effects</div>
+
+            {/* Spatial Audio */}
+            <div class="setting-card">
+                <div class="setting-card-info">
+                    <div class="setting-card-name">Spatial Audio</div>
+                    <div class="setting-card-desc">
+                        Distance-based volume and stereo panning — use headphones
+                    </div>
+                </div>
+                <label class="toggle">
+                    <input
+                        type="checkbox"
+                        checked={settings.enableSpatialAudio}
+                        onChange={(e) => updateSetting('enableSpatialAudio', e.currentTarget.checked)}
+                    />
+                    <span class="toggle-slider" />
+                </label>
+            </div>
+            <Show when={settings.enableSpatialAudio}>
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <div class="setting-card-name">Near Distance</div>
+                        <div class="setting-card-desc">Full volume within this range (blocks)</div>
+                    </div>
+                    <div class="slider-control">
+                        <input
+                            type="range"
+                            min="1"
+                            max="16"
+                            step="1"
+                            value={settings.spatialNearDistance}
+                            onInput={(e) => updateSetting('spatialNearDistance', parseInt(e.currentTarget.value, 10))}
+                        />
+                        <span class="slider-value">{settings.spatialNearDistance}</span>
+                    </div>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <div class="setting-card-name">Max Distance</div>
+                        <div class="setting-card-desc">Silent beyond this range (blocks)</div>
+                    </div>
+                    <div class="slider-control">
+                        <input
+                            type="range"
+                            min="8"
+                            max="64"
+                            step="2"
+                            value={settings.spatialMaxDistance}
+                            onInput={(e) => updateSetting('spatialMaxDistance', parseInt(e.currentTarget.value, 10))}
+                        />
+                        <span class="slider-value">{settings.spatialMaxDistance}</span>
+                    </div>
+                </div>
+            </Show>
+
+            {/* Reverb */}
+            <div class="setting-card">
+                <div class="setting-card-info">
+                    <div class="setting-card-name">Reverb</div>
+                    <div class="setting-card-desc">Cave-like echo ambience</div>
+                </div>
+                <label class="toggle">
+                    <input
+                        type="checkbox"
+                        checked={settings.enableReverb}
+                        onChange={(e) => updateSetting('enableReverb', e.currentTarget.checked)}
+                    />
+                    <span class="toggle-slider" />
+                </label>
+            </div>
+            <Show when={settings.enableReverb}>
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <div class="setting-card-name">Amount</div>
+                        <div class="setting-card-desc">Wet/dry mix</div>
+                    </div>
+                    <div class="slider-control">
+                        <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="5"
+                            value={settings.reverbAmount}
+                            onInput={(e) => updateSetting('reverbAmount', parseInt(e.currentTarget.value, 10))}
+                        />
+                        <span class="slider-value">{settings.reverbAmount}%</span>
+                    </div>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <div class="setting-card-name">Decay</div>
+                        <div class="setting-card-desc">How long the reverb tail lasts</div>
+                    </div>
+                    <div class="slider-control">
+                        <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="5"
+                            value={settings.reverbDecay}
+                            onInput={(e) => updateSetting('reverbDecay', parseInt(e.currentTarget.value, 10))}
+                        />
+                        <span class="slider-value">{settings.reverbDecay}%</span>
+                    </div>
+                </div>
+            </Show>
+
+            {/* Echo */}
+            <div class="setting-card">
+                <div class="setting-card-info">
+                    <div class="setting-card-name">Echo</div>
+                    <div class="setting-card-desc">Delayed voice repetition</div>
+                </div>
+                <label class="toggle">
+                    <input
+                        type="checkbox"
+                        checked={settings.enableEcho}
+                        onChange={(e) => updateSetting('enableEcho', e.currentTarget.checked)}
+                    />
+                    <span class="toggle-slider" />
+                </label>
+            </div>
+            <Show when={settings.enableEcho}>
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <div class="setting-card-name">Delay</div>
+                        <div class="setting-card-desc">Time between echoes</div>
+                    </div>
+                    <div class="slider-control">
+                        <input
+                            type="range"
+                            min="100"
+                            max="500"
+                            step="25"
+                            value={settings.echoDelay}
+                            onInput={(e) => updateSetting('echoDelay', parseInt(e.currentTarget.value, 10))}
+                        />
+                        <span class="slider-value">{settings.echoDelay}ms</span>
+                    </div>
+                </div>
+                <div class="setting-card">
+                    <div class="setting-card-info">
+                        <div class="setting-card-name">Feedback</div>
+                        <div class="setting-card-desc">How many times the echo repeats</div>
+                    </div>
+                    <div class="slider-control">
+                        <input
+                            type="range"
+                            min="0"
+                            max="100"
+                            step="5"
+                            value={settings.echoDecay}
+                            onInput={(e) => updateSetting('echoDecay', parseInt(e.currentTarget.value, 10))}
+                        />
+                        <span class="slider-value">{settings.echoDecay}%</span>
+                    </div>
+                </div>
+            </Show>
+
+            {/* Test button */}
+            <div class="setting-card">
+                <div class="setting-card-info">
+                    <div class="setting-card-name">Preview</div>
+                    <div class="setting-card-desc">Play a test tone through the effects chain</div>
+                </div>
+                <button
+                    class="btn-test-voice"
+                    disabled={testing()}
+                    onClick={handleTestVoice}
+                >
+                    {testing() ? '...' : '🔊 Test'}
+                </button>
+            </div>
+        </div>
+    );
+}
+
 // ── Main settings panel ──────────────────────────────────────
 
 export default function SettingsPanel() {
@@ -235,6 +443,7 @@ export default function SettingsPanel() {
                 </div>
             </div>
             <VisionModeSelector />
+            <AudioEffects />
         </div>
     );
 }

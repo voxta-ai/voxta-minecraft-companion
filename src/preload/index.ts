@@ -15,6 +15,7 @@ import type {
     RecordingStartEvent,
     InspectorData,
     ConsoleLogEntry,
+    SpatialPosition,
 } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
@@ -25,6 +26,7 @@ export type AudioChunkCallback = (chunk: AudioChunk) => void;
 export type AudioStopCallback = () => void;
 export type RecordingStartCallback = (event: RecordingStartEvent) => void;
 export type RecordingStopCallback = () => void;
+export type SpatialPositionCallback = (data: SpatialPosition) => void;
 
 const api = {
     connectVoxta: (config: VoxtaConnectConfig): Promise<VoxtaInfo> =>
@@ -139,6 +141,12 @@ const api = {
         const handler = (_event: Electron.IpcRendererEvent, entry: ConsoleLogEntry): void => callback(entry);
         ipcRenderer.on(IPC_CHANNELS.CONSOLE_LOG, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.CONSOLE_LOG, handler);
+    },
+
+    onSpatialPosition: (callback: SpatialPositionCallback): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, data: SpatialPosition): void => callback(data);
+        ipcRenderer.on(IPC_CHANNELS.SPATIAL_POSITION, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.SPATIAL_POSITION, handler);
     },
 };
 

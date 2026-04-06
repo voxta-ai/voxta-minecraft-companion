@@ -1,6 +1,7 @@
 import { onMount, onCleanup, createEffect } from 'solid-js';
 import type { AudioChunk, RecordingStartEvent } from '../../shared/ipc-types';
 import { AudioInputService } from '../services/AudioInputService';
+import { SpatialAudioEngine } from '../services/SpatialAudioEngine';
 import {
     setMicStatus,
     micMuted,
@@ -8,18 +9,23 @@ import {
     speakerMuted,
     setSpeechPartialText,
 } from '../stores/audio-store';
+import { settings } from '../stores/app-store';
 
 /**
- * Invisible component that manages HTML5 Audio playback and mic streaming.
- * Receives audio chunks from the main process via IPC, plays them in order,
- * and reports playback events back to the main process.
+ * Invisible component that manages audio playback and mic streaming.
+ * Uses the SpatialAudioEngine (Web Audio API) for playback with
+ * spatial positioning, reverb, and echo effects.
  * Also manages client-side audio input (mic → server WebSocket).
  */
 export default function AudioPlayer() {
     onMount(() => {
         const queue: AudioChunk[] = [];
-        let currentAudio: HTMLAudioElement | null = null;
+        const engine = new SpatialAudioEngine();
         let isPlaying = false;
+        let currentChunkMessageId: string | null = null;
+
+        // Apply initial settings
+        engine.applySettings(settings);
 
         function playNext(): void {
             if (isPlaying || queue.length === 0) return;
@@ -35,53 +41,43 @@ export default function AudioPlayer() {
             }
 
             isPlaying = true;
+            currentChunkMessageId = chunk.messageId;
             setSpeakerStatus('playing');
-            const audio = new Audio(chunk.url);
-            currentAudio = audio;
 
-            audio.addEventListener('loadedmetadata', () => {
-                const durationMs = Math.round(audio.duration * 1000);
-                window.api.audioStarted({
-                    messageId: chunk.messageId,
-                    startIndex: chunk.startIndex,
-                    endIndex: chunk.endIndex,
-                    duration: durationMs,
-                    isNarration: chunk.isNarration,
+            engine
+                .playChunk(chunk.url)
+                .then(({ duration, onEnded }) => {
+                    // Report playback started with actual duration
+                    window.api.audioStarted({
+                        messageId: chunk.messageId,
+                        startIndex: chunk.startIndex,
+                        endIndex: chunk.endIndex,
+                        duration,
+                        isNarration: chunk.isNarration,
+                    });
+
+                    // Wait for playback to finish
+                    return onEnded;
+                })
+                .then(() => {
+                    isPlaying = false;
+                    currentChunkMessageId = null;
+                    window.api.audioComplete(chunk.messageId);
+                    if (queue.length === 0) {
+                        setSpeakerStatus('off');
+                    }
+                    playNext();
+                })
+                .catch((err) => {
+                    console.error('[Audio] Play failed:', err);
+                    isPlaying = false;
+                    currentChunkMessageId = null;
+                    window.api.audioComplete(chunk.messageId);
+                    if (queue.length === 0) {
+                        setSpeakerStatus('off');
+                    }
+                    playNext();
                 });
-            });
-
-            audio.addEventListener('ended', () => {
-                isPlaying = false;
-                currentAudio = null;
-                window.api.audioComplete(chunk.messageId);
-                if (queue.length === 0) {
-                    setSpeakerStatus('off');
-                }
-                playNext();
-            });
-
-            audio.addEventListener('error', () => {
-                console.error('[Audio] Failed to play:', chunk.url);
-                isPlaying = false;
-                currentAudio = null;
-                // Still ack so the server flow doesn't hang
-                window.api.audioComplete(chunk.messageId);
-                if (queue.length === 0) {
-                    setSpeakerStatus('off');
-                }
-                playNext();
-            });
-
-            audio.play().catch((err) => {
-                console.error('[Audio] Play failed:', err);
-                isPlaying = false;
-                currentAudio = null;
-                window.api.audioComplete(chunk.messageId);
-                if (queue.length === 0) {
-                    setSpeakerStatus('off');
-                }
-                playNext();
-            });
         }
 
         const unsubPlay = window.api.onPlayAudio((chunk: AudioChunk) => {
@@ -92,14 +88,15 @@ export default function AudioPlayer() {
         const unsubStop = window.api.onStopAudio(() => {
             // Instantly stop — this is the key for clean interruption
             queue.length = 0;
-            if (currentAudio) {
-                const audio = currentAudio;
-                currentAudio = null;
-                isPlaying = false;
-                audio.pause();
-                audio.src = '';
-            }
+            engine.stop();
+            isPlaying = false;
+            currentChunkMessageId = null;
             setSpeakerStatus('off');
+        });
+
+        // Subscribe to spatial position updates
+        const unsubSpatial = window.api.onSpatialPosition((data) => {
+            engine.updatePosition(data);
         });
 
         // --- Audio input (mic streaming) ---
@@ -142,32 +139,30 @@ export default function AudioPlayer() {
         createEffect(() => {
             if (speakerMuted()) {
                 queue.length = 0;
-                if (currentAudio) {
-                    const audio = currentAudio;
-                    currentAudio = null;
-                    isPlaying = false;
-                    audio.pause();
-                    audio.src = '';
-                    // Don't ack — the server will continue its flow normally
-                }
+                engine.stop();
+                isPlaying = false;
+                currentChunkMessageId = null;
                 setSpeakerStatus('off');
             }
+        });
+
+        // React to audio settings changes — apply in real-time
+        createEffect(() => {
+            engine.applySettings(settings);
         });
 
         onCleanup(() => {
             unsubPlay();
             unsubStop();
+            unsubSpatial();
             unsubRecordingStart();
             unsubRecordingStop();
             unsubSpeechPartial();
             audioInput.dispose();
+            engine.dispose();
             setMicStatus('off');
             setSpeakerStatus('off');
             setSpeechPartialText('');
-            if (currentAudio) {
-                currentAudio.pause();
-                currentAudio.src = '';
-            }
         });
     });
 

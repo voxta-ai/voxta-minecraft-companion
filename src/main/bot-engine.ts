@@ -52,7 +52,8 @@ type BotEngineEvent =
     | 'play-audio'
     | 'stop-audio'
     | 'recording-start'
-    | 'recording-stop';
+    | 'recording-stop'
+    | 'spatial-position';
 
 export class BotEngine extends EventEmitter {
     private mcBot: MinecraftBot | null = null;
@@ -60,6 +61,7 @@ export class BotEngine extends EventEmitter {
     private perceptionLoop: ReturnType<typeof setInterval> | null = null;
     private followWatchdog: ReturnType<typeof setInterval> | null = null;
     private modeScanLoop: ReturnType<typeof setInterval> | null = null;
+    private spatialLoop: ReturnType<typeof setInterval> | null = null;
     private eventBridge: McEventBridge | null = null;
     private assistantName: string | null = null;
     private activeCharacterId: string | null = null;
@@ -309,6 +311,10 @@ export class BotEngine extends EventEmitter {
             if (this.modeScanLoop) {
                 clearInterval(this.modeScanLoop);
                 this.modeScanLoop = null;
+            }
+            if (this.spatialLoop) {
+                clearInterval(this.spatialLoop);
+                this.spatialLoop = null;
             }
             this.emit('stop-audio');
 
@@ -675,6 +681,39 @@ export class BotEngine extends EventEmitter {
                 // Perception can fail during respawn/chunk loading
             }
         }, config.perception.intervalMs);
+
+        // ---- Spatial audio position loop (fast — 100ms for responsive audio) ----
+        this.spatialLoop = setInterval(() => {
+            if (!this.playerMcUsername) return;
+            try {
+                const botPos = bot.entity?.position;
+                const playerEntity = bot.players[this.playerMcUsername]?.entity;
+                if (botPos && playerEntity) {
+                    this.emit('spatial-position', {
+                        botX: botPos.x,
+                        botY: botPos.y,
+                        botZ: botPos.z,
+                        playerX: playerEntity.position.x,
+                        playerY: playerEntity.position.y,
+                        playerZ: playerEntity.position.z,
+                        playerYaw: playerEntity.yaw,
+                    });
+                } else if (botPos) {
+                    // Player out of entity tracking range — signal max distance
+                    this.emit('spatial-position', {
+                        botX: botPos.x,
+                        botY: botPos.y,
+                        botZ: botPos.z,
+                        playerX: botPos.x + 9999,
+                        playerY: botPos.y,
+                        playerZ: botPos.z,
+                        playerYaw: 0,
+                    });
+                }
+            } catch {
+                // Entity may not exist yet
+            }
+        }, 100);
 
         // ---- Follow watchdog ----
         // The pathfinder can silently stop computing paths after combat/death/respawn
@@ -1089,6 +1128,10 @@ export class BotEngine extends EventEmitter {
         if (this.modeScanLoop) {
             clearInterval(this.modeScanLoop);
             this.modeScanLoop = null;
+        }
+        if (this.spatialLoop) {
+            clearInterval(this.spatialLoop);
+            this.spatialLoop = null;
         }
         if (this.eventBridge) {
             this.eventBridge.destroy();
