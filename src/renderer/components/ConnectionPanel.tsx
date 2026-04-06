@@ -23,7 +23,7 @@ function loadSavedConfig(): SavedConfig {
 
         // Fix: detect host+port concatenation (e.g. "localhost25565")
         if (config.mcHost) {
-            const match = config.mcHost.match(/^([a-zA-Z.\-]+)(\d{4,5})$/);
+            const match = config.mcHost.match(/^([a-zA-Z.-]+)(\d{4,5})$/);
             if (match) {
                 config.mcHost = match[1];
                 if (!config.mcPort || config.mcPort === 25565) {

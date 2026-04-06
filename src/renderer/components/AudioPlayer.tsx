@@ -22,7 +22,7 @@ export default function AudioPlayer() {
         const queue: AudioChunk[] = [];
         const engine = new SpatialAudioEngine();
         let isPlaying = false;
-        let currentChunkMessageId: string | null = null;
+        let _currentChunkMessageId: string | null = null;
 
         // Apply initial settings
         engine.applySettings(settings);
@@ -41,7 +41,7 @@ export default function AudioPlayer() {
             }
 
             isPlaying = true;
-            currentChunkMessageId = chunk.messageId;
+            _currentChunkMessageId = chunk.messageId;
             setSpeakerStatus('playing');
 
             engine
@@ -61,7 +61,7 @@ export default function AudioPlayer() {
                 })
                 .then(() => {
                     isPlaying = false;
-                    currentChunkMessageId = null;
+                    _currentChunkMessageId = null;
                     window.api.audioComplete(chunk.messageId);
                     if (queue.length === 0) {
                         setSpeakerStatus('off');
@@ -71,7 +71,7 @@ export default function AudioPlayer() {
                 .catch((err) => {
                     console.error('[Audio] Play failed:', err);
                     isPlaying = false;
-                    currentChunkMessageId = null;
+                    _currentChunkMessageId = null;
                     window.api.audioComplete(chunk.messageId);
                     if (queue.length === 0) {
                         setSpeakerStatus('off');
@@ -90,7 +90,7 @@ export default function AudioPlayer() {
             queue.length = 0;
             engine.stop();
             isPlaying = false;
-            currentChunkMessageId = null;
+            _currentChunkMessageId = null;
             setSpeakerStatus('off');
         });
 
@@ -141,7 +141,7 @@ export default function AudioPlayer() {
                 queue.length = 0;
                 engine.stop();
                 isPlaying = false;
-                currentChunkMessageId = null;
+                _currentChunkMessageId = null;
                 setSpeakerStatus('off');
             }
         });

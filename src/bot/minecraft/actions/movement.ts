@@ -211,20 +211,21 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
     );
 
     // Use GoalFollow to dynamically track the entity as it moves
-    const goal = new goals.GoalFollow(nearest.entity, 2);
+    const target = nearest.entity;
+    const goal = new goals.GoalFollow(target, 2);
     bot.pathfinder.setGoal(goal, true);
 
     // Wait until we're close enough, then stop following
     await new Promise<void>((resolve) => {
         const check = setInterval(() => {
             // Entity despawned or we lost tracking
-            if (!bot.entities[nearest!.entity.id]) {
+            if (!bot.entities[target.id]) {
                 clearInterval(check);
                 bot.pathfinder.stop();
                 resolve();
                 return;
             }
-            const dist = nearest!.entity.position.distanceTo(bot.entity.position);
+            const dist = target.position.distanceTo(bot.entity.position);
             if (dist < 3) {
                 clearInterval(check);
                 bot.pathfinder.stop();
