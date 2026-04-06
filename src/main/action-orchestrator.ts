@@ -4,7 +4,7 @@ import type { ActionCategory } from '../bot/minecraft/action-definitions';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, setFishCaughtCallback } from '../bot/minecraft/action-dispatcher';
 import { isActionBusy, getCurrentActivity } from '../bot/minecraft/actions';
-import { isAutoDefending, getBotMode } from '../bot/minecraft/actions/action-state.js';
+import { isAutoDefending, getBotMode, setBotMode } from '../bot/minecraft/actions/action-state.js';
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { ServerActionMessage } from '../bot/voxta/types';
 import type { McSettings, ChatMessage } from '../shared/ipc-types';
@@ -68,10 +68,12 @@ export function handleActionMessage(
         return;
     }
 
-    // Skip AI-generated combat actions when auto-defense or mode scan is handling the fight.
+    // Skip AI-generated combat actions only when auto-defense is actively fighting.
+    // We do NOT block based on mode alone — the user may explicitly ask the bot to
+    // attack a specific target (e.g. "kill that pig") even while hunt/guard is active.
     const COMBAT_ACTIONS = ['mc_attack', 'mc_go_to_entity'];
-    if (COMBAT_ACTIONS.includes(actionName) && (isAutoDefending() || getBotMode() !== 'passive')) {
-        console.log(`[Bot] Ignoring ${actionName} — ${isAutoDefending() ? 'auto-defense' : getBotMode() + ' mode'} is handling combat`);
+    if (COMBAT_ACTIONS.includes(actionName) && isAutoDefending()) {
+        console.log(`[Bot] Ignoring ${actionName} — auto-defense is actively fighting`);
         return;
     }
 
@@ -103,7 +105,15 @@ export function handleActionMessage(
         if (eqIdx >= 0) rawVal = rawVal.slice(eqIdx + 1);
         rawVal = rawVal.replace(/"/g, '').trim();
         callbacks.setFollowingPlayer(rawVal || null);
-    } else if (actionName === 'mc_stop' || actionName === 'mc_go_home' || actionName === 'mc_go_to' || actionName === 'mc_go_to_entity') {
+        // AI explicitly chose "follow player" — switch out of hunt/guard so the
+        // mode scan doesn't immediately override with a new attack target.
+        if (getBotMode() !== 'passive') {
+            const prevMode = getBotMode();
+            console.log(`[Bot] mc_follow_player: auto-switching from ${prevMode} to passive`);
+            setBotMode('passive');
+            callbacks.addChat('note', 'Note', `Exited ${prevMode} mode to follow ${rawVal}.`);
+        }
+    } else if (actionName === 'mc_stop' || actionName === 'mc_go_home' || actionName === 'mc_go_to') {
         callbacks.setFollowingPlayer(null);
     }
 
@@ -173,6 +183,10 @@ export function handleActionMessage(
             console.log(`[Bot] Pathfinder goal after follow: ${!!bot.pathfinder.goal}`);
         }
         if (shouldResume) {
+            // Linger at the entity for 3s before returning to the player
+            if (actionName === 'mc_go_to_entity') {
+                await new Promise((r) => setTimeout(r, 3000));
+            }
             const resumeResult = await executeAction(
                 bot,
                 'mc_follow_player',

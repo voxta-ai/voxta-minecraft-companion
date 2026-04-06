@@ -80,6 +80,7 @@ export class BotEngine extends EventEmitter {
     private pendingNotes: string[] = [];
     private pendingEvents: string[] = [];
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
+    private flushHuntBatch: (() => void) | null = null;
     private toastCounter = 0;
 
     private readonly audioPipeline: AudioPipeline;
@@ -787,6 +788,25 @@ export class BotEngine extends EventEmitter {
 
         // ---- Mode scan loop (hunt + guard/patrol) ----
         let patrolTarget: { x: number; z: number } | null = null;
+        const huntCooldowns: Record<string, number> = {};
+
+        // Batch hunt kills to save LLM context — instead of sending
+        // "Defeated the slime" x10, send one "Defeated 10 slimes in hunt mode."
+        const huntKillCounts: Record<string, number> = {};
+        let huntBatchTimer: ReturnType<typeof setTimeout> | null = null;
+        const flushHuntBatch = (): void => {
+            if (huntBatchTimer) { clearTimeout(huntBatchTimer); huntBatchTimer = null; }
+            const entries = Object.entries(huntKillCounts).filter(([, count]) => count > 0);
+            if (entries.length === 0) return;
+            const botName = this.assistantName ?? 'Bot';
+            const summary = entries.map(([mob, count]) => `${count} ${mob}${count > 1 ? 's' : ''}`).join(', ');
+            this.queueNote(`${botName}: Defeated ${summary} in hunt mode.`);
+            console.log(`[Bot] Hunt batch note: Defeated ${summary}`);
+            for (const key of Object.keys(huntKillCounts)) {
+                huntKillCounts[key] = 0;
+            }
+        };
+        this.flushHuntBatch = flushHuntBatch;
         let patrolPauseUntil = 0;
         this.modeScanLoop = setInterval(() => {
             if (!this.mcBot) return;
@@ -803,10 +823,18 @@ export class BotEngine extends EventEmitter {
                     ? findPlayerEntity(bot, this.followingPlayer, this.names)
                     : null;
 
+                // Mobs that split on death (slime → babies, magma_cube → babies).
+                // After killing one we ignore that type for 5s to avoid chasing
+                // tiny split babies that the attack action can't reliably hit.
+                const SPLIT_MOBS = ['slime', 'magma_cube'];
+
                 let nearestHostile: (typeof bot.entities)[number] | undefined;
                 let nearestDist = Infinity;
                 for (const e of Object.values(bot.entities)) {
                     if (e === bot.entity || !isHostileEntity(e)) continue;
+                    const name = e.name ?? '';
+                    // Skip split-mob babies during cooldown
+                    if (SPLIT_MOBS.includes(name) && huntCooldowns[name] && Date.now() < huntCooldowns[name]) continue;
                     const d = e.position.distanceTo(pos);
                     // Within 16 blocks of bot AND within 20 blocks of player (leash)
                     if (d < 16 && d < nearestDist) {
@@ -824,11 +852,47 @@ export class BotEngine extends EventEmitter {
                     void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], this.names)
                         .then((result) => {
                             this.addChat('note', 'Note', `${this.assistantName ?? 'Bot'}: ${result}`);
-                            this.queueNote(`${this.assistantName ?? 'Bot'}: ${result}`);
                             console.log(`[Bot] Hunt attack result: ${result}`);
+
+                            // Only batch successful kills, send failures immediately
+                            if (result.toLowerCase().includes('defeated')) {
+                                huntKillCounts[mobName] = (huntKillCounts[mobName] ?? 0) + 1;
+                                // Reset batch timer — flush after 5s of no new kills
+                                if (huntBatchTimer) clearTimeout(huntBatchTimer);
+                                huntBatchTimer = setTimeout(flushHuntBatch, 5000);
+                            } else {
+                                this.queueNote(`${this.assistantName ?? 'Bot'}: ${result}`);
+                            }
+
+                            // Set cooldown for split mobs
+                            if (SPLIT_MOBS.includes(mobName)) {
+                                huntCooldowns[mobName] = Date.now() + 5000;
+                                console.log(`[Bot] Hunt: ${mobName} split cooldown set for 5s`);
+                            }
                         })
                         .catch((err) => console.log(`[Bot] Hunt attack failed:`, err))
-                        .finally(() => setAutoDefending(false));
+                        .finally(() => {
+                            setAutoDefending(false);
+                            console.log(`[Bot] Hunt: combat ended, scheduling follow resume in 2s`);
+                            // Wait 2s before resuming follow — if another fight starts
+                            // in that window, the scan will pick it up and this timer
+                            // becomes irrelevant (the new fight sets its own goal).
+                            setTimeout(() => {
+                                const combatTarget = getCurrentCombatTarget();
+                                const defending = isAutoDefending();
+                                console.log(`[Bot] Hunt: follow resume check — following=${this.followingPlayer}, combatTarget=${combatTarget}, defending=${defending}`);
+                                if (this.followingPlayer && !combatTarget && !defending) {
+                                    void executeAction(
+                                        bot,
+                                        'mc_follow_player',
+                                        [{ name: 'player_name', value: this.followingPlayer }],
+                                        this.names,
+                                    ).then((r) => console.log(`[Bot] Hunt: resumed following after kill: ${r}`));
+                                } else {
+                                    console.log(`[Bot] Hunt: skipped follow resume (busy or no player)`);
+                                }
+                            }, 2000);
+                        });
                 }
                 return;
             }
@@ -929,6 +993,7 @@ export class BotEngine extends EventEmitter {
                     if (!this.voxta?.sessionId) return;
                     console.log(`[User >>] MC chat: "${text}"`);
                     resetActionFired();
+                    this.flushHuntBatch?.();
 
                     if (this.isReplying) {
                         // Interrupt the current speech first, then send after server settles
@@ -1217,6 +1282,7 @@ export class BotEngine extends EventEmitter {
         if (!this.voxta?.sessionId) return;
         console.log(`[User >>] sendMessage: "${text}"`);
         resetActionFired();
+        this.flushHuntBatch?.();
 
         const name = this.voxtaUserName ?? 'You';
         this.addChat('player', `${name} (text)`, text);
