@@ -52,13 +52,13 @@ $propsPath = Join-Path $ServerDir "server.properties"
 $props = @"
 online-mode=false
 server-port=25565
-gamemode=creative
-difficulty=normal
+gamemode=survival
+difficulty=easy
 spawn-monsters=true
 spawn-animals=true
-level-type=minecraft\:flat
+level-type=minecraft\:normal
 max-players=5
-motd=Voxta Skin Test Server
+motd=Voxta Test Server
 enable-command-block=true
 "@
 Set-Content -Path $propsPath -Value $props

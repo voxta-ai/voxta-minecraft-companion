@@ -69,7 +69,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
     bot.pathfinder.setGoal(goal, true);
 
     const startTime = Date.now();
-    const TIMEOUT_MS = 30000; // 30-second max combat
+    const TIMEOUT_MS = 15000; // 15-second max combat
 
     return new Promise<string>((resolve) => {
         const signal = getActionAbort().signal;
@@ -83,12 +83,17 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 return;
             }
 
-            // Check if the target is dead (entity removed from a world)
+            // Check if the target is dead (entity removed from world)
             if (!bot.entities[target.id]) {
                 clearInterval(attackLoop);
                 setCurrentCombatTarget(null);
                 bot.pathfinder.stop();
-                resolve(`Defeated the ${displayName}`);
+                // If the bot itself died, all entities disappear — don't claim victory
+                if (bot.health <= 0) {
+                    resolve(`Died while fighting ${displayName}`);
+                } else {
+                    resolve(`Defeated the ${displayName}`);
+                }
                 return;
             }
 
@@ -150,5 +155,5 @@ export async function lookAtPlayer(bot: Bot, playerName: string | undefined, nam
     // Start tracking in the background (don't await — action returns immediately)
     void trackLoop();
 
-    return `Tracking ${displayName}`;
+    return ''; // Silent — AI doesn't need to know about look_at
 }

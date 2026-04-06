@@ -137,7 +137,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_stop',
         description:
-            'Stop the current action and stand still. WARNING: this also cancels guard and hunt modes, returning to passive. Do NOT use if the bot is in guard/hunt mode and should stay in that mode — use mc_none instead.',
+            'Stop the current action and stand still. WARNING: this also cancels guard, aggro, and hunt modes, returning to passive. Do NOT use if the bot is in guard/aggro/hunt mode and should stay in that mode — use mc_none instead.',
         disabled: false,
         layer: '',
         effect: {},
@@ -454,7 +454,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_set_mode',
         description:
-            "Switch the bot's behavior mode. Use 'hunt' when the player wants to go hunting, fight mobs, or kill everything nearby — the bot will proactively attack hostile mobs while following. Use 'guard' when the player wants the bot to stay in an area and patrol/defend it — the bot stops following and patrols within 8 blocks, attacking any hostile that approaches. Use 'passive' to return to normal following (only fights when attacked). Also triggered by mc_stop or mc_follow_player.",
+            "Switch the bot's behavior mode. Use 'aggro' when the player wants to fight mobs or kill everything hostile nearby — the bot will proactively attack hostile mobs while following. Use 'hunt' when the player wants to hunt animals for food — the bot will seek and kill farm animals (pigs, cows, sheep, chickens, rabbits, mooshrooms) while following. Use 'guard' when the player wants the bot to stay in an area and patrol/defend it — the bot stops following and patrols within 8 blocks, attacking any hostile that approaches. Use 'passive' to return to normal following (only fights when attacked). Also triggered by mc_stop or mc_follow_player.",
         disabled: false,
         layer: '',
         effect: {},
@@ -462,7 +462,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
             {
                 name: 'mode',
                 type: 'String',
-                description: "Behavior mode: 'passive' (follow, defend only), 'hunt' (follow + attack all hostiles), 'guard' (patrol area + defend)",
+                description: "Behavior mode: 'passive' (follow, defend only), 'aggro' (follow + attack all hostiles), 'hunt' (follow + hunt farm animals for food), 'guard' (patrol area + defend)",
                 required: true,
             },
         ],

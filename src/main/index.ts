@@ -1,5 +1,6 @@
 import { app, BrowserWindow, shell, nativeImage } from 'electron';
 import { join } from 'path';
+import { readFileSync, writeFileSync } from 'fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
 import { registerIpcHandlers } from './ipc-handlers';
 import icon from '../../resources/icon.png?asset';
@@ -48,10 +49,47 @@ console.error = (...args: unknown[]) => {
     forwardToRenderer('error', args);
 };
 
+// ---- Window bounds persistence ----
+interface WindowBounds {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    maximized: boolean;
+}
+
+function getBoundsPath(): string {
+    return join(app.getPath('userData'), 'window-bounds.json');
+}
+
+function loadBounds(): WindowBounds | null {
+    try {
+        const data = readFileSync(getBoundsPath(), 'utf-8');
+        return JSON.parse(data) as WindowBounds;
+    } catch {
+        return null;
+    }
+}
+
+function saveBounds(win: BrowserWindow): void {
+    const maximized = win.isMaximized();
+    // Save the restored (non-maximized) bounds so unmaximizing works correctly
+    const bounds = maximized ? win.getNormalBounds() : win.getBounds();
+    const data: WindowBounds = { ...bounds, maximized };
+    try {
+        writeFileSync(getBoundsPath(), JSON.stringify(data));
+    } catch {
+        // Best effort — don't crash if we can't save
+    }
+}
+
 function createWindow(): BrowserWindow {
+    const saved = loadBounds();
     const win = new BrowserWindow({
-        width: 1500,
-        height: 1200,
+        width: saved?.width ?? 1500,
+        height: saved?.height ?? 1200,
+        x: saved?.x,
+        y: saved?.y,
         minWidth: 700,
         minHeight: 500,
         title: 'Voxta Minecraft Companion',
@@ -65,9 +103,14 @@ function createWindow(): BrowserWindow {
         },
     });
 
+    if (saved?.maximized) win.maximize();
+
     win.on('ready-to-show', () => {
         win.show();
     });
+
+    // Save bounds whenever the window is moved, resized, or closed
+    win.on('close', () => saveBounds(win));
 
     win.webContents.setWindowOpenHandler(({ url }) => {
         void shell.openExternal(url);

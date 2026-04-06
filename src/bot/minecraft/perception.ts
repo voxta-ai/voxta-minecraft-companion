@@ -354,9 +354,14 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     // Behavior mode
     const mode = getBotMode();
     if (mode !== 'passive') {
-        const modeDesc = mode === 'hunt'
-            ? 'HUNT MODE — actively seeking and attacking hostile mobs while following'
-            : 'GUARD MODE — patrolling and defending this area';
+        let modeDesc: string;
+        if (mode === 'aggro') {
+            modeDesc = 'AGGRO MODE — actively seeking and attacking hostile mobs while following';
+        } else if (mode === 'hunt') {
+            modeDesc = 'HUNT MODE — hunting farm animals (pigs, cows, sheep, chickens, rabbits) for food';
+        } else {
+            modeDesc = 'GUARD MODE — patrolling and defending this area';
+        }
         lines.push(`${who}'s behavior mode: ${modeDesc}`);
     }
 
@@ -378,7 +383,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     if (state.gameMode === 'creative') {
         lines.push(
             'GAME MODE RULES (Creative): You have unlimited items — do NOT mine, gather, or craft. ' +
-                'You can fly and are invulnerable. Focus on building, exploring, and conversation.',
+                'You are invulnerable. Focus on building, exploring, and conversation.',
         );
     } else if (state.gameMode === 'adventure') {
         lines.push(
