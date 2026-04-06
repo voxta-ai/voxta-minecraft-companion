@@ -210,12 +210,34 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
         `[MC Action] Going to ${displayName} at ${Math.round(nearest.entity.position.x)},${Math.round(nearest.entity.position.y)},${Math.round(nearest.entity.position.z)} (${Math.round(nearest.dist)} blocks away)`,
     );
 
-    const goal = new goals.GoalNear(
-        nearest.entity.position.x,
-        nearest.entity.position.y,
-        nearest.entity.position.z,
-        2,
-    );
-    await bot.pathfinder.goto(goal);
+    // Use GoalFollow to dynamically track the entity as it moves
+    const goal = new goals.GoalFollow(nearest.entity, 2);
+    bot.pathfinder.setGoal(goal, true);
+
+    // Wait until we're close enough, then stop following
+    await new Promise<void>((resolve) => {
+        const check = setInterval(() => {
+            // Entity despawned or we lost tracking
+            if (!bot.entities[nearest!.entity.id]) {
+                clearInterval(check);
+                bot.pathfinder.stop();
+                resolve();
+                return;
+            }
+            const dist = nearest!.entity.position.distanceTo(bot.entity.position);
+            if (dist < 3) {
+                clearInterval(check);
+                bot.pathfinder.stop();
+                resolve();
+            }
+        }, 250);
+        // Timeout after 30s to avoid getting stuck
+        setTimeout(() => {
+            clearInterval(check);
+            bot.pathfinder.stop();
+            resolve();
+        }, 30000);
+    });
+
     return `Reached the ${displayName}`;
 }
