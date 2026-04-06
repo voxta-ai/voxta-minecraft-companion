@@ -33,6 +33,13 @@ export class AudioPipeline {
         voxtaApiKey: string | null,
     ): void {
         if (chunk.audioUrl) {
+            // Silence placeholders (e.g. "silence:680") are sent when TTS is disabled —
+            // they're not real HTTP endpoints, so just ack immediately like a no-audio chunk.
+            if (chunk.audioUrl.startsWith('silence:')) {
+                void voxta.speechPlaybackStart(chunk.messageId, chunk.startIndex, chunk.endIndex, 0, chunk.isNarration);
+                return;
+            }
+
             // audioUrl is relative — download in the main process to avoid cross-origin issues
             const baseUrl = voxtaUrl.replace(/\/hub\/?$/, '');
             const fullUrl = chunk.audioUrl.startsWith('http') ? chunk.audioUrl : `${baseUrl}${chunk.audioUrl}`;
@@ -75,6 +82,9 @@ export class AudioPipeline {
                         0,
                         chunk.isNarration,
                     );
+                    // Decrement pending counter so the sentinel can fire
+                    if (this.ackPendingChunks > 0) this.ackPendingChunks--;
+                    this.tryFireAck();
                 });
         } else {
             // No audio URL — immediately ack playback (matches Voxta Talk)
