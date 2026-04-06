@@ -1733,3 +1733,26 @@ body {
     font-size: 12px;
 }
 
+/* Audio effects test button */
+.btn-test-voice {
+    padding: 6px 14px;
+    background: var(--accent-green);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: #000;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font), sans-serif;
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+}
+
+.btn-test-voice:hover {
+    filter: brightness(1.15);
+}
+
+.btn-test-voice:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

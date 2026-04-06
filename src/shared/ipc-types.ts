@@ -91,6 +91,17 @@ export interface McSettings {
     enableAutoDefense: boolean;
     visionMode: VisionMode;
     actionInferenceTiming: ActionInferenceTiming;
+
+    // Audio effects
+    enableSpatialAudio: boolean;
+    spatialNearDistance: number;  // Full volume within this range (blocks)
+    spatialMaxDistance: number;   // Silent beyond this range (blocks)
+    enableReverb: boolean;
+    reverbAmount: number;         // 0-100 wet/dry mix
+    reverbDecay: number;          // 0-100 decay length
+    enableEcho: boolean;
+    echoDelay: number;            // 100-500 ms
+    echoDecay: number;            // 0-100 feedback amount
 }
 
 export const DEFAULT_SETTINGS: McSettings = {
@@ -115,6 +126,16 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableAutoDefense: true,
     visionMode: 'off',
     actionInferenceTiming: 'afterChar',
+
+    enableSpatialAudio: false,
+    spatialNearDistance: 5,
+    spatialMaxDistance: 32,
+    enableReverb: false,
+    reverbAmount: 30,
+    reverbDecay: 50,
+    enableEcho: false,
+    echoDelay: 200,
+    echoDecay: 30,
 };
 
 export interface CharacterInfo {
@@ -166,6 +187,18 @@ export interface RecordingStartEvent {
     sessionId: string;
     voxtaBaseUrl: string;
     voxtaApiKey: string | null;
+}
+
+// ---- Spatial Audio ----
+
+export interface SpatialPosition {
+    botX: number;
+    botY: number;
+    botZ: number;
+    playerX: number;
+    playerY: number;
+    playerZ: number;
+    playerYaw: number;
 }
 
 // ---- Console Log ----
@@ -227,6 +260,7 @@ export const IPC_CHANNELS = {
     RECORDING_START: 'bot:recording-start',
     RECORDING_STOP: 'bot:recording-stop',
     SPEECH_PARTIAL: 'bot:speech-partial',
+    SPATIAL_POSITION: 'bot:spatial-position',
 
     // Renderer → Main (audio ack)
     AUDIO_STARTED: 'bot:audio-started',

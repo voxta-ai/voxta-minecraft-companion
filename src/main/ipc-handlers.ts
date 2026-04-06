@@ -13,6 +13,7 @@ import type {
     AudioPlaybackEvent,
     RecordingStartEvent,
     InspectorData,
+    SpatialPosition,
 } from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): void {
@@ -61,6 +62,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
 
     engine.on('speech-partial', (text: string) => {
         win.webContents.send(IPC_CHANNELS.SPEECH_PARTIAL, text);
+    });
+
+    engine.on('spatial-position', (data: SpatialPosition) => {
+        win.webContents.send(IPC_CHANNELS.SPATIAL_POSITION, data);
     });
 
     // Audio ack from renderer
