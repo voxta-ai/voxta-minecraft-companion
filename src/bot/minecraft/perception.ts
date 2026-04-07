@@ -351,7 +351,7 @@ function readActiveEffects(bot: Bot): string[] {
     if (!raw) return [];
 
     // effects may be an array or an object keyed by effect ID
-    const effects = Array.isArray(raw) ? raw : Object.values(raw) as Array<{ id: number; amplifier: number; duration: number }>;
+    const effects: Array<{ id: number; amplifier: number; duration: number }> = Array.isArray(raw) ? raw : Object.values(raw);
     if (effects.length === 0) return [];
 
     return effects.map((e) => {

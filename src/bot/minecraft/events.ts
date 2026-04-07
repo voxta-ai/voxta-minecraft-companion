@@ -688,7 +688,7 @@ export class McEventBridge {
         const raw = this.bot.entity.effects;
         if (!raw) return [];
 
-        const effects = Array.isArray(raw) ? raw : Object.values(raw) as Array<{ id: number }>;
+        const effects: Array<{ id: number }> = Array.isArray(raw) ? raw : Object.values(raw);
         const HARMFUL_EFFECTS: Record<number, string> = {
             19: 'Poison',
             20: 'Wither',
