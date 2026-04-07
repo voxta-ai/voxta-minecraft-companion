@@ -234,6 +234,16 @@ export function handleActionMessage(
             return;
         }
 
+        // Noise that should never trigger a voiced reply — always a silent note:
+        // - "nowhere in sight" = target not found or too far
+        // - "No entity name provided" / "No player name provided" = AI sent empty param
+        const ALWAYS_SILENT_PATTERNS = ['nowhere in sight', 'no entity name provided', 'no player name provided', 'no block name', 'no item', 'too tough to kill', 'barely got away'];
+        if (ALWAYS_SILENT_PATTERNS.some((p) => result.toLowerCase().includes(p))) {
+            callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+            callbacks.queueNote(`${botName}: ${result}`);
+            return;
+        }
+
         if (timing === 'user') {
             // With user action inference, the server generates a reply simultaneously.
             const noteText = `[ACTION ${isFailure ? 'FAILED' : 'COMPLETE'}: ${actionName}] ${botName}: ${result}`;

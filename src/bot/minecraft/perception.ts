@@ -27,6 +27,7 @@ export interface WorldState {
     movement: string;
     oxygenLevel: number;
     isSleeping: boolean;
+    activeEffects: string[]; // e.g. ["Poison II (0:15)", "Slowness (1:30)"]
 }
 
 export interface NearbyEntity {
@@ -73,6 +74,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
             entity.type !== 'global'
         ) {
             // Include all living entities (mob, hostile, animal, passive, other, etc.)
+            // Skip dropped items — they show as "Item" but aren't mobs
+            const eName = entry.name.toLowerCase();
+            if (eName === 'item' || eName === 'unknown') continue;
             // Asymmetric Y: 10 above (flying mobs) but only 2 below (avoid sensing underground caves)
             const yDiff = entity.position.y - pos.y;
             if (yDiff >= -2 && yDiff <= 10) {
@@ -315,7 +319,52 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         movement,
         oxygenLevel: bot.oxygenLevel ?? 20,
         isSleeping: bot.isSleeping,
+        activeEffects: readActiveEffects(bot),
     };
+}
+
+/** Map of Minecraft effect IDs to human-readable names */
+const EFFECT_NAMES: Record<number, string> = {
+    1: 'Speed', 2: 'Slowness', 3: 'Haste', 4: 'Mining Fatigue',
+    5: 'Strength', 6: 'Instant Health', 7: 'Instant Damage',
+    8: 'Jump Boost', 9: 'Nausea', 10: 'Regeneration',
+    11: 'Resistance', 12: 'Fire Resistance', 13: 'Water Breathing',
+    14: 'Invisibility', 15: 'Blindness', 16: 'Night Vision',
+    17: 'Hunger', 18: 'Weakness', 19: 'Poison', 20: 'Wither',
+    21: 'Health Boost', 22: 'Absorption', 23: 'Saturation',
+    24: 'Glowing', 25: 'Levitation', 26: 'Luck', 27: 'Bad Luck',
+    28: 'Slow Falling', 29: 'Conduit Power', 30: 'Dolphins Grace',
+    31: 'Bad Omen', 32: 'Hero of the Village', 33: 'Darkness',
+};
+
+/** Read active potion/status effects from the bot entity */
+function readActiveEffects(bot: Bot): string[] {
+    const raw = bot.entity.effects;
+    if (!raw) return [];
+
+    // effects may be an array or an object keyed by effect ID
+    const effects = Array.isArray(raw) ? raw : Object.values(raw) as Array<{ id: number; amplifier: number; duration: number }>;
+    if (effects.length === 0) return [];
+
+    return effects.map((e) => {
+        const name = EFFECT_NAMES[e.id] ?? `Effect #${e.id}`;
+        const level = e.amplifier > 0 ? ` ${toRoman(e.amplifier + 1)}` : '';
+        const secs = Math.max(0, Math.floor(e.duration / 20)); // ticks → seconds
+        const mins = Math.floor(secs / 60);
+        const remaining = secs % 60;
+        const time = `${mins}:${String(remaining).padStart(2, '0')}`;
+        return `${name}${level} (${time})`;
+    });
+}
+
+/** Convert number to roman numeral (for effect levels) */
+function toRoman(n: number): string {
+    if (n <= 1) return '';
+    if (n === 2) return 'II';
+    if (n === 3) return 'III';
+    if (n === 4) return 'IV';
+    if (n === 5) return 'V';
+    return String(n);
 }
 
 /** Convert Minecraft ticks (0-24000) to human-readable time like "7:30 AM" */
@@ -412,6 +461,11 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
 
     if (warnings.length > 0) {
         lines.push(warnings.join(' | '));
+    }
+
+    // Active status effects
+    if (state.activeEffects.length > 0) {
+        lines.push(`${who}'s active effects: ${state.activeEffects.join(', ')}`);
     }
 
     if (state.heldItem) {
