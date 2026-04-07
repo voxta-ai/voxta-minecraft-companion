@@ -6,6 +6,11 @@ const require = createRequire(import.meta.url);
 import { CRAFT_ALIASES } from '../game-data';
 import { setSuppressPickups } from './action-state.js';
 
+// Delay between crafting steps to avoid Paper's place_recipe rate limiter
+// (default: 5 packets per 4 seconds). Each bot.craft() fires multiple packets.
+const CRAFT_STEP_DELAY_MS = 250;
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 // ---- Crafting types ----
 
 type McDataItems = Record<string, { id: number; displayName: string; name: string } | undefined>;
@@ -72,6 +77,9 @@ async function autoCraftWithPrereqs(
             // Fall through to try auto-prereqs
         }
     }
+
+    // Delay before switching to auto-prereq path — let server process previous packets
+    if (depth > 0) await delay(CRAFT_STEP_DELAY_MS);
 
     // Can't craft directly — get ALL recipes (regardless of inventory)
     const allRecipes = bot.recipesAll(itemId, null, craftingTable);
@@ -149,6 +157,8 @@ async function autoCraftWithPrereqs(
                     prereqFailed = true;
                     break;
                 }
+                // Delay between prerequisite crafts to avoid Paper rate-limiting
+                await delay(CRAFT_STEP_DELAY_MS);
             }
         }
 
@@ -157,7 +167,8 @@ async function autoCraftWithPrereqs(
             continue; // Try the next recipe variant
         }
 
-        // All prerequisites resolved — retry the craft
+        // All prerequisites resolved — delay to let server catch up, then retry
+        await delay(CRAFT_STEP_DELAY_MS);
         recipes = bot.recipesFor(itemId, null, 1, craftingTable);
         if (recipes.length > 0) {
             try {
