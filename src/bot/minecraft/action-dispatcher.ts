@@ -35,6 +35,8 @@ import {
     sleepInBed,
     setHomeBed,
     placeBlock,
+    mountEntity,
+    dismountEntity,
 } from './actions';
 
 // Re-export so existing consumers keep working
@@ -264,6 +266,15 @@ export async function executeAction(
                 setCurrentActivity(null);
                 return `Passive mode. Following and defending only when attacked.`;
             }
+
+            case 'mc_mount': {
+                const mountTarget = getArg(args, 'entity_name');
+                setCurrentActivity(`mounting ${mountTarget ?? 'nearby entity'}`);
+                return await mountEntity(bot, mountTarget);
+            }
+
+            case 'mc_dismount':
+                return await dismountEntity(bot);
 
             default:
                 return `Unknown action: ${actionName}`;

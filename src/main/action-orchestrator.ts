@@ -179,7 +179,8 @@ export function handleActionMessage(
             actionName !== 'mc_stop' &&
             actionName !== 'mc_go_home' &&
             actionName !== 'mc_go_to' &&
-            actionName !== 'mc_set_mode';
+            actionName !== 'mc_set_mode' &&
+            actionName !== 'mc_mount';
         console.log(
             `[Bot] Action done: ${actionName}, followingPlayer: ${followingPlayer}, shouldResume: ${!!shouldResume}`,
         );
@@ -237,7 +238,7 @@ export function handleActionMessage(
         // Noise that should never trigger a voiced reply — always a silent note:
         // - "nowhere in sight" = target not found or too far
         // - "No entity name provided" / "No player name provided" = AI sent empty param
-        const ALWAYS_SILENT_PATTERNS = ['nowhere in sight', 'no entity name provided', 'no player name provided', 'no block name', 'no item', 'too tough to kill', 'barely got away'];
+        const ALWAYS_SILENT_PATTERNS = ['nowhere in sight', 'no entity name provided', 'no player name provided', 'no block name', 'no item', 'too tough to kill', 'barely got away', 'stopped fighting', 'died while fighting', 'reached the', 'cannot find', 'failed to eat', 'not edible', 'ate some'];
         if (ALWAYS_SILENT_PATTERNS.some((p) => result.toLowerCase().includes(p))) {
             callbacks.addChat('note', 'Note', `${botName}: ${result}`);
             callbacks.queueNote(`${botName}: ${result}`);

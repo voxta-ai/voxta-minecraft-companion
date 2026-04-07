@@ -5,12 +5,20 @@ import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity, getBestWeapon } from './action-helpers.js';
 import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget, setCurrentActivity } from './action-state.js';
 import { ENTITY_ALIASES } from '../game-data';
+import { dismountEntity } from './movement.js';
 
 // Below this HP threshold (3 hearts = 6 HP), the bot kites instead of fighting
 const LOW_HEALTH_THRESHOLD = 6;
 
 export async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {
     if (!entityName) return 'No entity name provided';
+
+    // Auto-dismount — pathfinder can't work while mounted
+    const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+    if (vehicle) {
+        console.log('[MC Action] Auto-dismounting before combat');
+        await dismountEntity(bot);
+    }
 
     // Resolve: alias → name registry → normalized
     const normalized = entityName.toLowerCase().replace(/ /g, '_');

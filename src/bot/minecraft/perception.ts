@@ -28,6 +28,7 @@ export interface WorldState {
     oxygenLevel: number;
     isSleeping: boolean;
     activeEffects: string[]; // e.g. ["Poison II (0:15)", "Slowness (1:30)"]
+    riding: string | null; // Name of entity being ridden, or null
 }
 
 export interface NearbyEntity {
@@ -261,10 +262,16 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         shelter = `near shelter (${shelterBlockLabels.join(', ')} nearby)`;
     }
 
+    // Riding state — bot.vehicle exists at runtime but is missing from TS types
+    const vehicle = (bot as unknown as { vehicle: Entity | null }).vehicle ?? null;
+    const riding = vehicle ? (vehicle.displayName ?? vehicle.name ?? 'something') : null;
+
     // Movement state — physical body status
     let movement = 'standing';
     const ent = bot.entity as Entity & { isInWater?: boolean; isInLava?: boolean };
-    if (bot.isSleeping) {
+    if (riding) {
+        movement = `riding a ${riding}`;
+    } else if (bot.isSleeping) {
         movement = 'sleeping';
     } else if (ent.isInLava) {
         movement = 'in lava';
@@ -320,6 +327,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         oxygenLevel: bot.oxygenLevel ?? 20,
         isSleeping: bot.isSleeping,
         activeEffects: readActiveEffects(bot),
+        riding,
     };
 }
 
@@ -427,6 +435,16 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
 
     // Movement (physical state)
     lines.push(`${who}'s movement: ${state.movement}`);
+
+    // Riding status — tell AI explicitly so it knows to use mc_dismount
+    if (state.riding) {
+        const isBoat = state.riding.toLowerCase().includes('boat');
+        if (isBoat) {
+            lines.push(`${who} is currently riding a ${state.riding}. ${who} cannot steer boats — only ride as a passenger. Use mc_dismount to get off.`);
+        } else {
+            lines.push(`${who} is currently riding a ${state.riding}. Use mc_dismount to get off.`);
+        }
+    }
 
     // Game mode rules — help AI understand what's possible
     if (state.gameMode === 'creative') {

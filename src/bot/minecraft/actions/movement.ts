@@ -1,4 +1,5 @@
 import type { Bot } from 'mineflayer';
+import type { Entity } from 'prismarine-entity';
 import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
@@ -7,6 +8,13 @@ import { getActionAbort, getHomePosition, clearHome } from './action-state.js';
 
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
+
+    // Auto-dismount — pathfinder can't work while mounted
+    const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+    if (vehicle) {
+        console.log('[MC Action] Auto-dismounting before following');
+        await dismountEntity(bot);
+    }
 
     // Guard: bot position can be NaN after combat/respawn
     const pos = bot.entity.position;
@@ -58,9 +66,13 @@ export async function followPlayer(bot: Bot, playerName: string | undefined, nam
     // sees it and immediately nullifies our new goal. Setting null first clears it.
     bot.pathfinder.setGoal(null);
 
-    const goal = new goals.GoalFollow(player, 3);
+    // When the player is mounted, their entity position goes stale.
+    // Follow the vehicle entity instead — it gets real position updates.
+    const playerVehicle = (player as unknown as { vehicle: Entity | null }).vehicle;
+    const followTarget = playerVehicle ?? player;
+    const goal = new goals.GoalFollow(followTarget, 3);
     bot.pathfinder.setGoal(goal, true); // dynamic = true → keeps following
-    console.log(`[MC Action] Follow goal set for ${displayName}, goal active: ${!!bot.pathfinder.goal}`);
+    console.log(`[MC Action] Follow goal set for ${displayName}${playerVehicle ? ' (via vehicle)' : ''}, goal active: ${!!bot.pathfinder.goal}`);
 
     return `Following ${displayName}`;
 }
@@ -92,9 +104,11 @@ export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegi
     // Flush pending a stop flag (see comment in followPlayer above)
     bot.pathfinder.setGoal(null);
 
-    const goal = new goals.GoalFollow(player, 3);
+    const playerVehicle = (player as unknown as { vehicle: Entity | null }).vehicle;
+    const followTarget = playerVehicle ?? player;
+    const goal = new goals.GoalFollow(followTarget, 3);
     bot.pathfinder.setGoal(goal, true);
-    console.log(`[MC Action] Resume follow goal set for ${displayName}, goal active: ${!!bot.pathfinder.goal}`);
+    console.log(`[MC Action] Resume follow goal set for ${displayName}${playerVehicle ? ' (via vehicle)' : ''}, goal active: ${!!bot.pathfinder.goal}`);
 
     return `Following ${displayName}`;
 }
@@ -185,6 +199,13 @@ export async function collectItems(bot: Bot): Promise<string> {
 
 export async function goToEntity(bot: Bot, entityName: string | undefined): Promise<string> {
     if (!entityName) return 'No entity name provided';
+
+    // Auto-dismount — pathfinder can't work while mounted
+    const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+    if (vehicle) {
+        console.log('[MC Action] Auto-dismounting before going to entity');
+        await dismountEntity(bot);
+    }
 
     const nameLower = entityName.toLowerCase().replace(/_/g, ' ');
 
@@ -288,3 +309,166 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
 
     return `Reached the ${displayName}`;
 }
+
+// ---- Rideable entities ----
+
+/** Entity names that can be mounted/ridden in Minecraft */
+const RIDEABLE_ENTITIES = new Set([
+    'horse', 'donkey', 'mule', 'skeleton_horse', 'zombie_horse',
+    'pig', 'strider', 'camel', 'llama', 'trader_llama',
+    'boat', 'oak_boat', 'spruce_boat', 'birch_boat', 'jungle_boat',
+    'acacia_boat', 'dark_oak_boat', 'mangrove_boat', 'cherry_boat', 'bamboo_raft',
+    'minecart',
+]);
+
+/** bot.vehicle exists at runtime but is missing from mineflayer's TS declarations */
+function getVehicle(bot: Bot): Entity | null {
+    return (bot as unknown as { vehicle: Entity | null }).vehicle ?? null;
+}
+
+/** Manually set/clear bot.vehicle — needed to work around mineflayer's stale state bug */
+function setVehicle(bot: Bot, vehicle: Entity | null): void {
+    (bot as unknown as { vehicle: Entity | null }).vehicle = vehicle;
+}
+
+export async function mountEntity(bot: Bot, entityName: string | undefined): Promise<string> {
+    // Already riding something?
+    const currentVehicle = getVehicle(bot);
+    if (currentVehicle) {
+        const vehicleName = currentVehicle.displayName ?? currentVehicle.name ?? 'something';
+        return `Already riding a ${vehicleName}. Use mc_dismount first.`;
+    }
+
+    const nameLower = (entityName ?? '').toLowerCase().replace(/\s+/g, '_');
+
+    // Find the nearest rideable entity — filter by name if provided
+    let nearest: { entity: typeof bot.entity; dist: number } | null = null;
+    for (const entity of Object.values(bot.entities)) {
+        if (entity === bot.entity) continue;
+        const eName = (entity.name ?? '').toLowerCase();
+        const eDisplay = (entity.displayName ?? '').toLowerCase().replace(/\s+/g, '_');
+
+        // If a specific name was given, match against it (name or displayName)
+        if (nameLower && nameLower !== 'any') {
+            const matches = eName.includes(nameLower) || nameLower.includes(eName)
+                || eDisplay.includes(nameLower) || nameLower.includes(eDisplay);
+            if (!matches) continue;
+        } else {
+            // No name given — only consider known rideable entities
+            if (!RIDEABLE_ENTITIES.has(eName)) continue;
+        }
+
+        const dist = entity.position.distanceTo(bot.entity.position);
+        if (dist > 32) continue; // Too far
+        if (!nearest || dist < nearest.dist) {
+            nearest = { entity, dist };
+        }
+    }
+
+    if (!nearest) {
+        return entityName
+            ? `Cannot find any ${entityName} nearby to ride`
+            : 'No rideable entity nearby (horse, boat, minecart, pig, etc.)';
+    }
+
+    const displayName = nearest.entity.displayName ?? nearest.entity.name ?? 'entity';
+
+    // Walk to the entity first if not close enough
+    if (nearest.dist > 3) {
+        try {
+            const goal = new goals.GoalNear(
+                nearest.entity.position.x,
+                nearest.entity.position.y,
+                nearest.entity.position.z,
+                2,
+            );
+            await bot.pathfinder.goto(goal);
+        } catch {
+            // Best effort approach
+        }
+    }
+
+    // Mount!
+    try {
+        bot.mount(nearest.entity);
+        // Wait briefly for the mount event to confirm
+        await new Promise((r) => setTimeout(r, 500));
+        if (getVehicle(bot)) {
+            return `Mounted the ${displayName}`;
+        }
+        return `Tried to mount the ${displayName} but it didn't work — it may not be tamed or saddled`;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Failed to mount ${displayName}: ${message}`;
+    }
+}
+
+export async function dismountEntity(bot: Bot): Promise<string> {
+    const currentVehicle = getVehicle(bot);
+    if (!currentVehicle) {
+        console.log('[MC Action] Dismount: not currently riding anything');
+        return 'Not currently riding anything';
+    }
+
+    const vehicleName = currentVehicle.displayName ?? currentVehicle.name ?? 'vehicle';
+    console.log(`[MC Action] Dismounting from ${vehicleName}...`);
+
+    // Stop any stale pathfinder goals set while mounted
+    bot.pathfinder.stop();
+    bot.pathfinder.setGoal(null);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const client = (bot as any)._client;
+    const botId = bot.entity.id;
+
+    // Continuously send player_input with shift:true — the correct dismount for 1.21.2+.
+    // player_input is per-tick, so we must pump it repeatedly (like holding shift).
+    // NOTE: bot.dismount() is NOT used — it sends jump:true which makes the horse jump.
+    try {
+        let dismounted = false;
+        const shiftInputs = { forward: false, backward: false, left: false, right: false, jump: false, shift: true, sprint: false };
+        const releaseInputs = { forward: false, backward: false, left: false, right: false, jump: false, shift: false, sprint: false };
+
+        // Listen for the server's set_passengers packet confirming we're off
+        const dismountPromise = new Promise<boolean>((resolve) => {
+            const onSetPassengers = (packet: { entityId: number; passengers: number[] }): void => {
+                if (packet.entityId === currentVehicle.id && !packet.passengers.includes(botId)) {
+                    dismounted = true;
+                    client.removeListener('set_passengers', onSetPassengers);
+                    // Manually fix mineflayer's stale vehicle state
+                    setVehicle(bot, null);
+                    resolve(true);
+                }
+            };
+            client.on('set_passengers', onSetPassengers);
+            setTimeout(() => {
+                client.removeListener('set_passengers', onSetPassengers);
+                resolve(false);
+            }, 2000);
+        });
+
+        // Pump shift every 50ms until dismounted or timeout
+        const shiftPump = setInterval(() => {
+            if (dismounted) return;
+            client.write('player_input', { inputs: shiftInputs });
+        }, 50);
+
+        const ok = await dismountPromise;
+        clearInterval(shiftPump);
+        client.write('player_input', { inputs: releaseInputs });
+
+        if (ok) {
+            console.log('[MC Action] Dismounted via player_input shift (packet confirmed)');
+            return `Dismounted from the ${vehicleName}`;
+        }
+        console.log('[MC Action] player_input shift — no packet after 2s');
+    } catch (err) {
+        console.log('[MC Action] player_input threw:', err instanceof Error ? err.message : err);
+    }
+
+    // Fallback: assume success — manually clear stale state
+    console.log('[MC Action] No dismount packet received — clearing vehicle state manually');
+    setVehicle(bot, null);
+    return `Dismounted from the ${vehicleName}`;
+}
+
