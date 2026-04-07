@@ -3,8 +3,11 @@ import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity, getBestWeapon } from './action-helpers.js';
-import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget } from './action-state.js';
+import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget, setCurrentActivity } from './action-state.js';
 import { ENTITY_ALIASES } from '../game-data';
+
+// Below this HP threshold (3 hearts = 6 HP), the bot kites instead of fighting
+const LOW_HEALTH_THRESHOLD = 6;
 
 export async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {
     if (!entityName) return 'No entity name provided';
@@ -27,13 +30,13 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
 
     const displayName = names.resolveToVoxta(names.resolveToMc(entityName));
 
-    if (!target) return `Looked around but cannot see any ${displayName} nearby`;
+    if (!target) return `${displayName} is nowhere in sight`;
 
     // Don't chase entities that are too far — fail fast instead of running across the map
     const MAX_ATTACK_RANGE = 32;
     const dist = target.position.distanceTo(bot.entity.position);
     if (dist > MAX_ATTACK_RANGE) {
-        return `Looked around but cannot see any ${displayName} nearby (nearest is ${Math.round(dist)} blocks away)`;
+        return `${displayName} is nowhere in sight (nearest is ${Math.round(dist)} blocks away)`;
     }
 
     // Auto-equip the best weapon before fighting
@@ -65,11 +68,24 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
     setCurrentCombatTarget(normalizedTarget);
 
     // Follow and attack until dead
-    const goal = new goals.GoalFollow(target, 2);
+    const goal = new goals.GoalFollow(target, 1);
     bot.pathfinder.setGoal(goal, true);
 
-    const startTime = Date.now();
-    const TIMEOUT_MS = 15000; // 15-second max combat
+    let startTime = Date.now();
+    const combatStart = Date.now();
+    const TIMEOUT_MS = 15000; // 15s chase timeout (mob far away)
+    const MAX_COMBAT_MS = 60_000; // 60s absolute cap — give up if can't kill
+
+    // Listen for explosion packets to detect creeper detonation
+    let mainLoopExplosion = false;
+    const onMainExplosion = (): void => {
+        mainLoopExplosion = true; // Any explosion while fighting = it exploded
+    };
+    (bot as unknown as { _client: { on: (e: string, fn: (...args: never[]) => void) => void } })._client.on('explosion', onMainExplosion as never);
+
+    const cleanupExplosionListener = (): void => {
+        (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onMainExplosion as never);
+    };
 
     return new Promise<string>((resolve) => {
         const signal = getActionAbort().signal;
@@ -77,6 +93,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
             // Check if canceled
             if (signal.aborted) {
                 clearInterval(attackLoop);
+                cleanupExplosionListener();
                 if (getCurrentCombatTarget() === normalizedTarget) setCurrentCombatTarget(null);
                 // Don't call pathfinder.stop() — the new action owns it now
                 resolve(`Stopped fighting ${displayName}`);
@@ -90,16 +107,240 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 bot.pathfinder.stop();
                 // If the bot itself died, all entities disappear — don't claim victory
                 if (bot.health <= 0) {
+                    cleanupExplosionListener();
                     resolve(`Died while fighting ${displayName}`);
+                } else if (normalizedTarget === 'creeper' || normalizedTarget === 'charged_creeper') {
+                    // Creeper: wait 150ms for explosion packet (arrives after entity_destroy)
+                    setTimeout(() => {
+                        cleanupExplosionListener();
+                        if (mainLoopExplosion) {
+                            resolve('');
+                        } else {
+                            resolve(`Killed the ${displayName} while kiting! (health: ${Math.round(bot.health)}/20)`);
+                        }
+                    }, 150);
                 } else {
+                    cleanupExplosionListener();
                     resolve(`Defeated the ${displayName}`);
                 }
                 return;
             }
 
-            // Timeout — stop chasing
-            if (Date.now() - startTime > TIMEOUT_MS) {
+            // Low health OR creeper — transition to hit-and-run kiting
+            // Creepers ALWAYS need hit-and-retreat to avoid explosion damage
+            const isCreeper = normalizedTarget === 'creeper' || normalizedTarget === 'charged_creeper';
+            if (bot.health > 0 && (bot.health <= LOW_HEALTH_THRESHOLD || isCreeper)) {
                 clearInterval(attackLoop);
+                cleanupExplosionListener();
+                setCurrentCombatTarget(null);
+                setCurrentActivity(`fleeing from ${displayName} — critically wounded`);
+
+                console.log(`[MC Action] Health critical (${Math.round(bot.health)}/20) — kiting away from ${displayName}`);
+
+                // Ranged mobs need zigzag approach; melee mobs get direct charge
+                const RANGED_MOBS = new Set([
+                    'witch', 'skeleton', 'stray', 'pillager', 'blaze',
+                    'ghast', 'shulker', 'drowned', 'evoker', 'illusioner',
+                ]);
+                const isRangedMob = RANGED_MOBS.has(normalizedTarget);
+
+                // Anchor = bot's current position. Kite around this spot.
+                const anchor = bot.entity.position.clone();
+
+                bot.setControlState('sprint', true);
+
+                // Kiting state machine: ENGAGE first (hit) → RETREAT → ENGAGE → repeat
+                const fleeStart = Date.now();
+                const FLEE_TIMEOUT_MS = 30_000;
+                const FLEE_DIST = 16;
+                const MAX_DRIFT = 25;
+                const RETREAT_DURATION = 3000;
+                const ENGAGE_TIMEOUT = 5000;
+
+                let phase: 'retreating' | 'engaging' = 'engaging'; // Hit first, then run
+                let phaseStart = Date.now();
+                let lastFleeGoalSet = 0;
+                let zigzagLeft = true;
+                let lastZigzagSet = 0;
+
+                // Track death via event — bot.health is unreliable (jumps to 20 after respawn)
+                let kiteDied = false;
+                let explosionDetected = false;
+                const onKiteDeath = (): void => { kiteDied = true; };
+                bot.once('death', onKiteDeath);
+
+                // Listen for real explosion packets to detect creeper detonation
+                const onExplosion = (): void => {
+                    explosionDetected = true;
+                };
+                (bot as unknown as { _client: { on: (e: string, fn: (...args: never[]) => void) => void } })._client.on('explosion', onExplosion as never);
+
+                const fleeCheck = setInterval(() => {
+                    // Death cancels everything (flag set by 'death' event)
+                    if (kiteDied || bot.health <= 0) {
+                        clearInterval(fleeCheck);
+                        bot.removeListener('death', onKiteDeath);
+                        (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                        bot.setControlState('sprint', false);
+                        bot.pathfinder.stop();
+                        setCurrentActivity(null);
+                        resolve(`Died while fighting ${displayName}`);
+                        return;
+                    }
+
+                    // Health recovered (auto-eat worked) — safe to stop kiting (not for creepers)
+                    if (!isCreeper && bot.health > LOW_HEALTH_THRESHOLD) {
+                        clearInterval(fleeCheck);
+                        bot.removeListener('death', onKiteDeath);
+                        (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                        bot.setControlState('sprint', false);
+                        bot.pathfinder.stop();
+                        setCurrentActivity(null);
+                        resolve(`Recovered health — safe now (health: ${Math.round(bot.health)}/20)`);
+                        return;
+                    }
+
+                    // Mob dead or despawned
+                    if (!bot.entities[target.id]) {
+                        clearInterval(fleeCheck);
+                        bot.removeListener('death', onKiteDeath);
+                        bot.setControlState('sprint', false);
+                        bot.pathfinder.stop();
+                        setCurrentActivity(null);
+                        // Creeper: wait 150ms for explosion packet (arrives after entity_destroy)
+                        if (isCreeper) {
+                            setTimeout(() => {
+                                (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                                if (explosionDetected) {
+                                    resolve('');
+                                } else {
+                                    resolve(`Killed the ${displayName} while kiting! (health: ${Math.round(bot.health)}/20)`);
+                                }
+                            }, 150);
+                        } else {
+                            (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                            resolve(`Killed the ${displayName} while kiting! (health: ${Math.round(bot.health)}/20)`);
+                        }
+                        return;
+                    }
+
+                    // Timeout — stop kiting regardless
+                    if (Date.now() - fleeStart > FLEE_TIMEOUT_MS) {
+                        clearInterval(fleeCheck);
+                        bot.removeListener('death', onKiteDeath);
+                        (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                        bot.setControlState('sprint', false);
+                        bot.pathfinder.stop();
+                        setCurrentActivity(null);
+                        resolve(`Barely got away from the ${displayName}! (health: ${Math.round(bot.health)}/20)`);
+                        return;
+                    }
+
+                    // ---- HIT-AND-RUN STATE MACHINE ----
+                    const distToMob = target.position.distanceTo(bot.entity.position);
+                    const now = Date.now();
+                    const phaseElapsed = now - phaseStart;
+
+                    if (phase === 'retreating') {
+                        // RETREAT: sprint away from the mob
+                        if (now - lastFleeGoalSet > 2000 || distToMob < 5) {
+                            const dx = bot.entity.position.x - target.position.x;
+                            const dz = bot.entity.position.z - target.position.z;
+                            const awayAngle = Math.atan2(dz, dx);
+                            const offset = (Math.random() - 0.5) * (Math.PI * 2 / 3);
+                            const fleeAngle = awayAngle + offset;
+
+                            let fleeX = Math.round(bot.entity.position.x + Math.cos(fleeAngle) * FLEE_DIST);
+                            let fleeZ = Math.round(bot.entity.position.z + Math.sin(fleeAngle) * FLEE_DIST);
+
+                            // Clamp to stay within MAX_DRIFT blocks of anchor
+                            const driftX = fleeX - anchor.x;
+                            const driftZ = fleeZ - anchor.z;
+                            const driftDist = Math.sqrt(driftX * driftX + driftZ * driftZ);
+                            if (driftDist > MAX_DRIFT) {
+                                fleeX = Math.round(anchor.x + (driftX / driftDist) * MAX_DRIFT);
+                                fleeZ = Math.round(anchor.z + (driftZ / driftDist) * MAX_DRIFT);
+                            }
+
+                            bot.pathfinder.setGoal(new goals.GoalXZ(fleeX, fleeZ));
+                            lastFleeGoalSet = now;
+                        }
+
+                        // Switch to ENGAGE after retreating long enough or far enough
+                        if (phaseElapsed > RETREAT_DURATION || distToMob > 12) {
+                            phase = 'engaging';
+                            phaseStart = now;
+                            lastZigzagSet = 0; // Force immediate zigzag waypoint
+                            setCurrentActivity(`fighting ${displayName} — hit and run`);
+                        }
+                    } else {
+                        // ENGAGE: approach and attack
+                        if (distToMob < 3.5) {
+                            // In melee range — HIT then immediately RETREAT
+                            bot.attack(target);
+                            phase = 'retreating';
+                            phaseStart = now;
+                            lastFleeGoalSet = 0;
+                            setCurrentActivity(`fleeing from ${displayName} — critically wounded`);
+                        } else if (phaseElapsed > ENGAGE_TIMEOUT) {
+                            // Couldn't reach mob in time — retreat and try again
+                            phase = 'retreating';
+                            phaseStart = now;
+                            lastFleeGoalSet = 0;
+                            setCurrentActivity(`fleeing from ${displayName} — critically wounded`);
+                        } else if (isRangedMob) {
+                            // RANGED MOB: zigzag approach to dodge projectiles
+                            if (now - lastZigzagSet > 1500) {
+                                const towardAngle = Math.atan2(
+                                    target.position.z - bot.entity.position.z,
+                                    target.position.x - bot.entity.position.x,
+                                );
+                                const perpAngle = towardAngle + (zigzagLeft ? Math.PI / 2 : -Math.PI / 2);
+                                const lateralDist = 6;
+                                const forwardDist = Math.min(distToMob * 0.6, 10);
+
+                                const wpX = Math.round(
+                                    bot.entity.position.x +
+                                    Math.cos(towardAngle) * forwardDist +
+                                    Math.cos(perpAngle) * lateralDist,
+                                );
+                                const wpZ = Math.round(
+                                    bot.entity.position.z +
+                                    Math.sin(towardAngle) * forwardDist +
+                                    Math.sin(perpAngle) * lateralDist,
+                                );
+
+                                bot.pathfinder.setGoal(new goals.GoalXZ(wpX, wpZ));
+                                zigzagLeft = !zigzagLeft;
+                                lastZigzagSet = now;
+                            }
+                        } else {
+                            // MELEE MOB: charge but stop at arm's length — attack before mob reaches us
+                            bot.pathfinder.setGoal(new goals.GoalFollow(target, 3), true);
+                        }
+                    }
+                }, 250); // 250ms — fast reaction for melee hit-and-run
+
+                return; // Exit attack loop handler
+            }
+
+            // Timeout — two timers:
+            // 1. Chase timeout (15s): fires if mob is far away / unreachable
+            // 2. Absolute combat cap (60s): fires regardless — bot can't kill it
+            const distToTarget = target.position.distanceTo(bot.entity.position);
+            if (Date.now() - combatStart > MAX_COMBAT_MS) {
+                clearInterval(attackLoop);
+                cleanupExplosionListener();
+                setCurrentCombatTarget(null);
+                bot.pathfinder.stop();
+                resolve(`Gave up fighting ${displayName} — too tough to kill`);
+                return;
+            } else if (Number.isFinite(distToTarget) && distToTarget < 16) {
+                // Still in combat range — reset the chase timer
+                startTime = Date.now();
+            } else if (Date.now() - startTime > TIMEOUT_MS) {
+                clearInterval(attackLoop);
+                cleanupExplosionListener();
                 setCurrentCombatTarget(null);
                 bot.pathfinder.stop();
                 resolve(`Lost sight of ${displayName} and gave up the chase`);
@@ -119,9 +360,14 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                         bot.activateItem(true);
                     }, 100);
                 }
-            } else if (hasShield) {
-                // Keep the shield raised while approaching
-                bot.activateItem(true);
+            } else {
+                // Out of melee range — re-set follow goal to keep chasing
+                // (ranged mobs like witches back away after being hit)
+                bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
+                if (hasShield) {
+                    // Keep the shield raised while approaching
+                    bot.activateItem(true);
+                }
             }
         }, 500); // MC attack cooldown is ~500ms
     });

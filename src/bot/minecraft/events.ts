@@ -57,6 +57,10 @@ export class McEventBridge {
     private deathCause: string | null = null;
     private autoLookLoop: ReturnType<typeof setInterval> | null = null;
     private pickupCheckTimer: ReturnType<typeof setInterval> | null = null;
+    private proximityScanTimer: ReturnType<typeof setInterval> | null = null;
+
+    // Companion assist: track how many times the player hits each mob
+    private readonly playerAssistHits = new Map<number, { count: number; lastHit: number }>();
 
     // Bound listener references for cleanup
     private readonly boundListeners: Array<{ event: string; fn: (...args: never[]) => void }> = [];
@@ -81,9 +85,15 @@ export class McEventBridge {
     private lastDamageNoteTime = 0;
     private readonly DAMAGE_NOTE_COOLDOWN_MS = 30_000;
 
+    /** Clear stale attacker when a fight ends — prevents blaming dead mobs for later damage */
+    clearLastAttacker(): void {
+        this.lastAttacker = null;
+        this.lastKnownAttacker = null;
+    }
+
     private registerListeners(): void {
         const eventCooldowns = new Map<string, number>();
-        const EVENT_COOLDOWN_MS = 15_000;
+        const EVENT_COOLDOWN_MS = 8_000;
 
         const isOnCooldown = (key: string): boolean => {
             const last = eventCooldowns.get(key);
@@ -134,8 +144,14 @@ export class McEventBridge {
             const settings = this.callbacks.getSettings();
             if (!settings.enableEventDeath) return;
             this.died = true;
+            // Check for harmful status effects that could be the real killer
+            const harmfulEffects = this.getHarmfulEffects();
             // Use lastKnownAttacker (persists) → lastAttacker (recent) → getDamageSource() (guess)
-            const killer = this.lastKnownAttacker ?? this.lastAttacker ?? this.getDamageSource();
+            let killer = this.lastKnownAttacker ?? this.lastAttacker ?? this.getDamageSource();
+            // If poison/wither is active, it's likely the real cause (or a contributing factor)
+            if (harmfulEffects.length > 0) {
+                killer = harmfulEffects.join(' + ') + (killer !== 'environmental damage' ? ` (while fighting ${killer})` : '');
+            }
             this.deathCause = killer;
             this.lastAttacker = null;
             this.lastKnownAttacker = null;
@@ -157,7 +173,7 @@ export class McEventBridge {
             this.deathCause = null;
             // Single combined message instead of separate death + respawn + urgent events
             this.callbacks.onUrgentEvent(
-                `[URGENT] ${botName} was killed by ${cause}, lost all items, and respawned.`,
+                `[URGENT] ${botName} just DIED (killed by ${cause}), lost all items, and respawned at full health. The fight is over — ${botName} is no longer in danger.`,
             );
         }) as (...args: never[]) => void);
 
@@ -200,8 +216,14 @@ export class McEventBridge {
                 this.lastSwingAttacker = null; // Clear swing — mob takes priority
             } else if (this.lastSwingAttacker && Date.now() - this.lastSwingTime < 1500) {
                 // Priority 2: Player PvP — only if no hostile mob is nearby
-                this.lastAttacker = this.lastSwingAttacker;
-                this.lastAttackerTime = Date.now();
+                // Skip if the swing came from the player we're following — they're
+                // fighting alongside us and their arm swings aren't aimed at us
+                const followingPlayer = this.getFollowingPlayer();
+                const swingMc = this.names.resolveToMc(this.lastSwingAttacker);
+                if (!followingPlayer || swingMc.toLowerCase() !== followingPlayer.toLowerCase()) {
+                    this.lastAttacker = this.lastSwingAttacker;
+                    this.lastAttackerTime = Date.now();
+                }
                 this.lastSwingAttacker = null;
             }
 
@@ -249,6 +271,7 @@ export class McEventBridge {
         }) as (...args: never[]) => void);
 
         // ---- Player protection: auto-defend nearby players ----
+        let lastProtectTime = 0;
         this.on('entityHurt', ((entity: Entity) => {
             // Only react to players (not the bot itself — handled above)
             if (entity.id === this.bot.entity.id) return;
@@ -256,6 +279,10 @@ export class McEventBridge {
 
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoDefense || this.isAutoDefending) return;
+
+            // Cooldown — don't spam protection events
+            const now = Date.now();
+            if (now - lastProtectTime < 15_000) return;
 
             // Only protect if the bot is within 16 blocks of the player
             const distToPlayer = entity.position.distanceTo(this.bot.entity.position);
@@ -272,21 +299,112 @@ export class McEventBridge {
             );
             if (!attacker) return;
 
+            lastProtectTime = now;
             const mobName = attacker.name ?? 'unknown';
             const playerName = entity.username ?? entity.displayName ?? 'player';
             this.isAutoDefending = true;
             setAutoDefending(true);
             const botName = this.callbacks.getAssistantName();
             const voxtaName = this.names.resolveToVoxta(playerName);
-            // Only send the urgent event — no separate chat event to avoid spam
             this.callbacks.onUrgentEvent(
-                `[URGENT] ${voxtaName} is being attacked by a ${mobName}! ${botName} is rushing to protect them. IMPORTANT: Reply in ONE sentence only, maximum 10 words.`,
+                `[URGENT] ${voxtaName} is being attacked by a ${mobName}! ${botName} is rushing to protect them.`,
             );
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
                 setAutoDefending(false);
             });
         }) as (...args: never[]) => void);
+
+        // ---- Companion assist: help player fight when they attack something ----
+        this.on('entityHurt', ((entity: Entity) => {
+            // Only care about non-player, non-bot entities (mobs)
+            if (entity.id === this.bot.entity.id) return;
+            if (entity.type === 'player') return;
+
+            const settings = this.callbacks.getSettings();
+            if (!settings.enableAutoDefense) return;
+            if (this.isAutoDefending || isAutoDefending() || getCurrentCombatTarget()) return;
+
+            // Find the player we're following
+            const followingPlayer = this.getFollowingPlayer();
+            if (!followingPlayer) return;
+            const mcName = this.names.resolveToMc(followingPlayer);
+            const playerEntity = Object.values(this.bot.entities).find(
+                (e) => e.type === 'player' && e.username?.toLowerCase() === mcName.toLowerCase(),
+            );
+            if (!playerEntity) return;
+
+            // Is the player within melee range of the hurt mob? (4 blocks = sword reach + margin)
+            const playerToMob = playerEntity.position.distanceTo(entity.position);
+            if (playerToMob > 4) return;
+
+            // Track hits per mob entity ID
+            const now = Date.now();
+            const entry = this.playerAssistHits.get(entity.id);
+            if (entry && now - entry.lastHit < 5000) {
+                entry.count++;
+                entry.lastHit = now;
+            } else {
+                this.playerAssistHits.set(entity.id, { count: 1, lastHit: now });
+            }
+
+            const current = this.playerAssistHits.get(entity.id);
+            if (!current || current.count < 2) return;
+
+            // Player hit this mob 2+ times — join the fight!
+            this.playerAssistHits.delete(entity.id);
+            const mobName = entity.name ?? entity.displayName ?? 'unknown';
+            const botName = this.callbacks.getAssistantName();
+            console.log(`[Bot] Companion assist: ${followingPlayer} is fighting ${mobName}, joining!`);
+            this.callbacks.onChat('action', 'Action', `${botName} is joining the fight against ${mobName}!`);
+
+            this.isAutoDefending = true;
+            setAutoDefending(true);
+            void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
+                this.isAutoDefending = false;
+                setAutoDefending(false);
+            });
+        }) as (...args: never[]) => void);
+
+        // ---- Proximity self-defense: attack hostile mobs within melee range ----
+        // Neutral-hostile mobs: classified as hostile but only attack when provoked.
+        // Auto-attacking them starts a fight the bot didn't need to have.
+        const NEUTRAL_HOSTILE_MOBS = new Set([
+            'enderman', 'piglin', 'zombified_piglin', 'spider', 'cave_spider',
+            'iron_golem', 'wolf', 'bee', 'llama', 'polar_bear', 'dolphin',
+            'panda', 'goat', 'trader_llama',
+        ]);
+
+        this.proximityScanTimer = setInterval(() => {
+            const settings = this.callbacks.getSettings();
+            if (!settings.enableAutoDefense) return;
+            if (this.isAutoDefending || isAutoDefending() || getCurrentCombatTarget()) return;
+            if (getBotMode() !== 'passive') return; // aggro/hunt/guard handle their own scanning
+            if (this.bot.health <= 6) return; // don't attack at critical health — kite instead
+
+            const pos = this.bot.entity.position;
+            if (!Number.isFinite(pos.x)) return;
+
+            // Find any hostile mob within 2.5 blocks (excluding neutral-hostile)
+            const threat = Object.values(this.bot.entities).find(
+                (e) =>
+                    e !== this.bot.entity &&
+                    isHostileEntity(e) &&
+                    !NEUTRAL_HOSTILE_MOBS.has(e.name ?? '') &&
+                    e.position.distanceTo(pos) < 2.5 &&
+                    Math.abs(e.position.y - pos.y) < 2,
+            );
+            if (!threat) return;
+
+            const mobName = threat.name ?? 'unknown';
+            console.log(`[Bot] Proximity defense: ${mobName} is right next to us, attacking!`);
+            this.isAutoDefending = true;
+            setAutoDefending(true);
+            void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
+                this.isAutoDefending = false;
+                setAutoDefending(false);
+            });
+        }, 1000);
 
         // ---- Wake up ----
         this.on('wake', (() => {
@@ -468,8 +586,16 @@ export class McEventBridge {
         // Store for cleanup
         this.pickupCheckTimer = pickupCheckTimer;
 
+        // ---- Log ALL server messages (command output, death msgs, system announcements) ----
+        this.on('message', ((jsonMsg: { toString: () => string }) => {
+            const message = jsonMsg.toString();
+            if (!message || message.startsWith(`<${this.bot.username}>`)) return;
+            console.log(`[MC Server] ${message}`);
+        }) as (...args: never[]) => void);
+
         // ---- Chat bridging ----
         this.on('chat', ((username: string, message: string) => {
+            console.log(`[MC Chat] <${username ?? 'server'}> ${message}`);
             if (!username || username === this.bot.username) return;
             const settings = this.callbacks.getSettings();
             if (!settings.enableNoteChat) return;
@@ -536,7 +662,7 @@ export class McEventBridge {
         if (this.bot.entity.position.y < -60) return 'falling into the void';
 
         // Then check for a recent attacker (mob or player hit)
-        if (this.lastAttacker && Date.now() - this.lastAttackerTime < 10_000) {
+        if (this.lastAttacker && Date.now() - this.lastAttackerTime < 5_000) {
             return this.lastAttacker;
         }
 
@@ -551,6 +677,23 @@ export class McEventBridge {
             /* chunk not loaded */
         }
         return 'environmental damage';
+    }
+
+    /** Check for harmful status effects (Poison, Wither) that deal damage over time */
+    private getHarmfulEffects(): string[] {
+        const raw = this.bot.entity.effects;
+        if (!raw) return [];
+
+        const effects = Array.isArray(raw) ? raw : Object.values(raw) as Array<{ id: number }>;
+        const HARMFUL_EFFECTS: Record<number, string> = {
+            19: 'Poison',
+            20: 'Wither',
+            7: 'Instant Damage',
+        };
+
+        return effects
+            .map((e) => HARMFUL_EFFECTS[e.id])
+            .filter((name): name is string => !!name);
     }
 
     private startAutoLook(): void {
@@ -581,6 +724,10 @@ export class McEventBridge {
         if (this.pickupCheckTimer) {
             clearInterval(this.pickupCheckTimer);
             this.pickupCheckTimer = null;
+        }
+        if (this.proximityScanTimer) {
+            clearInterval(this.proximityScanTimer);
+            this.proximityScanTimer = null;
         }
         if (this.damageTimer) {
             clearTimeout(this.damageTimer);

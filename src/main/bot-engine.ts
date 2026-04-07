@@ -625,8 +625,9 @@ export class BotEngine extends EventEmitter {
                 health: initialState.health,
                 food: initialState.food,
             });
-        } catch {
+        } catch (err) {
             // Perception can fail during initial chunk loading
+            console.error('[Perception] Initial context failed:', err);
         }
 
         await this.voxta.startChat(uiConfig.characterId, uiConfig.chatId ?? undefined, {
@@ -678,8 +679,9 @@ export class BotEngine extends EventEmitter {
                     lastContextHash = contextHash;
                     void this.voxta.updateContext(contextStrings.map((text) => ({ text })));
                 }
-            } catch {
+            } catch (err) {
                 // Perception can fail during respawn/chunk loading
+                console.error('[Perception] Context update failed:', err);
             }
         }, config.perception.intervalMs);
 
@@ -820,6 +822,8 @@ export class BotEngine extends EventEmitter {
             const mode = getBotMode();
             if (mode === 'passive') return;
             if (isAutoDefending() || isActionBusy()) return;
+            // Don't seek new fights when critically wounded
+            if (bot.health > 0 && bot.health <= 6) return;
 
             const pos = bot.entity.position;
             if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
@@ -873,6 +877,10 @@ export class BotEngine extends EventEmitter {
                                 // Reset batch timer — flush after 5s of no new kills
                                 if (modeBatchTimer) clearTimeout(modeBatchTimer);
                                 modeBatchTimer = setTimeout(flushModeBatch, 5000);
+                            } else if (!result) {
+                                // Empty = creeper explosion — environmental note, no bot attribution
+                                this.addChat('note', 'Note', 'Creeper exploded nearby');
+                                this.queueNote('Creeper exploded nearby');
                             } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
                                 this.addChat('note', 'Note', `${this.assistantName ?? 'Bot'}: ${result}`);
                                 this.queueNote(`${this.assistantName ?? 'Bot'}: ${result}`);
@@ -1120,7 +1128,11 @@ export class BotEngine extends EventEmitter {
                     const isNoise = result.startsWith('Already fighting')
                         || result.startsWith('Stopped fighting')
                         || result.startsWith('Died while fighting');
-                    if (!isNoise) {
+                    if (!result) {
+                        // Empty = creeper explosion — environmental note, no bot attribution
+                        this.addChat('note', 'Note', 'Creeper exploded nearby');
+                        this.queueNote('Creeper exploded nearby');
+                    } else if (!isNoise) {
                         this.addChat('note', 'Note', `${botName}: ${result}`);
                         this.queueNote(`${botName}: ${result}`);
                     }
@@ -1128,6 +1140,8 @@ export class BotEngine extends EventEmitter {
                 } catch (err) {
                     console.log(`[Bot] Auto-defense attack failed:`, err);
                 } finally {
+                    // Clear stale attacker so post-combat damage isn't misattributed
+                    this.eventBridge?.clearLastAttacker();
                     console.log(
                         `[Bot] Auto-defense finished, followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`,
                     );
