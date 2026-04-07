@@ -179,7 +179,8 @@ export function handleActionMessage(
             actionName !== 'mc_stop' &&
             actionName !== 'mc_go_home' &&
             actionName !== 'mc_go_to' &&
-            actionName !== 'mc_set_mode';
+            actionName !== 'mc_set_mode' &&
+            actionName !== 'mc_mount';
         console.log(
             `[Bot] Action done: ${actionName}, followingPlayer: ${followingPlayer}, shouldResume: ${!!shouldResume}`,
         );

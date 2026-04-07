@@ -12,6 +12,7 @@ import {
     setAutoDefending,
 } from '../bot/minecraft/actions/action-state';
 import { findPlayerEntity } from '../bot/minecraft/actions/action-helpers';
+import { dismountEntity } from '../bot/minecraft/actions/index';
 import { McEventBridge, isHostileEntity } from '../bot/minecraft/events';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
@@ -60,6 +61,8 @@ export class BotEngine extends EventEmitter {
     private voxta: VoxtaClient | null = null;
     private perceptionLoop: ReturnType<typeof setInterval> | null = null;
     private followWatchdog: ReturnType<typeof setInterval> | null = null;
+    private mountedSteeringLoop: ReturnType<typeof setInterval> | null = null;
+    private autoDismounting = false;
     private modeScanLoop: ReturnType<typeof setInterval> | null = null;
     private spatialLoop: ReturnType<typeof setInterval> | null = null;
     private eventBridge: McEventBridge | null = null;
@@ -309,6 +312,10 @@ export class BotEngine extends EventEmitter {
                 clearInterval(this.followWatchdog);
                 this.followWatchdog = null;
             }
+            if (this.mountedSteeringLoop) {
+                clearInterval(this.mountedSteeringLoop);
+                this.mountedSteeringLoop = null;
+            }
             if (this.modeScanLoop) {
                 clearInterval(this.modeScanLoop);
                 this.modeScanLoop = null;
@@ -345,6 +352,10 @@ export class BotEngine extends EventEmitter {
             if (this.followWatchdog) {
                 clearInterval(this.followWatchdog);
                 this.followWatchdog = null;
+            }
+            if (this.mountedSteeringLoop) {
+                clearInterval(this.mountedSteeringLoop);
+                this.mountedSteeringLoop = null;
             }
             if (this.modeScanLoop) {
                 clearInterval(this.modeScanLoop);
@@ -581,6 +592,38 @@ export class BotEngine extends EventEmitter {
 
         // ---- 2. Start chat with a selected character ----
         const bot = this.mcBot.bot;
+
+        // Auto-dismount: the MC server may remember the bot was riding from a previous session.
+        // bot.vehicle isn't set yet at connect() — the set_passengers packet arrives async.
+        // Retry up to 3 times — spawn-mounted entities need the server to fully load.
+        this.autoDismounting = false;
+        const autoDismount = async (): Promise<void> => {
+            await new Promise((r) => setTimeout(r, 3000));
+            const v = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+            console.log(`[MC] Auto-dismount check: vehicle=${v ? 'yes (id=' + v.id + ')' : 'no'}`);
+            if (!v) return;
+
+            this.autoDismounting = true;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+                if (!vehicle) {
+                    console.log(`[MC] Auto-dismount: vehicle cleared (attempt ${attempt})`);
+                    break;
+                }
+                console.log(`[MC] Auto-dismount attempt ${attempt}/3...`);
+                try {
+                    await dismountEntity(bot);
+                    console.log('[MC] Auto-dismount complete');
+                    break;
+                } catch (err) {
+                    console.log(`[MC] Auto-dismount attempt ${attempt} failed:`, err);
+                    await new Promise((r) => setTimeout(r, 1000));
+                }
+            }
+            this.autoDismounting = false;
+        };
+        void autoDismount();
+
         const character = this.characters.find((c) => c.id === uiConfig.characterId);
         this.assistantName = character?.name ?? 'AI';
         this.activeCharacterId = uiConfig.characterId;
@@ -689,16 +732,20 @@ export class BotEngine extends EventEmitter {
         this.spatialLoop = setInterval(() => {
             if (!this.playerMcUsername) return;
             try {
-                const botPos = bot.entity?.position;
+                // Use vehicle position when mounted — entity position is stale for passengers
+                const botVehicle = (bot as unknown as { vehicle: { position: typeof bot.entity.position } | null }).vehicle;
+                const botPos = botVehicle ? botVehicle.position : bot.entity?.position;
                 const playerEntity = bot.players[this.playerMcUsername]?.entity;
                 if (botPos && playerEntity) {
+                    const playerVehicle = (playerEntity as unknown as { vehicle: { position: typeof bot.entity.position } | null }).vehicle;
+                    const pPos = playerVehicle ? playerVehicle.position : playerEntity.position;
                     this.emit('spatial-position', {
                         botX: botPos.x,
                         botY: botPos.y,
                         botZ: botPos.z,
-                        playerX: playerEntity.position.x,
-                        playerY: playerEntity.position.y,
-                        playerZ: playerEntity.position.z,
+                        playerX: pPos.x,
+                        playerY: pPos.y,
+                        playerZ: pPos.z,
                         playerYaw: playerEntity.yaw,
                     });
                 } else if (botPos) {
@@ -718,6 +765,172 @@ export class BotEngine extends EventEmitter {
             }
         }, 100);
 
+        // ---- Mounted steering loop ----
+        // Horse movement is client-side in MC: the client sends vehicle_move packets
+        // with the computed position. player_input tells the server input state, but
+        // the actual movement comes from vehicle_move (x, y, z, yaw, pitch, onGround).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const mcClient = (bot as any)._client;
+        let lastSteerLog = 0;
+        this.mountedSteeringLoop = setInterval(() => {
+            if (!this.mcBot || !this.followingPlayer) return;
+            if (isActionBusy() || this.autoDismounting) return; // Don't steer during dismount
+            const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+            if (!vehicle) return;
+
+            // Detect vehicle type — only steer horses, skip boats (different physics)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const vehicleEntity = (vehicle as any);
+            const vehicleName: string = (vehicleEntity.displayName ?? vehicleEntity.name ?? '').toLowerCase();
+            const isBoat = vehicleName.includes('boat');
+            if (isBoat) return; // Boat steering not yet implemented — let pathfinder handle it
+
+            const player = findPlayerEntity(bot, this.followingPlayer, this.names);
+            if (!player) return;
+            // When the PLAYER is mounted, their position is stale — use their vehicle's position
+            const playerVehicle = (player as unknown as { vehicle: { position: typeof bot.entity.position } | null }).vehicle;
+            const targetPos = playerVehicle ? playerVehicle.position : player.position;
+            // Use vehicle position — bot.entity.position is stale while mounted
+            const vPos = vehicleEntity.position;
+            if (!vPos) return;
+            const dist = vPos.distanceTo(targetPos);
+            if (dist < 5) {
+                mcClient.write('player_input', {
+                    inputs: { forward: false, backward: false, left: false, right: false, jump: false, shift: false, sprint: false },
+                });
+                return;
+            }
+
+            // Calculate yaw toward player (from vehicle position)
+            const dx = targetPos.x - vPos.x;
+            const dz = targetPos.z - vPos.z;
+            const yaw = -Math.atan2(dx, dz); // radians, MC convention
+            const yawDeg = yaw * (180 / Math.PI);
+
+            // Horse speed: attribute * 43.17 = blocks/sec (vanilla MC formula)
+            let speedAttr = 0.225;
+            if (vehicleEntity.attributes?.['minecraft:generic.movement_speed']) {
+                speedAttr = vehicleEntity.attributes['minecraft:generic.movement_speed'].value ?? 0.225;
+            } else if (vehicleEntity.attributes?.['generic.movementSpeed']) {
+                speedAttr = vehicleEntity.attributes['generic.movementSpeed'].value ?? 0.225;
+            }
+            const blocksPerSec = speedAttr * 100; // ~22.5 b/s — keeps up with player's horse
+            const moveStep = Math.min(blocksPerSec * 0.05, 2.0);
+
+            // Helper: check if a position is impassable for a horse
+            // A 1-block step-up is OK (horse can jump), but walls/trees blocking
+            // headroom above the ground are impassable.
+            const Vec3 = require('vec3');
+            const isBlocked = (x: number, z: number, baseY: number): boolean => {
+                try {
+                    const floorY = Math.floor(baseY);
+                    // Find ground level at destination
+                    let groundLevel = floorY - 1; // default: assume same ground
+                    for (let y = floorY + 2; y >= floorY - 3; y--) {
+                        const b = bot.blockAt(new Vec3(x, y, z));
+                        if (b && b.boundingBox === 'block') {
+                            groundLevel = y;
+                            break;
+                        }
+                    }
+                    const stepUp = (groundLevel + 1) - baseY;
+                    // Can't climb more than 1.5 blocks even with a jump
+                    if (stepUp > 1.5) return true;
+                    // Check headroom above ground (horse + rider = 2.5 blocks)
+                    const standY = groundLevel + 1;
+                    for (let dy = 0; dy <= 2; dy++) {
+                        const b = bot.blockAt(new Vec3(x, standY + dy, z));
+                        if (b && b.boundingBox === 'block') return true;
+                    }
+                } catch { /* world not loaded */ }
+                return false;
+            };
+
+            // Try straight ahead, then ±45°, then ±90° to steer around obstacles
+            let moveYaw = yaw;
+            let moveYawDeg = yawDeg;
+            const offsets = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2];
+            let foundClear = false;
+            for (const offset of offsets) {
+                const tryYaw = yaw + offset;
+                const tryX = vPos.x + (-Math.sin(tryYaw) * moveStep);
+                const tryZ = vPos.z + (Math.cos(tryYaw) * moveStep);
+                if (!isBlocked(tryX, tryZ, vPos.y)) {
+                    moveYaw = tryYaw;
+                    moveYawDeg = moveYaw * (180 / Math.PI);
+                    foundClear = true;
+                    break;
+                }
+            }
+
+            if (!foundClear) {
+                // All directions blocked — just face player and wait
+                mcClient.write('look', {
+                    yaw: yawDeg, pitch: 0,
+                    flags: { onGround: true, hasHorizontalCollision: false },
+                });
+                return;
+            }
+
+            const forwardX = -Math.sin(moveYaw) * moveStep;
+            const forwardZ = Math.cos(moveYaw) * moveStep;
+            const newX = vPos.x + forwardX;
+            const newZ = vPos.z + forwardZ;
+
+            // Find ground height — detect step-ups for jumping
+            let newY = vPos.y;
+            let shouldJump = false;
+            try {
+                const searchY = Math.floor(vPos.y);
+                for (let y = searchY + 2; y >= searchY - 4; y--) {
+                    const b = bot.blockAt(new Vec3(newX, y, newZ));
+                    if (b && b.boundingBox === 'block') {
+                        const groundY = y + 1;
+                        const yDiff = groundY - vPos.y;
+                        if (yDiff >= 0.5 && yDiff <= 1.5) {
+                            // 1-block step-up — jump!
+                            shouldJump = true;
+                            newY = groundY;
+                        } else {
+                            // Smooth transition for gentle slopes / descents
+                            newY = vPos.y + Math.max(-0.5, Math.min(0.5, yDiff));
+                        }
+                        break;
+                    }
+                }
+            } catch {
+                // World data not loaded — keep current Y
+            }
+
+            // Send rider look direction (horse faces where rider looks)
+            mcClient.write('look', {
+                yaw: moveYawDeg,
+                pitch: 0,
+                flags: { onGround: true, hasHorizontalCollision: false },
+            });
+
+            // Tell server forward + jump if stepping up a ledge
+            mcClient.write('player_input', {
+                inputs: { forward: true, backward: false, left: false, right: false, jump: shouldJump, shift: false, sprint: false },
+            });
+
+            // Send vehicle_move — the proper packet for moving a ridden entity
+            mcClient.write('vehicle_move', {
+                x: newX,
+                y: newY,
+                z: newZ,
+                yaw: moveYawDeg,
+                pitch: 0,
+                onGround: !shouldJump,
+            });
+
+            const now = Date.now();
+            if (now - lastSteerLog > 2000) {
+                lastSteerLog = now;
+                console.log(`[MC Steer] Riding: dist=${dist.toFixed(1)}, speed=${blocksPerSec.toFixed(1)}b/s, step=${moveStep.toFixed(2)}, y=${newY.toFixed(1)}, pos=(${newX.toFixed(1)}, ${newZ.toFixed(1)})`);
+            }
+        }, 50);
+
         // ---- Follow watchdog ----
         // The pathfinder can silently stop computing paths after combat/death/respawn
         // even though the goal is still set. This watchdog uses escalating strategies:
@@ -726,10 +939,52 @@ export class BotEngine extends EventEmitter {
         //   3. Bypass pathfinder — manually walk toward the player
         let followWatchdogLastPos = bot.entity.position.clone();
         let followStuckCount = 0;
+        // Track which vehicle the followed player is riding — set_passengers fires instantly
+        let playerMountedVehicleId: number | null = null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        mcClient.on('set_passengers', (packet: any) => {
+            if (!this.followingPlayer) return;
+            const player = findPlayerEntity(bot, this.followingPlayer, this.names);
+            if (!player) return;
+            const passengerIds: number[] = packet.passengers ?? [];
+            const vehicleEntityId: number = packet.entityId;
+            const vEntity = bot.entities[vehicleEntityId];
+            const vName = vEntity?.displayName ?? vEntity?.name ?? 'unknown';
+            if (passengerIds.includes(player.id)) {
+                // Player mounted this vehicle
+                if (playerMountedVehicleId !== vehicleEntityId) {
+                    playerMountedVehicleId = vehicleEntityId;
+                    console.log(`[Bot] Player mounted ${vName} (id=${vehicleEntityId})`);
+                    if (!isActionBusy()) {
+                        resumeFollowPlayer(bot, this.followingPlayer, this.names);
+                    }
+                }
+            } else if (playerMountedVehicleId === vehicleEntityId) {
+                // Player dismounted from this vehicle
+                console.log(`[Bot] Player dismounted ${vName} (id=${vehicleEntityId})`);
+                playerMountedVehicleId = null;
+                // Mineflayer doesn't clear .vehicle for other players — do it manually
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (player as any).vehicle = null;
+                if (!isActionBusy()) {
+                    resumeFollowPlayer(bot, this.followingPlayer, this.names);
+                }
+            }
+        });
         this.followWatchdog = setInterval(() => {
             if (!this.mcBot || !this.followingPlayer) return;
             if (getBotMode() === 'guard') return; // Don't follow in guard mode
-            if (isAutoDefending() || isActionBusy()) return;
+            if (isAutoDefending()) { console.log('[Bot] Watchdog skip: auto-defending'); return; }
+            if (isActionBusy()) { console.log('[Bot] Watchdog skip: action busy'); return; }
+
+            // When the BOT is mounted, the steering loop handles movement — skip pathfinder
+            const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+            if (vehicle) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const vn = ((vehicle as any).displayName ?? (vehicle as any).name ?? 'vehicle').toLowerCase();
+                console.log(`[Bot] Watchdog skip: bot is mounted (${vn})`);
+                return;
+            }
 
             const pos = bot.entity.position;
             if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
@@ -737,7 +992,13 @@ export class BotEngine extends EventEmitter {
             const player = findPlayerEntity(bot, this.followingPlayer, this.names);
             if (!player) return;
 
-            const distToPlayer = pos.distanceTo(player.position);
+            // Use the tracked vehicle ID (from set_passengers listener) for the target position
+            const playerVehicleEntity = playerMountedVehicleId
+                ? bot.entities[playerMountedVehicleId]
+                : null;
+            const targetPos = playerVehicleEntity ? playerVehicleEntity.position : player.position;
+
+            const distToPlayer = pos.distanceTo(targetPos);
             const movedSinceLastCheck = pos.distanceTo(followWatchdogLastPos);
             followWatchdogLastPos = pos.clone();
 
@@ -782,7 +1043,7 @@ export class BotEngine extends EventEmitter {
                 );
                 bot.pathfinder.stop();
                 bot.pathfinder.setGoal(null);
-                void bot.lookAt(player.position.offset(0, 1.6, 0));
+                void bot.lookAt(targetPos.offset(0, 1.6, 0));
                 bot.setControlState('forward', true);
                 bot.setControlState('sprint', true);
             }
@@ -1114,6 +1375,12 @@ export class BotEngine extends EventEmitter {
             },
             () => this.followingPlayer,
             async (botInstance, mobName) => {
+                // Skip auto-defense while mounted — can't fight from horseback
+                const vehicleCheck = (botInstance as unknown as { vehicle: { id: number } | null }).vehicle;
+                if (vehicleCheck) {
+                    console.log(`[Bot] Skipping auto-defense against ${mobName} — mounted on vehicle`);
+                    return;
+                }
                 const botName = this.assistantName ?? 'Bot';
                 console.log(`[Bot] Auto-defense started against ${mobName}, followingPlayer=${this.followingPlayer}`);
                 try {
@@ -1299,6 +1566,10 @@ export class BotEngine extends EventEmitter {
         if (this.followWatchdog) {
             clearInterval(this.followWatchdog);
             this.followWatchdog = null;
+        }
+        if (this.mountedSteeringLoop) {
+            clearInterval(this.mountedSteeringLoop);
+            this.mountedSteeringLoop = null;
         }
         if (this.modeScanLoop) {
             clearInterval(this.modeScanLoop);

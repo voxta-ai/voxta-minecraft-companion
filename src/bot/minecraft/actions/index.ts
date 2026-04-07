@@ -24,7 +24,7 @@ export {
 export { getArg } from './action-helpers.js';
 
 // Action implementations
-export { followPlayer, resumeFollowPlayer, goTo, goHome, collectItems, goToEntity } from './movement.js';
+export { followPlayer, resumeFollowPlayer, goTo, goHome, collectItems, goToEntity, mountEntity, dismountEntity } from './movement.js';
 export { attackEntity, lookAtPlayer } from './combat.js';
 export { mineBlock } from './mining.js';
 export { craftItem } from './crafting.js';
