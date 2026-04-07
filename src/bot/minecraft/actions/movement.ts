@@ -9,6 +9,13 @@ import { getActionAbort, getHomePosition, clearHome } from './action-state.js';
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
+    // Auto-dismount — pathfinder can't work while mounted
+    const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+    if (vehicle) {
+        console.log('[MC Action] Auto-dismounting before following');
+        await dismountEntity(bot);
+    }
+
     // Guard: bot position can be NaN after combat/respawn
     const pos = bot.entity.position;
     if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) {
@@ -193,6 +200,13 @@ export async function collectItems(bot: Bot): Promise<string> {
 export async function goToEntity(bot: Bot, entityName: string | undefined): Promise<string> {
     if (!entityName) return 'No entity name provided';
 
+    // Auto-dismount — pathfinder can't work while mounted
+    const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+    if (vehicle) {
+        console.log('[MC Action] Auto-dismounting before going to entity');
+        await dismountEntity(bot);
+    }
+
     const nameLower = entityName.toLowerCase().replace(/_/g, ' ');
 
     // Find the nearest entity matching the name
@@ -332,10 +346,13 @@ export async function mountEntity(bot: Bot, entityName: string | undefined): Pro
     for (const entity of Object.values(bot.entities)) {
         if (entity === bot.entity) continue;
         const eName = (entity.name ?? '').toLowerCase();
+        const eDisplay = (entity.displayName ?? '').toLowerCase().replace(/\s+/g, '_');
 
-        // If a specific name was given, match against it
+        // If a specific name was given, match against it (name or displayName)
         if (nameLower && nameLower !== 'any') {
-            if (!eName.includes(nameLower) && !nameLower.includes(eName)) continue;
+            const matches = eName.includes(nameLower) || nameLower.includes(eName)
+                || eDisplay.includes(nameLower) || nameLower.includes(eDisplay);
+            if (!matches) continue;
         } else {
             // No name given — only consider known rideable entities
             if (!RIDEABLE_ENTITIES.has(eName)) continue;

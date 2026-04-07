@@ -437,8 +437,12 @@ export class McEventBridge {
                 try {
                     await this.bot.equip(foodItem.type, 'hand');
                     await this.bot.consume();
+                    const botName = this.callbacks.getAssistantName();
                     console.log(
                         `[MC] Auto-ate ${foodItem.displayName ?? foodItem.name}, hunger now: ${this.bot.food}/20`,
+                    );
+                    this.callbacks.onNote(
+                        `${botName} automatically ate ${foodItem.displayName ?? foodItem.name}. Hunger is now ${this.bot.food}/20.`,
                     );
                     // Re-equip previous item
                     if (prevHeldItem && prevHeldItem.type !== foodItem.type) {

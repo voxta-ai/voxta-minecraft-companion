@@ -82,6 +82,10 @@ export async function eatFood(bot: Bot, foodName: string | undefined): Promise<s
         // Eat specific food — resolve aliases + partial match
         foodItem = findInventoryItem(bot, foodName);
         if (!foodItem) return `Checked inventory but has no ${foodName} to eat`;
+        // Validate item is actually edible
+        if (!(foodItem.name in FOOD_ITEMS)) {
+            return `${foodItem.displayName ?? foodItem.name} is not edible food`;
+        }
     } else {
         // Find the best food in inventory
         const foodItems = items
@@ -92,6 +96,10 @@ export async function eatFood(bot: Bot, foodName: string | undefined): Promise<s
     }
 
     try {
+        // Stop movement — can't eat while sprinting/pathfinding
+        bot.pathfinder.stop();
+        bot.setControlState('sprint', false);
+        bot.setControlState('forward', false);
         await bot.equip(foodItem.type, 'hand');
         await bot.consume();
         return `Ate some ${foodItem.displayName ?? foodItem.name} and feels better`;

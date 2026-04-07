@@ -473,7 +473,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_mount',
         description:
-            'Mount/ride a nearby entity. Works for tamed horses (with saddle), donkeys, mules, boats, minecarts, pigs (with saddle), camels, llamas, and striders. The bot will walk to the entity and mount it. Cannot control movement while riding.',
+            'Mount/ride/sit in a nearby vehicle or animal. Use this to sit in a boat, ride a horse, or get into a minecart. Works for boats, horses (tamed with saddle), donkeys, mules, minecarts, pigs (with saddle), camels, llamas, and striders. When a player asks you to "get in the boat" or "sit in the boat", use this action with entity_name=boat.',
         disabled: false,
         layer: '',
         effect: {},
