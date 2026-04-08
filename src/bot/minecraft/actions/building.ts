@@ -567,7 +567,7 @@ export async function buildStructure(bot: Bot, structureName: string | undefined
     // --- Step 2: Find build site ---
     // For thin structures (walls, depth=1): place ahead of the player,
     // oriented perpendicular to their look direction.
-    let site: BuildSite | null = null;
+    let site: BuildSite | null;
     if (blueprint.depth === 1) {
         const player = bot.nearestEntity((e) => e.type === 'player' && e.username !== bot.username);
         if (player) {

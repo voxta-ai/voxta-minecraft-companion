@@ -524,8 +524,6 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
     // Wait for Paper to sync the final inventory state after window close
     await delay(1000);
 
-    const countAfter = countItemInInventory(bot, itemInfo.id);
-
     let message: string;
     if (result.success) {
         const totalGained = countItemInInventory(bot, itemInfo.id) - countBefore;
