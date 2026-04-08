@@ -16,6 +16,8 @@ Talk to your companion by voice or text — they follow you, fight for you, buil
 - **Speech interruption** — Urgent events (taking damage, explosions) interrupt the bot mid-speech
 - **Voice chance sliders** — Per-category probability controls for which results trigger voiced replies vs. silent notes
 
+![Your companion in action — chatting and working in the Minecraft world](docs/screenshot-ingame.png)
+
 ### ⚒️ Autonomous Crafting
 - **Full chain from nothing** — "Craft me a sword" with an empty inventory: bot chops trees, crafts planks, makes a crafting table, places it, crafts the item, and picks the table back up
 - **Recursive dependency resolution** — Automatically crafts all required intermediate materials (logs → planks → sticks → sword)
