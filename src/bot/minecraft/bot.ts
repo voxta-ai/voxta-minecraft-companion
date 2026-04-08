@@ -287,6 +287,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
         let stuckSince: number | null = null;
         let lastMovePos = bot.entity.position.clone();
+        let consecutiveStuckCount = 0;
 
         bot.on('physicsTick', () => {
             const isMoving = bot.pathfinder.isMoving();
@@ -295,6 +296,10 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
             if (!isMoving || !forwardOn) {
                 stuckSince = null;
+                if (consecutiveStuckCount > 0) {
+                    console.log(`[MC Stuck] Unstuck after ${consecutiveStuckCount} cycles`);
+                    consecutiveStuckCount = 0;
+                }
                 lastMovePos = pos.clone();
                 return;
             }
@@ -302,6 +307,10 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             const moved = pos.distanceTo(lastMovePos);
             if (moved > 0.1) {
                 stuckSince = null;
+                if (consecutiveStuckCount > 0) {
+                    console.log(`[MC Stuck] Unstuck (moved ${moved.toFixed(2)}) after ${consecutiveStuckCount} cycles`);
+                    consecutiveStuckCount = 0;
+                }
                 lastMovePos = pos.clone();
                 return;
             }
@@ -313,6 +322,8 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             }
 
             if (now - stuckSince > 1500) {
+                consecutiveStuckCount++;
+
                 // Teleport 1 block forward in the direction the pathfinder is facing.
                 // The pathfinder already set the yaw toward the next path node.
                 const yaw = bot.entity.yaw;
@@ -364,6 +375,51 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                             ` (foot=${destFoot?.name}, head=${destHead?.name})`,
                     );
                 }
+
+                // ---- Diagnostic dump when stuck repeatedly ----
+                // Log full surroundings on every 2nd+ consecutive stuck cycle
+                // so we can diagnose pit/wall traps without flooding logs on one-off stalls.
+                if (consecutiveStuckCount >= 2) {
+                    const bx = Math.floor(pos.x);
+                    const by = Math.floor(pos.y);
+                    const bz = Math.floor(pos.z);
+                    const dirs = [
+                        { label: 'N', dx: 0, dz: -1 },
+                        { label: 'S', dx: 0, dz: 1 },
+                        { label: 'E', dx: 1, dz: 0 },
+                        { label: 'W', dx: -1, dz: 0 },
+                    ];
+                    const survey: string[] = [];
+                    // Current column
+                    for (let dy = -1; dy <= 2; dy++) {
+                        const b = bot.blockAt(pos.offset(0, dy, 0));
+                        survey.push(`  self  y${dy >= 0 ? '+' : ''}${dy}: ${b?.name ?? 'unloaded'} (${b?.boundingBox ?? '?'})`);
+                    }
+                    // Cardinal directions
+                    for (const dir of dirs) {
+                        for (let dy = -1; dy <= 2; dy++) {
+                            const b = bot.blockAt(pos.offset(dir.dx, dy, dir.dz));
+                            survey.push(`  ${dir.label}     y${dy >= 0 ? '+' : ''}${dy}: ${b?.name ?? 'unloaded'} (${b?.boundingBox ?? '?'})`);
+                        }
+                    }
+                    const controls = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak'] as const;
+                    const activeControls = controls.filter((c) => bot.getControlState(c));
+                    const onGround = bot.entity.onGround;
+                    const isInWater = (bot.entity as unknown as { isInWater?: boolean }).isInWater;
+                    const hasGoal = !!bot.pathfinder.goal;
+                    const isMining = bot.pathfinder.isMining();
+
+                    console.log(
+                        `[MC Stuck] === DIAGNOSTIC DUMP (cycle #${consecutiveStuckCount}) ===\n` +
+                        `  pos: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}) block: (${bx}, ${by}, ${bz})\n` +
+                        `  yaw: ${((yaw * 180) / Math.PI).toFixed(1)}°, onGround: ${onGround}, inWater: ${isInWater}\n` +
+                        `  controls: [${activeControls.join(', ')}]\n` +
+                        `  pathfinder: goal=${hasGoal}, moving=${isMoving}, mining=${isMining}\n` +
+                        `  --- Block survey ---\n` +
+                        survey.join('\n'),
+                    );
+                }
+
                 stuckSince = null;
                 lastMovePos = pos.clone();
             }

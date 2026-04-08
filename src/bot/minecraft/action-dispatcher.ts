@@ -35,6 +35,7 @@ import {
     sleepInBed,
     setHomeBed,
     placeBlock,
+    buildStructure,
     mountEntity,
     dismountEntity,
 } from './actions';
@@ -217,6 +218,12 @@ export async function executeAction(
                 const blockTarget = getArg(args, 'block_name') ?? 'block';
                 setCurrentActivity(`placing ${blockTarget}`);
                 return await placeBlock(bot, getArg(args, 'block_name'));
+            }
+
+            case 'mc_build': {
+                const structure = getArg(args, 'structure') ?? 'shelter';
+                setCurrentActivity(`building ${structure}`);
+                return await buildStructure(bot, getArg(args, 'structure'));
             }
 
             case 'mc_store_item':

@@ -1,0 +1,23 @@
+{
+  "_comment": "Example custom blueprint for the Voxta Minecraft Companion",
+  "_instructions": [
+    "Drop .json blueprint files in this blueprints/ folder.",
+    "Restart the bot to load them.",
+    "Then say 'build a <name>' to build the structure.",
+    "",
+    "Block roles:",
+    "  'floor_patch' - only placed if the ground has a hole (checked at build time)",
+    "  'wall' - uses the wall material priority chain (cobblestone > planks > dirt)",
+    "  'roof' - uses the roof material priority chain (planks > cobblestone > dirt)",
+    "  'interior' - uses the exact block specified (no substitution, skipped if not in inventory)",
+    "",
+    "Build order is automatic - blocks are sorted: floor_patch → wall (by Y level) → roof → interior",
+    "If 'role' is omitted, defaults to 'wall' (material substitution applies)",
+    "",
+    "Height limit: the bot can build up to ~4 blocks high from ground level.",
+    "Taller structures will have unreachable blocks.",
+    "",
+    "Coordinates: dx/dz are horizontal offsets from the origin (front-left corner).",
+    "dy is the vertical offset (0 = ground level)."
+  ]
+}

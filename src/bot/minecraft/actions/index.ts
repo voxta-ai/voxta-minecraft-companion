@@ -34,3 +34,4 @@ export { equipItem, eatFood, giveItem, tossItem, useHeldItem } from './inventory
 export { storeItem, takeItem, inspectContainer } from './containers.js';
 export { sleepInBed, setHomeBed } from './home.js';
 export { placeBlock } from './placement.js';
+export { buildStructure, setBuildProgressCallback } from './building.js';

@@ -317,6 +317,28 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         isPhysical: true,
     },
     {
+        name: 'mc_build',
+        description:
+            'Build a structure using materials from inventory. Built-in: shelter (7x7 hut, ~120 blocks), watchtower (5x5 tall tower with stairs, ~140 blocks), wall (3x3 defensive wall with arrow slit, ~8 blocks). '
+            + 'Custom blueprints may also be available from JSON files. '
+            + 'Needs building blocks (cobblestone, planks, or dirt) in inventory. '
+            + 'Use when told to build, construct, or make a shelter/house/base/hut/cabin/tower/wall or any named structure.',
+        disabled: false,
+        layer: '',
+        effect: {},
+        arguments: [
+            {
+                name: 'structure',
+                type: 'String',
+                description: "Structure to build. Built-in: 'shelter', 'watchtower', 'wall'. Also accepts aliases: house/hut/base/cabin (shelter), tower/lookout (watchtower), fence/barrier (wall). Custom structures may be available by name.",
+                required: true,
+            },
+        ],
+        category: 'survival',
+        isQuick: false,
+        isPhysical: true,
+    },
+    {
         name: 'mc_store_item',
         description:
             'Store/deposit items from inventory into a nearby chest. Use when asked to put items away, store items, or fill a chest.',
