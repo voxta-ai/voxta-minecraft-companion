@@ -3,7 +3,7 @@ import type { NameRegistry } from '../bot/name-registry';
 import type { ActionCategory } from '../bot/minecraft/action-definitions';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, setFishCaughtCallback } from '../bot/minecraft/action-dispatcher';
-import { isActionBusy, getCurrentActivity, setBuildProgressCallback } from '../bot/minecraft/actions';
+import { isActionBusy, getCurrentActivity, setBuildProgressCallback, setCraftProgressCallback } from '../bot/minecraft/actions';
 import { isAutoDefending, getBotMode, setBotMode } from '../bot/minecraft/actions/action-state.js';
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { ServerActionMessage } from '../bot/voxta/types';
@@ -140,6 +140,15 @@ export function handleActionMessage(
             }
         });
     }
+    
+    if (actionName === 'mc_craft') {
+        const botName = callbacks.getAssistantName();
+        setCraftProgressCallback((progressMsg) => {
+            const fullMsg = `${botName}: ${progressMsg}`;
+            callbacks.addChat('note', 'Note', fullMsg);
+            callbacks.queueNote(fullMsg);
+        });
+    }
 
     // Notify AI that the bot is heading home to its bed/respawn point
     if (actionName === 'mc_go_home') {
@@ -180,12 +189,9 @@ export function handleActionMessage(
         callbacks.updateCurrentAction(null);
 
         // Clear fishing callback when done
-        if (actionName === 'mc_fish') {
-            setFishCaughtCallback(null);
-        }
-        if (actionName === 'mc_build') {
-            setBuildProgressCallback(null);
-        }
+        if (actionName === 'mc_fish') setFishCaughtCallback(null);
+        if (actionName === 'mc_build') setBuildProgressCallback(null);
+        if (actionName === 'mc_craft') setCraftProgressCallback(null);
 
         // Resume the following if we were following before this action (silent — UI only)
         const followingPlayer = callbacks.getFollowingPlayer();
@@ -256,7 +262,7 @@ export function handleActionMessage(
         // Noise that should never trigger a voiced reply — always a silent note:
         // - "nowhere in sight" = target not found or too far
         // - "No entity name provided" / "No player name provided" = AI sent empty param
-        const ALWAYS_SILENT_PATTERNS = ['nowhere in sight', 'no entity name provided', 'no player name provided', 'no block name', 'no item', 'too tough to kill', 'barely got away', 'stopped fighting', 'died while fighting', 'reached the', 'cannot find', 'failed to eat', 'not edible', 'ate some'];
+        const ALWAYS_SILENT_PATTERNS = ['nowhere in sight', 'no entity name provided', 'no player name provided', 'no block name', 'no item', 'too tough to kill', 'barely got away', 'stopped fighting', 'died while fighting', 'reached the', 'cannot find', 'failed to eat', 'not edible', 'ate some', 'nothing to eat'];
         if (ALWAYS_SILENT_PATTERNS.some((p) => result.toLowerCase().includes(p))) {
             callbacks.addChat('note', 'Note', `${botName}: ${result}`);
             callbacks.queueNote(`${botName}: ${result}`);
@@ -287,6 +293,13 @@ export function handleActionMessage(
             console.log(`[Bot >>] event (failure): "${result.substring(0, 80)}"`);
             void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
         } else {
+            // Wall builds are quick defensive placements — always a silent note.
+            // Shelter and watchtower are significant constructions — always voiced.
+            if (actionName === 'mc_build' && result.toLowerCase().includes('wall')) {
+                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+                callbacks.queueNote(`${botName}: ${result}`);
+                return;
+            }
             // Voice chance roll — like an Elite Dangerous probability system
             const alwaysVoiced = hasTrades || actionName === 'mc_build';
             const voiceChance = alwaysVoiced ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);

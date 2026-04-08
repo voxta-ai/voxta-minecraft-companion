@@ -232,11 +232,14 @@ export class McEventBridge {
                 // Skip if we're already auto-defending — getting hit back is expected
                 if (this.isAutoDefending) return;
                 const botName = this.callbacks.getAssistantName();
-                // Only send the urgent event (triggers short AI reply).
-                // No separate chat event — that caused double notifications.
-                this.callbacks.onUrgentEvent(
-                    `[URGENT] ${botName} is being attacked by ${this.lastAttacker}!`,
-                );
+                const msg = `[URGENT] ${botName} is being attacked by ${this.lastAttacker}!`;
+                // Route through combat voice chance slider
+                const roll = Math.random() * 100;
+                if (roll < settings.voiceChanceCombat) {
+                    this.callbacks.onUrgentEvent(msg);
+                } else {
+                    this.callbacks.onNote(msg);
+                }
             }
 
             // Auto self-defense — only if a mob actually hit us (not environmental damage)
@@ -306,9 +309,14 @@ export class McEventBridge {
             setAutoDefending(true);
             const botName = this.callbacks.getAssistantName();
             const voxtaName = this.names.resolveToVoxta(playerName);
-            this.callbacks.onUrgentEvent(
-                `[URGENT] ${voxtaName} is being attacked by a ${mobName}! ${botName} is rushing to protect them.`,
-            );
+            const msg = `[URGENT] ${voxtaName} is being attacked by a ${mobName}! ${botName} is rushing to protect them.`;
+            // Route through combat voice chance slider
+            const roll = Math.random() * 100;
+            if (roll < settings.voiceChanceCombat) {
+                this.callbacks.onUrgentEvent(msg);
+            } else {
+                this.callbacks.onNote(msg);
+            }
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
                 setAutoDefending(false);
