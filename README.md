@@ -2,35 +2,68 @@
 
 An AI-powered Minecraft companion bot that lives in your game world. It uses [Mineflayer](https://github.com/PrismarineJS/mineflayer) to interact with Minecraft and [Voxta](https://voxta.ai) for AI-driven conversation, voice chat, and action inference.
 
-Your companion can follow you, mine resources, craft items, fight mobs, cook food, fish, manage chests, and talk to you — all driven by AI.
+Talk to your companion by voice or text — they follow you, fight for you, build shelters, craft tools from scratch, fish, cook, and respond to the world around them.
 
 ![Voxta Minecraft Companion](docs/screenshot.png)
 
 ## Features
 
-### 🎮 Game Actions (24 actions)
-- **Movement** — Follow player, go to coordinates, go home, approach entities, stop
-- **Combat** — Attack mobs, auto-defense against hostile creatures
-- **Survival** — Mine blocks, craft items, cook/smelt, eat, fish, sleep, place blocks
-- **Interaction** — Give/toss items, store/take from chests, inspect containers, use items, equip gear
-
-![Your companion in action — chatting and working in the Minecraft world](docs/screenshot-ingame.png)
-
 ### 🧠 AI Integration
-- **Real-time world perception** — Health, hunger, biome, time, weather, nearby entities, inventory, shelter detection
+- **Real-time world perception** — Health, hunger, biome, time, weather, nearby entities, inventory, shelter status
 - **Context-aware conversations** — The AI sees the game world and responds naturally
-- **Action inference** — The AI decides what to do based on your conversation
 - **Voice chat** — Talk to your companion using your microphone via Voxta's speech-to-text
+- **Action inference** — AI decides what to do based on your conversation, before or after its reply
 - **Speech interruption** — Urgent events (taking damage, explosions) interrupt the bot mid-speech
+- **Voice chance sliders** — Per-category probability controls for which results trigger voiced replies vs. silent notes
+
+### ⚒️ Autonomous Crafting
+- **Full chain from nothing** — "Craft me a sword" with an empty inventory: bot chops trees, crafts planks, makes a crafting table, places it, crafts the item, and picks the table back up
+- **Recursive dependency resolution** — Automatically crafts all required intermediate materials (logs → planks → sticks → sword)
+- **Smart material selection** — Picks the best available variant (oak/spruce/birch) based on what's in inventory
+- **Paper server compatible** — Proper window close sequence prevents inventory rollback issues
+
+### 🏗️ Building System
+- **Built-in structures** — Shelter (7×7 hut), Watchtower (5×5 tower with stairs), Wall (3×3 defensive barrier with arrow slit)
+- **Auto-orientation** — Walls placed ahead of the player, rotated to match their look direction
+- **Material-aware** — Picks cobblestone > planks > dirt based on inventory; reports exactly how many blocks are needed
+- **Custom blueprints** — Load additional structures from JSON files
+- **Build guard** — All other AI actions blocked during construction (except `mc_stop`)
+
+### ⚔️ Combat
+- **Auto-defense** — Automatically attacks hostile mobs that get within range
+- **Combat modes** — Aggro (attack everything hostile), Hunt (target farm animals for food), Guard (patrol an area and defend it), Passive (only fights when attacked)
+- **Hit-and-run kiting** — Zigzag approach against ranged attackers (skeletons, witches)
+- **Creeper awareness** — Explosion detection via packet listener prevents false "defeated" reports
+- **Combat timeouts** — 60-second absolute cap prevents infinite fight loops
+- **Split mob handling** — Cooldowns for slimes/magma cubes prevent re-aggro spam
+
+### 🐴 Mounted Navigation
+- **Horse riding** — Mount and steer horses autonomously; follows the player at full gallop speed
+- **Boat support** — Ride as a passenger in boats
+- **Auto-dismount** — Hops off before attacking, following on foot, or navigating indoors
+- **Vehicle-aware pathfinding** — Watchdog and spatial audio use vehicle position while mounted
+
+### 🎣 Fishing & Survival
+- **Fishing** — Cast rod, wait for bites, reel in automatically
+- **Cooking** — Smelt food in furnaces
+- **Auto-eat** — Notifies AI when eating automatically
+- **Swimming** — Auto-jump to stay afloat when submerged
+
+### 📦 Inventory & World Interaction
+- **Give / receive items** — Toss items to player, receive from player
+- **Chest management** — Store items in, take items from containers
+- **Block placement** — Place blocks from inventory at valid positions nearby
+- **Sleep** — Use beds at night
 
 ### 👁️ Vision
 - **Screen capture** — Screenshots of your Minecraft window sent to Voxta's vision AI
 - **Eyes mode** — Capture from the bot's spectator camera for true "bot vision"
 
 ### 🖥️ Desktop App
-- Electron-based UI with connection management, chat view, action toggles, settings, and an inspector/debug drawer
-- Chat history management — resume previous conversations, favorites, deletion
-- Toast notifications, status bar with real-time bot stats
+- Electron-based UI with connection management, chat history, action toggles, settings, and an inspector/debug drawer
+- Real-time bot stats — health, hunger, mode, current action
+- Toast notifications, action timing badges (before/after reply), chat log with event/note labeling
+- Speech-to-text transcription display
 
 ![The companion app — chat, inspector, and real-time bot status](docs/screenshot-app.png)
 
