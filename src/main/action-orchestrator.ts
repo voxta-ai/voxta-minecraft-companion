@@ -3,7 +3,7 @@ import type { NameRegistry } from '../bot/name-registry';
 import type { ActionCategory } from '../bot/minecraft/action-definitions';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, setFishCaughtCallback } from '../bot/minecraft/action-dispatcher';
-import { isActionBusy, getCurrentActivity } from '../bot/minecraft/actions';
+import { isActionBusy, getCurrentActivity, setBuildProgressCallback } from '../bot/minecraft/actions';
 import { isAutoDefending, getBotMode, setBotMode } from '../bot/minecraft/actions/action-state.js';
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { ServerActionMessage } from '../bot/voxta/types';
@@ -62,7 +62,7 @@ export function handleActionMessage(
     // Ignore duplicate long-running actions — the LLM sometimes re-triggers the same
     // action when the user says "keep going" or "you're doing great", which would abort
     // the current operation and restart from scratch.
-    const LONG_RUNNING_ACTIONS = ['mc_mine_block', 'mc_fish', 'mc_craft', 'mc_cook'];
+    const LONG_RUNNING_ACTIONS = ['mc_mine_block', 'mc_fish', 'mc_craft', 'mc_cook', 'mc_build'];
     if (LONG_RUNNING_ACTIONS.includes(actionName) && isActionBusy() && getCurrentActivity()) {
         console.log(`[Bot] Ignoring duplicate ${actionName} — already busy with: ${getCurrentActivity()}`);
         return;
@@ -160,6 +160,21 @@ export function handleActionMessage(
         callbacks.queueNote(msg);
     }
 
+    // Notify AI that the bot started building + wire up progress callback
+    if (actionName === 'mc_build') {
+        const botName = callbacks.getAssistantName();
+        const structureArg = action.arguments?.find((a) => a.name === 'structure')?.value ?? 'shelter';
+        const msg = `${botName} starts building a ${structureArg}.`;
+        callbacks.addChat('note', 'Note', msg);
+        callbacks.queueNote(msg);
+        setBuildProgressCallback((progressMsg) => {
+            const buildBotName = callbacks.getAssistantName();
+            const noteText = `${buildBotName}: ${progressMsg}`;
+            callbacks.addChat('note', 'Note', noteText);
+            callbacks.queueNote(noteText);
+        });
+    }
+
     void executeAction(bot, actionName, action.arguments, names).then(async (result) => {
         const botName = callbacks.getAssistantName();
         callbacks.updateCurrentAction(null);
@@ -167,6 +182,9 @@ export function handleActionMessage(
         // Clear fishing callback when done
         if (actionName === 'mc_fish') {
             setFishCaughtCallback(null);
+        }
+        if (actionName === 'mc_build') {
+            setBuildProgressCallback(null);
         }
 
         // Resume the following if we were following before this action (silent — UI only)
@@ -252,7 +270,8 @@ export function handleActionMessage(
             // Apply voice chance — if it passes, queue an event to trigger a
             // follow-up voiced reply once the current reply finishes.
             // Only send ONE of note or event, never both (avoids duplicate in LLM context).
-            const voiceChance = isFailure || hasTrades ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
+            const alwaysVoiced = isFailure || hasTrades;
+            const voiceChance = alwaysVoiced ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
             const roll = Math.random() * 100;
             if (roll < voiceChance) {
                 callbacks.addChat('event', 'Event', `${botName}: ${result}`);
@@ -269,7 +288,8 @@ export function handleActionMessage(
             void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
         } else {
             // Voice chance roll — like an Elite Dangerous probability system
-            const voiceChance = hasTrades ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
+            const alwaysVoiced = hasTrades || actionName === 'mc_build';
+            const voiceChance = alwaysVoiced ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
             const roll = Math.random() * 100;
             if (roll < voiceChance && !callbacks.isReplying()) {
                 // Voiced: send it as an event so the AI replies about the result

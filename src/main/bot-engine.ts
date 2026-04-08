@@ -3,6 +3,7 @@ import { createMinecraftBot } from '../bot/minecraft/bot';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, initHomePosition, resumeFollowPlayer } from '../bot/minecraft/action-dispatcher';
+import { loadCustomBlueprints } from '../bot/minecraft/blueprints/index.js';
 import {
     isAutoDefending,
     isActionBusy,
@@ -579,6 +580,7 @@ export class BotEngine extends EventEmitter {
 
             await this.mcBot.connect();
             initHomePosition(config.mc.host, config.mc.port, this.mcBot.bot);
+            loadCustomBlueprints();
             this.updateStatus({ mc: 'connected' });
             this.addChat('system', 'System', `Minecraft bot spawned as ${config.mc.username}`);
             this.toast('success', `Bot "${config.mc.username}" joined the Minecraft server!`);
