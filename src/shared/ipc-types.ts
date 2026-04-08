@@ -118,7 +118,7 @@ export const DEFAULT_SETTINGS: McSettings = {
 
     voiceChanceMovement: 20,
     voiceChanceSurvival: 50,
-    voiceChanceCombat: 80,
+    voiceChanceCombat: 50,
     voiceChanceInteraction: 30,
 
     enableBotChatEcho: true,

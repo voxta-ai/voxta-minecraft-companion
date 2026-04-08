@@ -11,6 +11,14 @@ import { setSuppressPickups } from './action-state.js';
 const CRAFT_STEP_DELAY_MS = 250;
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+// Progress callback for sending notes during long crafts (e.g. chopping wood)
+export type CraftProgressCallback = (message: string) => void;
+let craftProgressCallback: CraftProgressCallback | null = null;
+
+export function setCraftProgressCallback(cb: CraftProgressCallback | null): void {
+    craftProgressCallback = cb;
+}
+
 // ---- Crafting types ----
 
 type McDataItems = Record<string, { id: number; displayName: string; name: string } | undefined>;
@@ -349,16 +357,18 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
 
     // Find a crafting table if needed (try without first)
     let craftingTable: ReturnType<Bot['findBlock']> = null;
+    let placedTable = false; // Track if we placed one (so we pick it up later)
     const recipes = bot.recipesFor(itemInfo.id, null, 1, null);
 
     if (recipes.length === 0) {
-        // Need to check with a crafting table
+        // Need a crafting table for this recipe
         craftingTable = bot.findBlock({
             matching: (block) => block.name === 'crafting_table',
             maxDistance: 32,
         });
 
         if (craftingTable) {
+            // Found one — walk to it
             try {
                 await bot.pathfinder.goto(
                     new goals.GoalNear(craftingTable.position.x, craftingTable.position.y, craftingTable.position.z, 2),
@@ -367,11 +377,154 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
                 await cleanup(bot, heldItemName);
                 return 'Cannot reach the crafting table';
             }
+        } else {
+            // No crafting table nearby — auto-provision one
+            console.log('[MC Craft] No crafting table nearby, auto-provisioning...');
+
+            // Check if we have a crafting table in inventory already
+            const tableInInv = bot.inventory.items().find((i) => i.name === 'crafting_table');
+
+            if (!tableInInv) {
+                // Need to craft a table: 4 planks = 1 log
+                // Also need planks/logs for the actual item.
+                // Chop enough logs for everything: 5 logs = 20 planks = plenty
+                const logCount = bot.inventory.items()
+                    .filter((i) => i.name.endsWith('_log'))
+                    .reduce((sum, i) => sum + i.count, 0);
+                const plankCount = bot.inventory.items()
+                    .filter((i) => i.name.endsWith('_planks'))
+                    .reduce((sum, i) => sum + i.count, 0);
+
+                // Need at least 4 planks for the table + extra for the item
+                // 1 log = 4 planks, so figure out how many more logs to chop
+                const planksNeeded = Math.max(8 - plankCount, 0); // 4 for table + 4 buffer for item
+                const logsNeeded = Math.max(Math.ceil(planksNeeded / 4) - logCount, 0);
+
+                if (logsNeeded > 0) {
+                    console.log(`[MC Craft] Need ${logsNeeded} more logs, chopping trees...`);
+                    craftProgressCallback?.(`Need ${logsNeeded} more logs, chopping trees...`);
+                    const { mineBlock } = await import('./mining.js');
+                    const mineResult = await mineBlock(bot, 'wood', String(logsNeeded + 3)); // +3 extra buffer
+                    console.log(`[MC Craft] Mining result: ${mineResult}`);
+                    if (mineResult.includes('couldn\'t find') || mineResult.includes('couldn\'t reach')) {
+                        await cleanup(bot, heldItemName);
+                        return `Tried to chop wood for a crafting table but ${mineResult.toLowerCase()}`;
+                    }
+                }
+
+                // Craft planks from logs (if we don't have enough)
+                const currentPlanks = bot.inventory.items()
+                    .filter((i) => i.name.endsWith('_planks'))
+                    .reduce((sum, i) => sum + i.count, 0);
+                if (currentPlanks < 4) {
+                    const logItem = bot.inventory.items().find((i) => i.name.endsWith('_log'));
+                    if (logItem) {
+                        // Find the matching plank type for this log
+                        const plankName = logItem.name.replace('_log', '_planks');
+                        const plankInfo = mcData.itemsByName[plankName];
+                        if (plankInfo) {
+                            const plankRecipes = bot.recipesFor(plankInfo.id, null, 1, null);
+                            if (plankRecipes.length > 0) {
+                                await bot.craft(plankRecipes[0], 2, undefined);
+                                await delay(CRAFT_STEP_DELAY_MS);
+                            }
+                        }
+                    }
+                }
+
+                // Craft the crafting table (4 planks → 1 crafting table, 2×2 recipe)
+                craftProgressCallback?.('Crafting a crafting table...');
+                const tableInfo = mcData.itemsByName['crafting_table'];
+                if (tableInfo) {
+                    const tableRecipes = bot.recipesFor(tableInfo.id, null, 1, null);
+                    if (tableRecipes.length > 0) {
+                        await bot.craft(tableRecipes[0], 1, undefined);
+                        await delay(CRAFT_STEP_DELAY_MS);
+                        console.log('[MC Craft] Crafted a crafting table');
+                    } else {
+                        await cleanup(bot, heldItemName);
+                        return 'Cannot craft a crafting table — not enough planks';
+                    }
+                }
+            }
+
+            // Place the crafting table using the same proven strategy as placeBlock:
+            // try in front, left, right, behind — with verification
+            const tableItem = bot.inventory.items().find((i) => i.name === 'crafting_table');
+            if (tableItem) {
+                craftProgressCallback?.('Placing crafting table...');
+                await bot.equip(tableItem, 'hand');
+                const Vec3 = require('vec3').Vec3;
+                const pos = bot.entity.position;
+                const yaw = bot.entity.yaw;
+                const topFace = new Vec3(0, 1, 0);
+
+                const offsets = [
+                    { dx: -Math.sin(yaw), dz: -Math.cos(yaw) },
+                    { dx: -Math.sin(yaw + Math.PI / 2), dz: -Math.cos(yaw + Math.PI / 2) },
+                    { dx: -Math.sin(yaw - Math.PI / 2), dz: -Math.cos(yaw - Math.PI / 2) },
+                    { dx: Math.sin(yaw), dz: Math.cos(yaw) },
+                ];
+
+                for (const { dx, dz } of offsets) {
+                    const refPos = pos.offset(Math.round(dx), -1, Math.round(dz));
+                    const refBlock = bot.blockAt(refPos);
+                    if (!refBlock || refBlock.name === 'air' || refBlock.name === 'cave_air') continue;
+
+                    const targetPos = refPos.offset(0, 1, 0);
+                    const targetBlock = bot.blockAt(targetPos);
+                    if (targetBlock && targetBlock.name !== 'air' && targetBlock.name !== 'cave_air') continue;
+
+                    try {
+                        await bot.placeBlock(refBlock, topFace);
+                        const placed = bot.blockAt(targetPos);
+                        if (!placed || placed.name === 'air' || placed.name === 'cave_air') continue;
+
+                        placedTable = true;
+                        console.log('[MC Craft] Placed crafting table');
+                        await delay(300);
+                        craftingTable = bot.findBlock({
+                            matching: (block) => block.name === 'crafting_table',
+                            maxDistance: 6,
+                        });
+                        if (craftingTable) {
+                            await bot.pathfinder.goto(
+                                new goals.GoalNear(craftingTable.position.x, craftingTable.position.y, craftingTable.position.z, 2),
+                            );
+                        }
+                        break;
+                    } catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        console.log(`[MC Craft] Place attempt failed: ${msg}`);
+                        continue;
+                    }
+                }
+            }
+
+            if (!craftingTable) {
+                await cleanup(bot, heldItemName);
+                return 'Could not set up a crafting table';
+            }
         }
     }
 
     // Auto-craft with prerequisite resolution
     const result = await autoCraftWithPrereqs(bot, mcData, itemInfo.id, count, craftingTable);
+
+    // Explicitly close the crafting window so Paper finalizes the transaction.
+    // Without this, Paper may rollback the inventory 1-2 ticks after bot.craft()
+    // because it sees the window as still "open" and reverts on force-close.
+    if (bot.currentWindow) {
+        try {
+            bot.closeWindow(bot.currentWindow);
+        } catch {
+            /* best effort */
+        }
+    }
+    // Wait for Paper to sync the final inventory state after window close
+    await delay(1000);
+
+    const countAfter = countItemInInventory(bot, itemInfo.id);
 
     let message: string;
     if (result.success) {
@@ -418,6 +571,49 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
         message = `Tried to craft ${itemInfo.displayName} but ${missingHints.join('; ')}`;
     } else {
         message = `Tried to craft ${itemInfo.displayName} but don't have the right materials`;
+    }
+
+    // Pick up the crafting table if we placed it.
+    // IMPORTANT: Wait before digging — Paper may still have crafted items in the
+    // grid server-side. Digging too fast deletes items in the crafting output slot.
+    if (placedTable && craftingTable) {
+        try {
+            // Give Paper time to fully sync the craft result to the bot's inventory
+            await delay(1500);
+            const countBeforeDig = countItemInInventory(bot, itemInfo.id);
+            const tableBlock = bot.blockAt(craftingTable.position);
+            if (tableBlock && tableBlock.name === 'crafting_table') {
+                const tablePos = tableBlock.position.clone();
+                await bot.dig(tableBlock);
+                // Brief pause for the item to land, then walk to it
+                await delay(300);
+                const droppedTable = Object.values(bot.entities).find(
+                    (e) => e.name === 'item' && e.position.distanceTo(tablePos) < 3,
+                );
+                if (droppedTable) {
+                    try {
+                        await bot.pathfinder.goto(
+                            new goals.GoalBlock(
+                                Math.floor(droppedTable.position.x),
+                                Math.floor(droppedTable.position.y),
+                                Math.floor(droppedTable.position.z),
+                            ),
+                        );
+                    } catch {
+                        /* item may have been auto-collected already */
+                    }
+                }
+                await delay(300);
+                const countAfterDig = countItemInInventory(bot, itemInfo.id);
+                if (countAfterDig < countBeforeDig) {
+                    console.warn(`[MC Craft] ITEM LOST during dig! Before=${countBeforeDig} After=${countAfterDig}`);
+                }
+                console.log('[MC Craft] Picked up placed crafting table');
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[MC Craft] Failed to pick up crafting table: ${msg}`);
+        }
     }
 
     await cleanup(bot, heldItemName);

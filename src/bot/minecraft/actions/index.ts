@@ -27,7 +27,7 @@ export { getArg } from './action-helpers.js';
 export { followPlayer, resumeFollowPlayer, goTo, goHome, collectItems, goToEntity, mountEntity, dismountEntity } from './movement.js';
 export { attackEntity, lookAtPlayer } from './combat.js';
 export { mineBlock } from './mining.js';
-export { craftItem } from './crafting.js';
+export { craftItem, setCraftProgressCallback } from './crafting.js';
 export { cookFood } from './cooking.js';
 export { fishAction } from './fishing.js';
 export { equipItem, eatFood, giveItem, tossItem, useHeldItem } from './inventory.js';

@@ -137,7 +137,9 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_stop',
         description:
-            'Stop the current action and stand still. WARNING: this also cancels guard, aggro, and hunt modes, returning to passive. Do NOT use if the bot is in guard/aggro/hunt mode and should stay in that mode — use mc_none instead.',
+            'Stop the current action, cancel any active mode (guard, aggro, hunt), and stand still. '
+            + 'Use whenever the player explicitly says stop, cancel, quit, halt, freeze, hold still, or stay put. '
+            + 'This ALWAYS overrides the current mode — even if in guard or aggro.',
         disabled: false,
         layer: '',
         effect: {},
@@ -214,7 +216,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_none',
         description:
-            'ONLY use when just talking and absolutely no game action is needed. Also use when the bot is already doing what was asked (e.g. already guarding, already following). Do NOT use if the player asked you to do something new.',
+            'ONLY use when just talking and absolutely no game action is needed. '
+            + 'NOTE: mc_none does NOT stop movement or cancel guard/patrol/aggro — if the player wants the bot to physically stop or cancel an active mode, use mc_stop instead.',
         disabled: false,
         layer: '',
         effect: {},
@@ -319,10 +322,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_build',
         description:
-            'Build a structure using materials from inventory. Built-in: shelter (7x7 hut, ~120 blocks), watchtower (5x5 tall tower with stairs, ~140 blocks), wall (3x3 defensive wall with arrow slit, ~8 blocks). '
-            + 'Custom blueprints may also be available from JSON files. '
-            + 'Needs building blocks (cobblestone, planks, or dirt) in inventory. '
-            + 'Use when told to build, construct, or make a shelter/house/base/hut/cabin/tower/wall or any named structure.',
+            'Build a structure using blocks from inventory (cobblestone, planks, or dirt). '
+            + 'Use when told to build, construct, or make a structure, or to check how many materials are needed.',
         disabled: false,
         layer: '',
         effect: {},
@@ -330,7 +331,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
             {
                 name: 'structure',
                 type: 'String',
-                description: "Structure to build. Built-in: 'shelter', 'watchtower', 'wall'. Also accepts aliases: house/hut/base/cabin (shelter), tower/lookout (watchtower), fence/barrier (wall). Custom structures may be available by name.",
+                description: "Structure name: 'shelter', 'watchtower', or 'wall'.",
                 required: true,
             },
         ],

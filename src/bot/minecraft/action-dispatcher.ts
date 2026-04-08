@@ -69,6 +69,15 @@ export async function executeAction(
     // Look up action metadata to decide behavior
     const actionDef = MINECRAFT_ACTIONS.find((a) => a.name === actionName);
 
+    // Block all actions while building — only stop and none are allowed.
+    // Auto-defense (scan loop) still fires because it directly calls
+    // attack functions, not through AI action inference.
+    const activity = getCurrentActivity();
+    if (activity?.startsWith('building') && actionName !== 'mc_stop' && actionName !== 'mc_none') {
+        console.log(`[MC Action] Blocked ${actionName} — building in progress`);
+        return '';
+    }
+
     // If we're already fighting this exact target (e.g. auto-defense), skip entirely
     // — don't abort the ongoing fight just to restart the same attack.
     if (actionName === 'mc_attack') {
