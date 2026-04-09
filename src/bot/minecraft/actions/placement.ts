@@ -25,7 +25,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
     // Save currently held item to re-equip after
     const previousHeld = !isHeld && heldItem ? heldItem.name : null;
 
-    setSuppressPickups(true);
+    setSuppressPickups(bot, true);
     if (!isHeld && item) {
         await bot.equip(item, 'hand');
     }
@@ -73,7 +73,7 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
                 const reequip = bot.inventory.items().find((i) => i.name === previousHeld);
                 if (reequip) await bot.equip(reequip, 'hand');
             }
-            setTimeout(() => setSuppressPickups(false), 200);
+            setTimeout(() => setSuppressPickups(bot, false), 200);
             return `Placed down ${displayName}`;
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -82,6 +82,6 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
         }
     }
 
-    setTimeout(() => setSuppressPickups(false), 200);
+    setTimeout(() => setSuppressPickups(bot, false), 200);
     return `Failed to place ${displayName} — could not find a valid spot nearby`;
 }

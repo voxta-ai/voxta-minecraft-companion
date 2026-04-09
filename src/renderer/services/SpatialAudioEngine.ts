@@ -199,21 +199,28 @@ export class SpatialAudioEngine {
             volume = 1 - (distance - this.nearDistance) / (this.maxDistance - this.nearDistance);
         }
 
-        // Stereo panning: calculate relative angle from player's perspective
-        // Mineflayer entity.yaw is 180° offset from the look direction in atan2 space
-        const angleToBot = Math.atan2(dx, dz);
-        const relativeAngle = angleToBot - (data.playerYaw + Math.PI);
+        // Stereo panning: project bot direction onto player's forward/right axes using dot products.
+        // Mineflayer yaw=0 → facing south (+Z), yaw=-π/2 → facing east (+X).
+        // Forward unit vector: (-sin(yaw), cos(yaw)) in (x, z)
+        // Right unit vector:   (-cos(yaw), -sin(yaw)) in (x, z)
+        const horizontalDist = Math.sqrt(dx * dx + dz * dz);
+        const forwardComponent = horizontalDist > 0
+            ? (dx * -Math.sin(data.playerYaw) + dz * Math.cos(data.playerYaw)) / horizontalDist
+            : 1;
+        const rightComponent = horizontalDist > 0
+            ? (dx * -Math.cos(data.playerYaw) + dz * -Math.sin(data.playerYaw)) / horizontalDist
+            : 0;
 
         // Front/back attenuation: reduce volume when the bot is behind the player
-        // cos(0) = 1 (in front), cos(π) = -1 (behind)
+        // forwardComponent=1 (directly ahead), -1 (directly behind)
         // Map to 0.3–1.0 range so it never goes fully silent from facing alone
-        const facingFactor = 0.3 + 0.7 * ((1 + Math.cos(relativeAngle)) / 2);
+        const facingFactor = 0.3 + 0.7 * ((1 + forwardComponent) / 2);
         const now = this.ctx?.currentTime ?? 0;
         // Smooth 50ms ramp — fast enough to feel instant, slow enough to avoid clicks
         this.gainNode.gain.setTargetAtTime(volume * facingFactor, now, 0.05);
 
-        // Map to pan: sin gives -1 (left) to +1 (right)
-        const pan = Math.max(-1, Math.min(1, Math.sin(relativeAngle)));
+        // rightComponent: +1 = directly to player's right, -1 = directly to left
+        const pan = Math.max(-1, Math.min(1, rightComponent));
         this.pannerNode.pan.setTargetAtTime(pan, now, 0.05);
     }
 

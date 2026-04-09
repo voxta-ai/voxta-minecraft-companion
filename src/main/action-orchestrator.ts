@@ -63,8 +63,8 @@ export function handleActionMessage(
     // action when the user says "keep going" or "you're doing great", which would abort
     // the current operation and restart from scratch.
     const LONG_RUNNING_ACTIONS = ['mc_mine_block', 'mc_fish', 'mc_craft', 'mc_cook', 'mc_build'];
-    if (LONG_RUNNING_ACTIONS.includes(actionName) && isActionBusy() && getCurrentActivity()) {
-        console.log(`[Bot] Ignoring duplicate ${actionName} — already busy with: ${getCurrentActivity()}`);
+    if (LONG_RUNNING_ACTIONS.includes(actionName) && isActionBusy(bot) && getCurrentActivity(bot)) {
+        console.log(`[Bot] Ignoring duplicate ${actionName} — already busy with: ${getCurrentActivity(bot)}`);
         return;
     }
 
@@ -72,7 +72,7 @@ export function handleActionMessage(
     // We do NOT block based on mode alone — the user may explicitly ask the bot to
     // attack a specific target (e.g. "kill that pig") even while aggro/hunt/guard is active.
     const COMBAT_ACTIONS = ['mc_attack', 'mc_go_to_entity'];
-    if (COMBAT_ACTIONS.includes(actionName) && isAutoDefending()) {
+    if (COMBAT_ACTIONS.includes(actionName) && isAutoDefending(bot)) {
         console.log(`[Bot] Ignoring ${actionName} — auto-defense is actively fighting`);
         return;
     }
@@ -108,10 +108,10 @@ export function handleActionMessage(
         // AI explicitly chose "follow player" — switch out of guard/hunt so the
         // mode scan doesn't immediately override with a new attack target.
         // Aggro mode is preserved (bot follows + attacks hostiles, that's expected).
-        if (getBotMode() === 'guard' || getBotMode() === 'hunt') {
-            const prevMode = getBotMode();
+        if (getBotMode(bot) === 'guard' || getBotMode(bot) === 'hunt') {
+            const prevMode = getBotMode(bot);
             console.log(`[Bot] mc_follow_player: auto-switching from ${prevMode} to passive`);
-            setBotMode('passive');
+            setBotMode(bot, 'passive');
             callbacks.addChat('note', 'Note', `Exited ${prevMode} mode to follow ${rawVal}.`);
         }
     } else if (actionName === 'mc_stop' || actionName === 'mc_go_home' || actionName === 'mc_go_to') {
@@ -125,7 +125,7 @@ export function handleActionMessage(
         callbacks.addChat('note', 'Note', fishMsg);
         callbacks.queueNote(`${fishMsg} ${botName} is the one holding the rod and waiting for a bite.`);
         // Set a per-catch callback using the survival voice chance slider
-        setFishCaughtCallback((itemName, count) => {
+        setFishCaughtCallback(bot, (itemName, count) => {
             const fishBotName = callbacks.getAssistantName();
             const msg = `${fishBotName} caught ${count} ${itemName} while fishing!`;
             const voiceChance = getVoiceChance(callbacks.getSettings(), 'survival');
@@ -189,15 +189,19 @@ export function handleActionMessage(
         callbacks.updateCurrentAction(null);
 
         // Clear fishing callback when done
-        if (actionName === 'mc_fish') setFishCaughtCallback(null);
+        if (actionName === 'mc_fish') setFishCaughtCallback(bot, null);
         if (actionName === 'mc_build') setBuildProgressCallback(null);
         if (actionName === 'mc_craft') setCraftProgressCallback(null);
 
         // Resume the following if we were following before this action (silent — UI only)
         const followingPlayer = callbacks.getFollowingPlayer();
+        // If the bot is currently mounted, the steering loop handles following —
+        // calling mc_follow_player would auto-dismount it, which is wrong.
+        const isMounted = !!(bot as unknown as { vehicle: unknown }).vehicle;
         const shouldResume =
             followingPlayer &&
-            getBotMode() !== 'guard' &&
+            !isMounted &&
+            getBotMode(bot) !== 'guard' &&
             actionName !== 'mc_none' &&
             actionName !== 'mc_follow_player' &&
             actionName !== 'mc_stop' &&

@@ -29,18 +29,26 @@ export interface BotConfig {
     chatId: string | null;
     perceptionIntervalMs: number;
     entityRange: number;
+    // Second bot (optional — dual-bot mode)
+    secondMcUsername?: string;
+    secondCharacterId?: string;
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 export interface BotStatus {
     mc: ConnectionStatus;
+    mc2: ConnectionStatus;
     voxta: ConnectionStatus;
     position: { x: number; y: number; z: number } | null;
     health: number | null;
     food: number | null;
+    position2: { x: number; y: number; z: number } | null;
+    health2: number | null;
+    food2: number | null;
     currentAction: string | null;
     assistantName: string | null;
+    assistantName2: string | null;
     sessionId: string | null;
 }
 
@@ -229,6 +237,7 @@ export interface InspectorAction {
 }
 
 export interface InspectorContext {
+    contextKey?: string;
     name: string;
     text: string;
 }

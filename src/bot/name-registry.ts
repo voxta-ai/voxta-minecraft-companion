@@ -45,6 +45,11 @@ export class NameRegistry {
         return result;
     }
 
+    /** Returns true if the given MC username is registered (i.e. belongs to a known bot, not a human player) */
+    hasMcUsername(mcUsername: string): boolean {
+        return this.mcToVoxta.has(mcUsername.toLowerCase());
+    }
+
     clear(): void {
         this.voxtaToMc.clear();
         this.mcToVoxta.clear();

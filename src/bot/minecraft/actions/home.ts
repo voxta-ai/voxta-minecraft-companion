@@ -23,7 +23,7 @@ export async function sleepInBed(bot: Bot): Promise<string> {
     // Try to sleep
     try {
         await bot.sleep(bedBlock);
-        saveHome(bedBlock);
+        saveHome(bot, bedBlock);
         return 'Climbed into bed and fell asleep (home set here)';
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -32,7 +32,7 @@ export async function sleepInBed(bot: Bot): Promise<string> {
         if (message.includes('not night') || message.includes('occupied') || message.includes('monsters')) {
             try {
                 await bot.activateBlock(bedBlock);
-                saveHome(bedBlock);
+                saveHome(bot, bedBlock);
             } catch {
                 // activateBlock can fail if too far — home not set
             }
@@ -64,7 +64,7 @@ export async function setHomeBed(bot: Bot): Promise<string> {
     // Tap the bed to set spawn point (works any time of day)
     try {
         await bot.activateBlock(bedBlock);
-        saveHome(bedBlock);
+        saveHome(bot, bedBlock);
         return 'Remembered this bed as home';
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

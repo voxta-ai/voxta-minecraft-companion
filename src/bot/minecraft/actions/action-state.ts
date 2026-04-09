@@ -2,103 +2,132 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Bot } from 'mineflayer';
 
+// ---- Per-bot state ----
+
+export type BotMode = 'passive' | 'aggro' | 'hunt' | 'guard';
+
+interface BotStateData {
+    actionAbort: AbortController;
+    actionBusy: boolean;
+    suppressPickups: boolean;
+    currentActivity: string | null;
+    currentCombatTarget: string | null;
+    autoDefending: boolean;
+    botMode: BotMode;
+    guardCenter: { x: number; y: number; z: number } | null;
+    onFishCaught: ((itemName: string, count: number) => void) | null;
+    homePosition: { x: number; y: number; z: number } | null;
+    homeServerKey: string | null;
+}
+
+const botStateMap = new WeakMap<Bot, BotStateData>();
+
+function getBotState(bot: Bot): BotStateData {
+    let state = botStateMap.get(bot);
+    if (!state) {
+        state = {
+            actionAbort: new AbortController(),
+            actionBusy: false,
+            suppressPickups: false,
+            currentActivity: null,
+            currentCombatTarget: null,
+            autoDefending: false,
+            botMode: 'passive',
+            guardCenter: null,
+            onFishCaught: null,
+            homePosition: null,
+            homeServerKey: null,
+        };
+        botStateMap.set(bot, state);
+    }
+    return state;
+}
+
 // ---- Cancellation & busy tracking ----
 
-let actionAbort = new AbortController();
-export function getActionAbort(): AbortController {
-    return actionAbort;
+export function getActionAbort(bot: Bot): AbortController {
+    return getBotState(bot).actionAbort;
 }
-export function resetActionAbort(): AbortController {
-    actionAbort.abort();
-    actionAbort = new AbortController();
-    return actionAbort;
+export function resetActionAbort(bot: Bot): AbortController {
+    const state = getBotState(bot);
+    state.actionAbort.abort();
+    state.actionAbort = new AbortController();
+    return state.actionAbort;
 }
 
 // Tracks whether a physical action is running (mining, following, etc.)
-let actionBusy = false;
-export function isActionBusy(): boolean {
-    return actionBusy;
+export function isActionBusy(bot: Bot): boolean {
+    return getBotState(bot).actionBusy;
 }
-export function setActionBusy(busy: boolean): void {
-    actionBusy = busy;
+export function setActionBusy(bot: Bot, busy: boolean): void {
+    getBotState(bot).actionBusy = busy;
 }
 
 // Suppress pickup notes during inventory management (equip/unequip in crafting)
-let suppressPickups = false;
-export function isPickupSuppressed(): boolean {
-    return suppressPickups;
+export function isPickupSuppressed(bot: Bot): boolean {
+    return getBotState(bot).suppressPickups;
 }
-export function setSuppressPickups(value: boolean): void {
-    suppressPickups = value;
+export function setSuppressPickups(bot: Bot, value: boolean): void {
+    getBotState(bot).suppressPickups = value;
 }
 
 // Human-readable description of what the bot is currently doing
-let currentActivity: string | null = null;
-export function getCurrentActivity(): string | null {
-    return currentActivity;
+export function getCurrentActivity(bot: Bot): string | null {
+    return getBotState(bot).currentActivity;
 }
-export function setCurrentActivity(activity: string | null): void {
-    currentActivity = activity;
+export function setCurrentActivity(bot: Bot, activity: string | null): void {
+    getBotState(bot).currentActivity = activity;
 }
 
 // Current combat target — used to prevent duplicate mc_attack from cancelling
 // an ongoing fight (e.g., auto-defense + AI action both targeting the same mob)
-let currentCombatTarget: string | null = null;
-export function getCurrentCombatTarget(): string | null {
-    return currentCombatTarget;
+export function getCurrentCombatTarget(bot: Bot): string | null {
+    return getBotState(bot).currentCombatTarget;
 }
-export function setCurrentCombatTarget(target: string | null): void {
-    currentCombatTarget = target;
+export function setCurrentCombatTarget(bot: Bot, target: string | null): void {
+    getBotState(bot).currentCombatTarget = target;
 }
 
 // Auto-defense flag — when true, the event system is handling combat.
 // AI-generated combat actions should be silently skipped to avoid spam loops.
-let autoDefending = false;
-export function isAutoDefending(): boolean {
-    return autoDefending;
+export function isAutoDefending(bot: Bot): boolean {
+    return getBotState(bot).autoDefending;
 }
-export function setAutoDefending(value: boolean): void {
-    autoDefending = value;
+export function setAutoDefending(bot: Bot, value: boolean): void {
+    getBotState(bot).autoDefending = value;
 }
 
 // ---- Behavior mode ----
 
-export type BotMode = 'passive' | 'aggro' | 'hunt' | 'guard';
-
-let botMode: BotMode = 'passive';
-export function getBotMode(): BotMode {
-    return botMode;
+export function getBotMode(bot: Bot): BotMode {
+    return getBotState(bot).botMode;
 }
-export function setBotMode(mode: BotMode): void {
-    botMode = mode;
-    console.log(`[Bot] Mode changed to: ${mode}`);
+export function setBotMode(bot: Bot, mode: BotMode): void {
+    getBotState(bot).botMode = mode;
+    console.log(`[${bot.username}] Mode changed to: ${mode}`);
 }
 
 // Guard center — the position the bot should patrol around in guard mode
-let guardCenter: { x: number; y: number; z: number } | null = null;
-export function getGuardCenter(): { x: number; y: number; z: number } | null {
-    return guardCenter;
+export function getGuardCenter(bot: Bot): { x: number; y: number; z: number } | null {
+    return getBotState(bot).guardCenter;
 }
-export function setGuardCenter(pos: { x: number; y: number; z: number } | null): void {
-    guardCenter = pos;
+export function setGuardCenter(bot: Bot, pos: { x: number; y: number; z: number } | null): void {
+    getBotState(bot).guardCenter = pos;
 }
 
 // ---- Fishing callback ----
 
-let onFishCaught: ((itemName: string, count: number) => void) | null = null;
-export function getOnFishCaught(): ((itemName: string, count: number) => void) | null {
-    return onFishCaught;
+export function getOnFishCaught(bot: Bot): ((itemName: string, count: number) => void) | null {
+    return getBotState(bot).onFishCaught;
 }
-export function setFishCaughtCallback(cb: ((itemName: string, count: number) => void) | null): void {
-    onFishCaught = cb;
+export function setFishCaughtCallback(bot: Bot, cb: ((itemName: string, count: number) => void) | null): void {
+    getBotState(bot).onFishCaught = cb;
 }
 
 // ---- Home position persistence ----
 
-let homePosition: { x: number; y: number; z: number } | null = null;
-let homeServerKey: string | null = null;
-export function getHomePosition(): { x: number; y: number; z: number } | null {
-    return homePosition;
+export function getHomePosition(bot: Bot): { x: number; y: number; z: number } | null {
+    return getBotState(bot).homePosition;
 }
 
 const HOME_FILE = join(process.cwd(), 'bot-home.json');
@@ -125,49 +154,51 @@ function saveHomeData(data: HomeData): void {
 }
 
 /** Call after bot connects to load any saved home position for this server */
-export function initHomePosition(host: string, port: number, bot?: Bot): void {
-    homeServerKey = `${host}:${port}`;
+export function initHomePosition(bot: Bot, host: string, port: number): void {
+    const state = getBotState(bot);
+    // Use bot username in key so each bot has its own home
+    state.homeServerKey = `${host}:${port}:${bot.username}`;
     const data = loadHomeData();
-    const saved = data[homeServerKey];
+    const saved = data[state.homeServerKey];
     if (saved) {
         // Verify the bed still exists (world may have changed)
-        if (bot) {
-            const { Vec3 } = require('vec3');
-            const block = bot.blockAt(new Vec3(saved.x, saved.y, saved.z));
-            if (!block || !block.name.includes('bed')) {
-                console.log(`[MC Action] Saved home at ${saved.x}, ${saved.y}, ${saved.z} is not a bed (found: ${block?.name ?? 'unloaded'}). Clearing stale data.`);
-                homePosition = null;
-                delete data[homeServerKey];
-                saveHomeData(data);
-                return;
-            }
+        const { Vec3 } = require('vec3');
+        const block = bot.blockAt(new Vec3(saved.x, saved.y, saved.z));
+        if (!block || !block.name.includes('bed')) {
+            console.log(`[${bot.username}] Saved home at ${saved.x}, ${saved.y}, ${saved.z} is not a bed (found: ${block?.name ?? 'unloaded'}). Clearing stale data.`);
+            state.homePosition = null;
+            delete data[state.homeServerKey];
+            saveHomeData(data);
+            return;
         }
-        homePosition = saved;
-        console.log(`[MC Action] Loaded home position for ${homeServerKey}: ${saved.x}, ${saved.y}, ${saved.z}`);
+        state.homePosition = saved;
+        console.log(`[${bot.username}] Loaded home position for ${state.homeServerKey}: ${saved.x}, ${saved.y}, ${saved.z}`);
     } else {
-        homePosition = null;
-        console.log(`[MC Action] No saved home position for ${homeServerKey}`);
+        state.homePosition = null;
+        console.log(`[${bot.username}] No saved home position for ${state.homeServerKey}`);
     }
 }
 
 /** Save bed position as home (memory and disk) */
-export function saveHome(bedBlock: { position: { x: number; y: number; z: number } }): void {
-    homePosition = { x: bedBlock.position.x, y: bedBlock.position.y, z: bedBlock.position.z };
-    if (homeServerKey) {
+export function saveHome(bot: Bot, bedBlock: { position: { x: number; y: number; z: number } }): void {
+    const state = getBotState(bot);
+    state.homePosition = { x: bedBlock.position.x, y: bedBlock.position.y, z: bedBlock.position.z };
+    if (state.homeServerKey) {
         const data = loadHomeData();
-        data[homeServerKey] = homePosition;
+        data[state.homeServerKey] = state.homePosition;
         saveHomeData(data);
     }
-    console.log(`[MC Action] Home position saved: ${homePosition.x}, ${homePosition.y}, ${homePosition.z}`);
+    console.log(`[${bot.username}] Home position saved: ${state.homePosition.x}, ${state.homePosition.y}, ${state.homePosition.z}`);
 }
 
 /** Clear saved home (bed no longer exists at saved position) */
-export function clearHome(): void {
-    homePosition = null;
-    if (homeServerKey) {
+export function clearHome(bot: Bot): void {
+    const state = getBotState(bot);
+    state.homePosition = null;
+    if (state.homeServerKey) {
         const data = loadHomeData();
-        delete data[homeServerKey];
+        delete data[state.homeServerKey];
         saveHomeData(data);
     }
-    console.log('[MC Action] Home position cleared (stale data)');
+    console.log(`[${bot.username}] Home position cleared (stale data)`);
 }

@@ -29,6 +29,12 @@ export interface MessageHandlerContext {
     getMcBot(): Bot | null;
     getNames(): NameRegistry;
     getFollowingPlayer(): string | null;
+    // Multi-bot routing
+    getCharacterBotMap(): Map<string, 1 | 2>;
+    getBotBySlot(slot: 1 | 2): Bot | null;
+    getAssistantNameBySlot(slot: 1 | 2): string | null;
+    getLastSpeakingSlot(): 1 | 2;
+    setLastSpeakingSlot(slot: 1 | 2): void;
 
     // State mutators
     setAssistantName(name: string | null): void;
@@ -40,6 +46,8 @@ export interface MessageHandlerContext {
     getCurrentReply(): string;
     setIsReplying(value: boolean): void;
     setFollowingPlayer(player: string | null): void;
+    setSkinUrlForSlot(url: string | null, slot: 1 | 2): void;
+    /** @deprecated Use setSkinUrlForSlot(url, 1) — kept for single-bot compat */
     setSkinUrl(url: string | null): void;
 
     // Actions
@@ -83,10 +91,10 @@ function handleChatStarted(message: ServerMessage, ctx: MessageHandlerContext): 
             text: string;
             name?: string;
         }>;
-        characters?: Array<{ id: string; name: string }>;
+        characters?: Array<{ id: string; name: string; appConfiguration?: Record<string, string> }>;
     };
 
-    // Set the assistant name from the server's authoritative character data
+    // Set the assistant name(s) from the server's authoritative character data
     if (started.characters?.length) {
         const assistantChar = started.characters[0];
         ctx.setAssistantName(assistantChar.name);
@@ -105,14 +113,25 @@ function handleChatStarted(message: ServerMessage, ctx: MessageHandlerContext): 
         console.log(`[Server] chatStarted — loaded ${started.messages.length} old messages`);
     }
 
-    // Apply character skin from Voxta assets (requires SkinsRestorer on MC server)
-    const voxta = ctx.getVoxta();
-    const skinUrn = voxta?.characterAppConfig?.skin;
-    if (skinUrn) {
-        const parsed = parseAssetUrn(skinUrn);
-        if (parsed) {
-            console.log(`[MC Skin] Downloading skin "${parsed.assetPath}" from character ${parsed.characterId}`);
-            void downloadAndServeSkin(parsed.characterId, parsed.assetPath, ctx);
+    // Populate the character → bot slot map (character[0] = slot 1, character[1] = slot 2)
+    const botMap = ctx.getCharacterBotMap();
+    botMap.clear();
+    for (let i = 0; i < (started.characters?.length ?? 0) && i < 2; i++) {
+        const char = started.characters![i];
+        botMap.set(char.id, (i + 1) as 1 | 2);
+    }
+
+    // Apply per-bot skins from Voxta app configuration
+    for (let i = 0; i < (started.characters?.length ?? 0) && i < 2; i++) {
+        const char = started.characters![i];
+        const slot = (i + 1) as 1 | 2;
+        const skinUrn = char.appConfiguration?.skin;
+        if (skinUrn) {
+            const parsed = parseAssetUrn(skinUrn);
+            if (parsed) {
+                console.log(`[MC Skin] Bot ${slot} (${char.name}): downloading skin "${parsed.assetPath}"`);
+                void downloadAndServeSkin(parsed.characterId, parsed.assetPath, slot, ctx);
+            }
         }
     }
 }
@@ -128,6 +147,7 @@ function parseAssetUrn(urn: string): { characterId: string; assetPath: string } 
 async function downloadAndServeSkin(
     characterId: string,
     assetPath: string,
+    slot: 1 | 2,
     ctx: MessageHandlerContext,
 ): Promise<void> {
     const voxtaUrl = ctx.getVoxtaUrl();
@@ -177,14 +197,26 @@ async function downloadAndServeSkin(
         }
 
         console.log(`[MC Skin] Public URL: ${publicUrl}`);
-        ctx.setSkinUrl(publicUrl);
+        ctx.setSkinUrlForSlot(publicUrl, slot);
     } catch (err) {
         console.error('[MC Skin] Error processing skin:', err);
     }
 }
 
-function handleReplyStart(_message: ServerMessage, ctx: MessageHandlerContext): void {
+function handleReplyStart(message: ServerMessage, ctx: MessageHandlerContext): void {
     ctx.audioPipeline.resetChain();
+    // Track which bot slot is speaking based on the senderId
+    const msg = message as { senderId?: string };
+    if (msg.senderId) {
+        const slot = ctx.getCharacterBotMap().get(msg.senderId);
+        if (slot) {
+            ctx.setLastSpeakingSlot(slot);
+            console.log(`[Server] replyStart — slot ${slot} speaking (senderId: ${msg.senderId.substring(0, 8)}...)`);
+        } else {
+            // senderId present but not in map — echo will fall back to last known slot
+            console.warn(`[Server] replyStart — senderId not in characterBotMap, echo slot unchanged (slot=${ctx.getLastSpeakingSlot()})`);
+        }
+    }
 }
 
 function handleReplyGenerating(_message: ServerMessage, ctx: MessageHandlerContext): void {
@@ -214,7 +246,8 @@ function handleReplyEnd(message: ServerMessage, ctx: MessageHandlerContext): voi
 
     if (currentReply.trim()) {
         const chatText = currentReply.trim();
-        ctx.addChat('ai', ctx.getAssistantName() ?? 'AI', chatText);
+        const senderName = ctx.getAssistantNameBySlot(ctx.getLastSpeakingSlot()) ?? ctx.getAssistantName() ?? 'AI';
+        ctx.addChat('ai', senderName, chatText);
         ctx.mcChatEcho(chatText);
     }
 
@@ -240,7 +273,8 @@ function handleReplyCancelled(_message: ServerMessage, ctx: MessageHandlerContex
     console.log(`[<< AI] reply cancelled (${currentReply.length} chars buffered)`);
 
     if (currentReply.trim()) {
-        ctx.addChat('ai', ctx.getAssistantName() ?? 'AI', currentReply.trim());
+        const senderName = ctx.getAssistantNameBySlot(ctx.getLastSpeakingSlot()) ?? ctx.getAssistantName() ?? 'AI';
+        ctx.addChat('ai', senderName, currentReply.trim());
     }
     ctx.setCurrentReply('');
     ctx.setIsReplying(false);
@@ -250,11 +284,12 @@ function handleReplyCancelled(_message: ServerMessage, ctx: MessageHandlerContex
 }
 
 function handleAction(message: ServerMessage, ctx: MessageHandlerContext): void {
-    const bot = ctx.getMcBot();
+    // Route to the bot that last spoke
+    const bot = ctx.getBotBySlot(ctx.getLastSpeakingSlot()) ?? ctx.getMcBot();
     if (!bot) return;
 
     handleActionMessage(message as ServerActionMessage, bot, ctx.getNames(), {
-        getAssistantName: () => ctx.getAssistantName() ?? 'Bot',
+        getAssistantName: () => ctx.getAssistantNameBySlot(ctx.getLastSpeakingSlot()) ?? ctx.getAssistantName() ?? 'Bot',
         getSettings: () => ctx.getSettings(),
         isReplying: () => ctx.isReplying(),
         getFollowingPlayer: () => ctx.getFollowingPlayer(),
@@ -347,7 +382,7 @@ function handleContextUpdated(message: ServerMessage, ctx: MessageHandlerContext
         actions?: Array<{ name: string; description: string; layer?: string }>;
     };
     const inspectorData: InspectorData = {
-        contexts: (msgData.contexts ?? []).map((c) => ({ name: c.name, text: c.text })),
+        contexts: (msgData.contexts ?? []).map((c) => ({ contextKey: c.contextKey, name: c.name, text: c.text })),
         actions: (msgData.actions ?? []).map((a) => ({ name: a.name, description: a.description, layer: a.layer })),
     };
     ctx.emit('inspector-update', inspectorData);

@@ -72,7 +72,7 @@ export async function executeAction(
     // Block all actions while building — only stop and none are allowed.
     // Auto-defense (scan loop) still fires because it directly calls
     // attack functions, not through AI action inference.
-    const activity = getCurrentActivity();
+    const activity = getCurrentActivity(bot);
     if (activity?.startsWith('building') && actionName !== 'mc_stop' && actionName !== 'mc_none') {
         console.log(`[MC Action] Blocked ${actionName} — building in progress`);
         return '';
@@ -82,34 +82,34 @@ export async function executeAction(
     // — don't abort the ongoing fight just to restart the same attack.
     if (actionName === 'mc_attack') {
         const attackTarget = (getArg(args, 'entity_name') ?? 'enemy').toLowerCase();
-        if (getCurrentCombatTarget() && getCurrentCombatTarget() === attackTarget) {
+        if (getCurrentCombatTarget(bot) && getCurrentCombatTarget(bot) === attackTarget) {
             return `Already fighting ${attackTarget}`;
         }
     }
 
     if (actionDef?.isPhysical) {
         // Cancel any running action before starting a new one
-        resetActionAbort();
+        resetActionAbort(bot);
         try {
             bot.stopDigging();
         } catch {
             /* may not be digging */
         }
         // Retract fishing rod if actively fishing
-        if (getCurrentActivity() === 'fishing' && bot.heldItem?.name === 'fishing_rod') {
+        if (getCurrentActivity(bot) === 'fishing' && bot.heldItem?.name === 'fishing_rod') {
             bot.activateItem();
         }
     }
 
     // Track busy state for physical actions (except stop which clears it)
     const shouldTrackBusy = actionDef?.isPhysical && actionName !== 'mc_stop';
-    if (shouldTrackBusy) setActionBusy(true);
+    if (shouldTrackBusy) setActionBusy(bot, true);
 
     try {
         switch (actionName) {
             case 'mc_follow_player': {
                 const followTarget = getArg(args, 'player_name') ?? 'player';
-                setCurrentActivity(`following ${followTarget}`);
+                setCurrentActivity(bot, `following ${followTarget}`);
                 // Mode cancellation (guard/hunt → passive) is handled by the
                 // orchestrator for AI-chosen actions. We do NOT cancel here
                 // because the scan loop also calls mc_follow_player internally
@@ -121,29 +121,29 @@ export async function executeAction(
                 const gx = getArg(args, 'x'),
                     gy = getArg(args, 'y'),
                     gz = getArg(args, 'z');
-                setCurrentActivity(`navigating to ${gx ?? '?'},${gy ?? '?'},${gz ?? '?'}`);
+                setCurrentActivity(bot, `navigating to ${gx ?? '?'},${gy ?? '?'},${gz ?? '?'}`);
                 return await goTo(bot, gx, gy, gz);
             }
 
             case 'mc_go_home':
-                setCurrentActivity('heading home');
+                setCurrentActivity(bot, 'heading home');
                 return await goHome(bot);
 
             case 'mc_go_to_entity': {
                 const entityArg = getArg(args, 'entity_name') ?? 'entity';
-                setCurrentActivity(`approaching ${entityArg}`);
+                setCurrentActivity(bot, `approaching ${entityArg}`);
                 return await goToEntity(bot, getArg(args, 'entity_name'));
             }
 
             case 'mc_mine_block': {
                 const blockArg = getArg(args, 'block_type') ?? 'blocks';
-                setCurrentActivity(`mining ${blockArg}`);
+                setCurrentActivity(bot, `mining ${blockArg}`);
                 return await mineBlock(bot, getArg(args, 'block_type'), getArg(args, 'count'));
             }
 
             case 'mc_attack': {
                 const attackTarget = getArg(args, 'entity_name') ?? 'enemy';
-                setCurrentActivity(`fighting ${attackTarget}`);
+                setCurrentActivity(bot, `fighting ${attackTarget}`);
                 return await attackEntity(bot, getArg(args, 'entity_name'), names);
             }
 
@@ -153,7 +153,7 @@ export async function executeAction(
             case 'mc_stop':
                 // mc_stop is not isPhysical (so it doesn't trigger the generic abort above),
                 // but it MUST abort any running action's signal explicitly
-                resetActionAbort();
+                resetActionAbort(bot);
                 bot.pathfinder.stop();
                 try {
                     bot.stopDigging();
@@ -166,13 +166,13 @@ export async function executeAction(
                     /* may not be using an item */
                 }
                 // Retract fishing rod if actively fishing (check BEFORE clearing activity)
-                if (getCurrentActivity() === 'fishing' && bot.heldItem?.name === 'fishing_rod') {
+                if (getCurrentActivity(bot) === 'fishing' && bot.heldItem?.name === 'fishing_rod') {
                     bot.activateItem();
                 }
-                setCurrentActivity(null);
+                setCurrentActivity(bot, null);
                 // Stopping resets to passive mode
-                setBotMode('passive');
-                setGuardCenter(null);
+                setBotMode(bot, 'passive');
+                setGuardCenter(bot, null);
                 return 'Stopped current action';
 
             case 'mc_equip':
@@ -188,18 +188,18 @@ export async function executeAction(
                 );
 
             case 'mc_collect_items':
-                setCurrentActivity('collecting nearby items');
+                setCurrentActivity(bot, 'collecting nearby items');
                 return await collectItems(bot);
 
             case 'mc_eat':
-                setCurrentActivity('eating');
+                setCurrentActivity(bot, 'eating');
                 return await eatFood(bot, getArg(args, 'food_name'));
 
             case 'mc_none':
                 return ''; // No-op — AI acknowledged, nothing to do
 
             case 'mc_sleep':
-                setCurrentActivity('going to sleep');
+                setCurrentActivity(bot, 'going to sleep');
                 return await sleepInBed(bot);
 
             case 'mc_wake':
@@ -210,37 +210,37 @@ export async function executeAction(
                 return 'Not currently sleeping';
 
             case 'mc_set_home':
-                setCurrentActivity('setting home');
+                setCurrentActivity(bot, 'setting home');
                 return await setHomeBed(bot);
 
             case 'mc_cook':
-                setCurrentActivity('cooking');
+                setCurrentActivity(bot, 'cooking');
                 return await cookFood(bot, getArg(args, 'item_name'));
 
             case 'mc_craft': {
                 const craftTarget = getArg(args, 'item_name') ?? 'item';
-                setCurrentActivity(`crafting ${craftTarget}`);
+                setCurrentActivity(bot, `crafting ${craftTarget}`);
                 return await craftItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
             }
 
             case 'mc_place_block': {
                 const blockTarget = getArg(args, 'block_name') ?? 'block';
-                setCurrentActivity(`placing ${blockTarget}`);
+                setCurrentActivity(bot, `placing ${blockTarget}`);
                 return await placeBlock(bot, getArg(args, 'block_name'));
             }
 
             case 'mc_build': {
                 const structure = getArg(args, 'structure') ?? 'shelter';
-                setCurrentActivity(`building ${structure}`);
-                return await buildStructure(bot, getArg(args, 'structure'));
+                setCurrentActivity(bot, `building ${structure}`);
+                return await buildStructure(bot, getArg(args, 'structure'), names);
             }
 
             case 'mc_store_item':
-                setCurrentActivity('storing items in chest');
+                setCurrentActivity(bot, 'storing items in chest');
                 return await storeItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
 
             case 'mc_take_item':
-                setCurrentActivity('taking items from chest');
+                setCurrentActivity(bot, 'taking items from chest');
                 return await takeItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
 
             case 'mc_inspect':
@@ -250,7 +250,7 @@ export async function executeAction(
                 return await tossItem(bot, getArg(args, 'item_name'), getArg(args, 'count'));
 
             case 'mc_fish':
-                setCurrentActivity('fishing');
+                setCurrentActivity(bot, 'fishing');
                 return await fishAction(bot, getArg(args, 'count'));
 
             case 'mc_use_item':
@@ -261,31 +261,31 @@ export async function executeAction(
                 if (mode !== 'passive' && mode !== 'aggro' && mode !== 'hunt' && mode !== 'guard') {
                     return `Unknown mode '${mode}'. Valid modes: passive, aggro, hunt, guard`;
                 }
-                setBotMode(mode);
+                setBotMode(bot, mode);
                 if (mode === 'guard') {
                     const pos = bot.entity.position;
-                    setGuardCenter({ x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) });
-                    setCurrentActivity('guarding area');
+                    setGuardCenter(bot, { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) });
+                    setCurrentActivity(bot, 'guarding area');
                     bot.pathfinder.stop();
                     bot.pathfinder.setGoal(null);
                     return `Guard mode activated. Patrolling this area.`;
                 }
-                setGuardCenter(null);
+                setGuardCenter(bot, null);
                 if (mode === 'aggro') {
-                    setCurrentActivity('in aggro mode');
+                    setCurrentActivity(bot, 'in aggro mode');
                     return `Aggro mode activated. Will attack any hostile mob in sight.`;
                 }
                 if (mode === 'hunt') {
-                    setCurrentActivity('hunting animals');
+                    setCurrentActivity(bot, 'hunting animals');
                     return `Hunt mode activated. Hunting farm animals for food.`;
                 }
-                setCurrentActivity(null);
+                setCurrentActivity(bot, null);
                 return `Passive mode. Following and defending only when attacked.`;
             }
 
             case 'mc_mount': {
                 const mountTarget = getArg(args, 'entity_name');
-                setCurrentActivity(`mounting ${mountTarget ?? 'nearby entity'}`);
+                setCurrentActivity(bot, `mounting ${mountTarget ?? 'nearby entity'}`);
                 return await mountEntity(bot, mountTarget);
             }
 
@@ -301,12 +301,12 @@ export async function executeAction(
         return `Failed to execute ${actionName}: ${message}`;
     } finally {
         if (shouldTrackBusy) {
-            setActionBusy(false);
+            setActionBusy(bot, false);
             // Only clear activity for non-quick actions (they run to completion).
             // Quick actions (follow, look_at) persist after returning — their
             // activity is cleared when a new action starts or mc_stop is called.
             if (!actionDef?.isQuick) {
-                setCurrentActivity(null);
+                setCurrentActivity(bot, null);
             }
         }
     }

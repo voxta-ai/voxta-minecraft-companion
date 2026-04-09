@@ -70,9 +70,11 @@ export async function followPlayer(bot: Bot, playerName: string | undefined, nam
     // Follow the vehicle entity instead — it gets real position updates.
     const playerVehicle = (player as unknown as { vehicle: Entity | null }).vehicle;
     const followTarget = playerVehicle ?? player;
-    const goal = new goals.GoalFollow(followTarget, 3);
+    // Per-bot follow distance — set by bot-engine for dual-bot spacing, defaults to 3
+    const followDist = (bot as unknown as { followDistance?: number }).followDistance ?? 3;
+    const goal = new goals.GoalFollow(followTarget, followDist);
     bot.pathfinder.setGoal(goal, true); // dynamic = true → keeps following
-    console.log(`[MC Action] Follow goal set for ${displayName}${playerVehicle ? ' (via vehicle)' : ''}, goal active: ${!!bot.pathfinder.goal}`);
+    console.log(`[MC Action] Follow goal set for ${displayName}${playerVehicle ? ' (via vehicle)' : ''} (dist=${followDist}), goal active: ${!!bot.pathfinder.goal}`);
 
     return `Following ${displayName}`;
 }
@@ -106,9 +108,10 @@ export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegi
 
     const playerVehicle = (player as unknown as { vehicle: Entity | null }).vehicle;
     const followTarget = playerVehicle ?? player;
-    const goal = new goals.GoalFollow(followTarget, 3);
+    const followDist = (bot as unknown as { followDistance?: number }).followDistance ?? 3;
+    const goal = new goals.GoalFollow(followTarget, followDist);
     bot.pathfinder.setGoal(goal, true);
-    console.log(`[MC Action] Resume follow goal set for ${displayName}${playerVehicle ? ' (via vehicle)' : ''}, goal active: ${!!bot.pathfinder.goal}`);
+    console.log(`[MC Action] Resume follow goal set for ${displayName}${playerVehicle ? ' (via vehicle)' : ''} (dist=${followDist}), goal active: ${!!bot.pathfinder.goal}`);
 
     return `Following ${displayName}`;
 }
@@ -144,7 +147,7 @@ export async function goTo(
 }
 
 export async function goHome(bot: Bot): Promise<string> {
-    const homePosition = getHomePosition();
+    const homePosition = getHomePosition(bot);
     if (!homePosition) return 'No home bed set yet. I need to sleep in a bed first to remember where home is.';
 
     // Verify the bed still exists (world may have changed)
@@ -152,7 +155,7 @@ export async function goHome(bot: Bot): Promise<string> {
     const block = bot.blockAt(new Vec3(homePosition.x, homePosition.y, homePosition.z));
     if (!block || !block.name.includes('bed')) {
         console.log(`[MC Action] Saved home at ${homePosition.x}, ${homePosition.y}, ${homePosition.z} is no longer a bed (found: ${block?.name ?? 'unloaded'}). Clearing stale home.`);
-        clearHome();
+        clearHome(bot);
         return 'No home bed set yet. The previously saved bed no longer exists — I need to sleep in a new bed first.';
     }
 
@@ -176,7 +179,7 @@ export async function collectItems(bot: Bot): Promise<string> {
 
     if (items.length === 0) return 'Looked around but there are no dropped items nearby';
 
-    const signal = getActionAbort().signal;
+    const signal = getActionAbort(bot).signal;
     let collected = 0;
     for (const item of items.slice(0, 5)) {
         if (signal.aborted) break;
@@ -348,15 +351,23 @@ export async function mountEntity(bot: Bot, entityName: string | undefined): Pro
         const eName = (entity.name ?? '').toLowerCase();
         const eDisplay = (entity.displayName ?? '').toLowerCase().replace(/\s+/g, '_');
 
-        // If a specific name was given, match against it (name or displayName)
+        // If a specific name was given, match against it (name or displayName).
+        // Only allow "search contains entity name" when the entity name is non-empty,
+        // otherwise every entity matches because "horse".includes("") === true.
         if (nameLower && nameLower !== 'any') {
-            const matches = eName.includes(nameLower) || nameLower.includes(eName)
-                || eDisplay.includes(nameLower) || nameLower.includes(eDisplay);
+            const matches = eName.includes(nameLower)
+                || (eName !== '' && nameLower.includes(eName))
+                || eDisplay.includes(nameLower)
+                || (eDisplay !== '' && nameLower.includes(eDisplay));
             if (!matches) continue;
         } else {
             // No name given — only consider known rideable entities
             if (!RIDEABLE_ENTITIES.has(eName)) continue;
         }
+
+        // Skip entities already being ridden by someone else
+        const passengers = (entity as unknown as { passengers?: { id: number }[] }).passengers;
+        if (passengers && passengers.length > 0) continue;
 
         const dist = entity.position.distanceTo(bot.entity.position);
         if (dist > 32) continue; // Too far
@@ -370,6 +381,8 @@ export async function mountEntity(bot: Bot, entityName: string | undefined): Pro
             ? `Cannot find any ${entityName} nearby to ride`
             : 'No rideable entity nearby (horse, boat, minecart, pig, etc.)';
     }
+
+    console.log(`[MC Action] ${bot.username} mounting: ${nearest.entity.name} (dist=${nearest.dist.toFixed(1)})`);
 
     const displayName = nearest.entity.displayName ?? nearest.entity.name ?? 'entity';
 

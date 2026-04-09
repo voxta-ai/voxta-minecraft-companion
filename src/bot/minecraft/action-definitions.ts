@@ -65,7 +65,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_go_to_entity',
         description:
-            'Walk to a nearby mob, animal, or creature. Use when told to go to, approach, or get closer to an entity.',
+            'Walk to a nearby mob, animal, or creature and stop next to it. This action ONLY moves the bot — it does NOT interact, mount, attack, tame, or do anything else. Use only when explicitly told to go to or approach an entity. To mount use mc_mount, to attack use mc_attack.',
         disabled: false,
         layer: '',
         effect: {},

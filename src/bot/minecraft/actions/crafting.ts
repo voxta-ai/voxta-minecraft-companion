@@ -90,12 +90,12 @@ async function autoCraftWithPrereqs(
     if (depth > 0) await delay(CRAFT_STEP_DELAY_MS);
 
     // Can't craft directly — get ALL recipes (regardless of inventory)
-    let allRecipes = bot.recipesAll(itemId, null, craftingTable);
+    const allRecipes = bot.recipesAll(itemId, null, craftingTable);
     if (allRecipes.length === 0) {
         // No recipe exists — this is a raw material (logs, ores, etc.)
         // But first: check if this is a specific wood type (e.g. spruce_planks)
         // and the bot has a different wood type (e.g. oak_log) that could work.
-        const substituted = tryWoodSubstitution(bot, mcData, itemId, craftingTable);
+        const substituted = tryWoodSubstitution(bot, mcData, itemId);
         if (substituted) {
             return autoCraftWithPrereqs(bot, mcData, substituted.id, count, craftingTable, depth);
         }
@@ -167,7 +167,7 @@ async function autoCraftWithPrereqs(
                 );
                 // If prereq failed, try wood-type substitution (e.g. spruce_planks → oak_planks)
                 if (!prereqResult.success) {
-                    const sub = tryWoodSubstitution(bot, mcData, ingredient.id, craftingTable);
+                    const sub = tryWoodSubstitution(bot, mcData, ingredient.id);
                     if (sub) {
                         prereqResult = await autoCraftWithPrereqs(
                             bot, mcData, sub.id, totalNeeded, craftingTable, depth + 1,
@@ -237,7 +237,7 @@ async function cleanup(bot: Bot, heldItemName: string | null): Promise<void> {
     // Delay must exceed the 500ms inventory polling interval so the poll
     // fires at least once while suppressed and updates the snapshot
     setTimeout(() => {
-        setSuppressPickups(false);
+        setSuppressPickups(bot, false);
     }, 600);
 }
 
@@ -255,7 +255,6 @@ function tryWoodSubstitution(
     bot: Bot,
     mcData: { itemsByName: McDataItems; items: McDataItemsById },
     missingItemId: number,
-    craftingTable: ReturnType<Bot['findBlock']>,
 ): { id: number; displayName: string; name: string } | undefined {
     const missingInfo = mcData.items[missingItemId];
     if (!missingInfo) return undefined;
@@ -414,7 +413,7 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
 
     // Suppress pickup notes for the entire crafting process
     // (equip/unequip/craft all trigger inventory slot changes)
-    setSuppressPickups(true);
+    setSuppressPickups(bot, true);
 
     // Move held item to inventory so recipesFor can find it as a material
     const heldItemName = bot.heldItem?.name ?? null;

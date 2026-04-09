@@ -261,7 +261,7 @@ export async function mineBlock(
 
     console.log(`[MC Action] Collecting up to ${maxCount} ${displayName}...`);
 
-    const signal = getActionAbort().signal;
+    const signal = getActionAbort(bot).signal;
 
     // Block type flags (used for sort/filter behavior inside the loop)
     const isTreeBlock = resolvedName.includes('log');
@@ -274,7 +274,7 @@ export async function mineBlock(
     const anchorZ = bot.entity.position.z;
 
     // Suppress per-item pickup notes during mining — the final summary is enough
-    setSuppressPickups(true);
+    setSuppressPickups(bot, true);
     try {
     while (attempts < MAX_ATTEMPTS) {
         // Check if we've dug enough blocks
@@ -507,7 +507,7 @@ export async function mineBlock(
     await new Promise((r) => setTimeout(r, 2000));
 
     } finally {
-        setSuppressPickups(false);
+        setSuppressPickups(bot, false);
     }
 
     // If aborted (e.g., mc_stop), don't report a result — the stop already did

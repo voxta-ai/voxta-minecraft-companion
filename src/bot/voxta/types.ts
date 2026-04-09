@@ -98,6 +98,7 @@ export interface ClientRegisterAppMessage {
 export interface ClientStartChatMessage {
     $type: 'startChat';
     characterId?: string;
+    characterIds?: string[];   // For multi-character sessions (2 bots)
     chatId?: string;
     scenarioId?: string;
     // Initial context — processed by the server BEFORE generating the first reply

@@ -86,7 +86,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
 
     // Track combat target to prevent duplicate attacks from cancelling this fight
     const normalizedTarget = (entityName ?? 'unknown').toLowerCase();
-    setCurrentCombatTarget(normalizedTarget);
+    setCurrentCombatTarget(bot, normalizedTarget);
 
     // Follow and attack until dead
     const goal = new goals.GoalFollow(target, 1);
@@ -109,7 +109,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
     };
 
     return new Promise<string>((resolve) => {
-        const signal = getActionAbort().signal;
+        const signal = getActionAbort(bot).signal;
         let tickBusy = false; // Prevent overlapping async ticks
 
         /** Cancel bow draw and re-equip melee weapon */
@@ -134,7 +134,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
                 await cancelBowDraw();
-                if (getCurrentCombatTarget() === normalizedTarget) setCurrentCombatTarget(null);
+                if (getCurrentCombatTarget(bot) === normalizedTarget) setCurrentCombatTarget(bot, null);
                 // Don't call pathfinder.stop() — the new action owns it now
                 resolve(`Stopped fighting ${displayName}`);
                 return;
@@ -143,7 +143,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
             // Check if the target is dead (entity removed from world)
             if (!bot.entities[target.id]) {
                 clearInterval(attackLoop);
-                setCurrentCombatTarget(null);
+                setCurrentCombatTarget(bot, null);
                 await cancelBowDraw();
                 bot.pathfinder.stop();
                 // If the bot itself died, all entities disappear — don't claim victory
@@ -174,8 +174,8 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
                 await cancelBowDraw();
-                setCurrentCombatTarget(null);
-                setCurrentActivity(`fleeing from ${displayName} — critically wounded`);
+                setCurrentCombatTarget(bot, null);
+                setCurrentActivity(bot, `fleeing from ${displayName} — critically wounded`);
 
                 console.log(`[MC Action] Health critical (${Math.round(bot.health)}/20) — kiting away from ${displayName}`);
 
@@ -225,7 +225,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                         (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
                         bot.setControlState('sprint', false);
                         bot.pathfinder.stop();
-                        setCurrentActivity(null);
+                        setCurrentActivity(bot, null);
                         resolve(`Died while fighting ${displayName}`);
                         return;
                     }
@@ -237,7 +237,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                         (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
                         bot.setControlState('sprint', false);
                         bot.pathfinder.stop();
-                        setCurrentActivity(null);
+                        setCurrentActivity(bot, null);
                         resolve(`Recovered health — safe now (health: ${Math.round(bot.health)}/20)`);
                         return;
                     }
@@ -248,7 +248,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                         bot.removeListener('death', onKiteDeath);
                         bot.setControlState('sprint', false);
                         bot.pathfinder.stop();
-                        setCurrentActivity(null);
+                        setCurrentActivity(bot, null);
                         // Creeper: wait 150ms for explosion packet (arrives after entity_destroy)
                         if (isCreeper) {
                             setTimeout(() => {
@@ -273,7 +273,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                         (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
                         bot.setControlState('sprint', false);
                         bot.pathfinder.stop();
-                        setCurrentActivity(null);
+                        setCurrentActivity(bot, null);
                         resolve(`Barely got away from the ${displayName}! (health: ${Math.round(bot.health)}/20)`);
                         return;
                     }
@@ -313,7 +313,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                             phase = 'engaging';
                             phaseStart = now;
                             lastZigzagSet = 0; // Force immediate zigzag waypoint
-                            setCurrentActivity(`fighting ${displayName} — hit and run`);
+                            setCurrentActivity(bot, `fighting ${displayName} — hit and run`);
                         }
                     } else {
                         // ENGAGE: approach and attack
@@ -323,13 +323,13 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                             phase = 'retreating';
                             phaseStart = now;
                             lastFleeGoalSet = 0;
-                            setCurrentActivity(`fleeing from ${displayName} — critically wounded`);
+                            setCurrentActivity(bot, `fleeing from ${displayName} — critically wounded`);
                         } else if (phaseElapsed > ENGAGE_TIMEOUT) {
                             // Couldn't reach mob in time — retreat and try again
                             phase = 'retreating';
                             phaseStart = now;
                             lastFleeGoalSet = 0;
-                            setCurrentActivity(`fleeing from ${displayName} — critically wounded`);
+                            setCurrentActivity(bot, `fleeing from ${displayName} — critically wounded`);
                         } else if (isRangedMob) {
                             // RANGED MOB: zigzag approach to dodge projectiles
                             if (now - lastZigzagSet > 1500) {
@@ -374,7 +374,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
                 await cancelBowDraw();
-                setCurrentCombatTarget(null);
+                setCurrentCombatTarget(bot, null);
                 bot.pathfinder.stop();
                 resolve(`Gave up fighting ${displayName} — too tough to kill`);
                 return;
@@ -385,7 +385,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
                 await cancelBowDraw();
-                setCurrentCombatTarget(null);
+                setCurrentCombatTarget(bot, null);
                 bot.pathfinder.stop();
                 resolve(`Lost sight of ${displayName} and gave up the chase`);
                 return;
@@ -497,7 +497,7 @@ export async function lookAtPlayer(bot: Bot, playerName: string | undefined, nam
     await bot.lookAt(player.position.offset(0, 1.6, 0));
 
     // Continuously track the player until another action cancels us
-    const signal = getActionAbort().signal;
+    const signal = getActionAbort(bot).signal;
     const trackLoop = async (): Promise<void> => {
         while (!signal.aborted) {
             await new Promise((resolve) => setTimeout(resolve, 200));
