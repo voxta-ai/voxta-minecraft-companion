@@ -120,6 +120,7 @@ export default function InspectorDrawer(props: InspectorDrawerProps) {
     useInspectorListener();
 
     const [activeTab, setActiveTab] = createSignal<'contexts' | 'actions'>('contexts');
+    const [activeContextBot, setActiveContextBot] = createSignal<'minecraft-bot1' | 'minecraft-bot2'>('minecraft-bot1');
 
     const contextItems = createMemo(() =>
         inspectorData.contexts.map((ctx: InspectorContext) => ({
@@ -128,7 +129,16 @@ export default function InspectorDrawer(props: InspectorDrawerProps) {
             values: splitContextValues(ctx.text),
             alert: getAlertLevel(ctx.text),
             raw: ctx.text,
+            contextKey: ctx.contextKey || 'minecraft-bot1',
         })),
+    );
+
+    const filteredContextItems = createMemo(() => 
+        contextItems().filter(item => item.contextKey === activeContextBot())
+    );
+
+    const hasSecondBotContext = createMemo(() => 
+        contextItems().some(item => item.contextKey === 'minecraft-bot2')
     );
 
     const actionGroups = createMemo((): ActionGroup[] => {
@@ -173,12 +183,31 @@ export default function InspectorDrawer(props: InspectorDrawerProps) {
             <div class="inspector-drawer-body">
                 {/* Contexts Tab */}
                 <Show when={activeTab() === 'contexts'}>
+                    <Show when={hasSecondBotContext()}>
+                        <div class="inspector-subtabs" style={{ display: 'flex', gap: '4px', 'margin-bottom': '12px', 'border-bottom': '1px solid var(--bg-hover)', 'padding-bottom': '8px' }}>
+                            <button 
+                                class={`btn-subtab ${activeContextBot() === 'minecraft-bot1' ? 'active' : ''}`}
+                                style={{ flex: 1, 'background': activeContextBot() === 'minecraft-bot1' ? 'var(--accent-blue-hover)' : 'transparent', color: activeContextBot() === 'minecraft-bot1' ? 'white' : 'var(--text-secondary)', border: 'none', padding: '4px 8px', 'border-radius': '4px', cursor: 'pointer' }}
+                                onClick={() => setActiveContextBot('minecraft-bot1')}
+                            >
+                                Bot 1 (Primary)
+                            </button>
+                            <button 
+                                class={`btn-subtab ${activeContextBot() === 'minecraft-bot2' ? 'active' : ''}`}
+                                style={{ flex: 1, 'background': activeContextBot() === 'minecraft-bot2' ? 'var(--accent-blue-hover)' : 'transparent', color: activeContextBot() === 'minecraft-bot2' ? 'white' : 'var(--text-secondary)', border: 'none', padding: '4px 8px', 'border-radius': '4px', cursor: 'pointer' }}
+                                onClick={() => setActiveContextBot('minecraft-bot2')}
+                            >
+                                Bot 2 (Secondary)
+                            </button>
+                        </div>
+                    </Show>
+
                     <Show
-                        when={contextItems().length > 0}
-                        fallback={<p class="inspector-empty">No context data yet</p>}
+                        when={filteredContextItems().length > 0}
+                        fallback={<p class="inspector-empty">No context data for this bot yet</p>}
                     >
                         <div class="inspector-context-grid">
-                            <For each={contextItems()}>
+                            <For each={filteredContextItems()}>
                                 {(item) => (
                                     <div class={`inspector-context-row ${item.alert ? `alert-${item.alert}` : ''}`}>
                                         <div class="inspector-context-icon">{item.icon}</div>

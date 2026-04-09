@@ -16,12 +16,17 @@ import { DEFAULT_SETTINGS } from '../../shared/ipc-types';
 
 const [status, setStatus] = createStore<BotStatus>({
     mc: 'disconnected',
+    mc2: 'disconnected',
     voxta: 'disconnected',
     position: null,
     health: null,
     food: null,
+    position2: null,
+    health2: null,
+    food2: null,
     currentAction: null,
     assistantName: null,
+    assistantName2: null,
     sessionId: null,
 });
 

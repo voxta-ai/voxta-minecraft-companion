@@ -83,7 +83,7 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
     const targetCount = countStr ? parseInt(countStr, 10) : 5;
     if (isNaN(targetCount) || targetCount <= 0) return 'Invalid count';
 
-    const signal = getActionAbort().signal;
+    const signal = getActionAbort(bot).signal;
     const caught = new Map<string, number>(); // displayName → count
     let totalCaught = 0;
 
@@ -162,7 +162,7 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
                 totalCaught += gained;
                 gainedAny = true;
                 // Notify per-catch so the voice chance system can react
-                getOnFishCaught()?.(display, gained);
+                getOnFishCaught(bot)?.(display, gained);
             }
             beforeItems.set(item.name, currentCount);
         }

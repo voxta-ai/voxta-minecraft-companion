@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 import { getBlueprint, getAvailableBlueprints, WALL_MATERIALS, ROOF_MATERIALS } from '../blueprints/index.js';
 import type { Blueprint, BlockRole } from '../blueprints/index.js';
 import { getActionAbort, setSuppressPickups } from './action-state.js';
+import type { NameRegistry } from '../../name-registry.js';
 
 // Delay between block placements to avoid server rate limiting
 const PLACE_DELAY_MS = 200;
@@ -539,7 +540,7 @@ function getPhaseNote(currentRole: BlockRole, placed: number, _total: number): s
 
 // ---- Public API ----
 
-export async function buildStructure(bot: Bot, structureName: string | undefined): Promise<string> {
+export async function buildStructure(bot: Bot, structureName: string | undefined, names: NameRegistry): Promise<string> {
     if (!structureName) return 'What should I build? Available: ' + getAvailableBlueprints().join(', ');
 
     const blueprint = getBlueprint(structureName);
@@ -550,7 +551,7 @@ export async function buildStructure(bot: Bot, structureName: string | undefined
     console.log(`[MC Build] Starting build: ${blueprint.displayName} (${blueprint.blocks.length} blocks)`);
 
     // Suppress pickup notes during building
-    setSuppressPickups(true);
+    setSuppressPickups(bot, true);
 
     // --- Step 1: Check materials ---
     const allocation = resolveMaterials(bot, blueprint);
@@ -559,7 +560,7 @@ export async function buildStructure(bot: Bot, structureName: string | undefined
         `total available=${allocation.available}, needed=${allocation.needed}`);
 
     if (allocation.missing.length > 0) {
-        setSuppressPickups(false);
+        setSuppressPickups(bot, false);
         return `Not enough materials to build a ${blueprint.displayName}. Need ${allocation.missing.join(', ')}. ` +
             `Have ${allocation.available} building blocks, need about ${allocation.needed}.`;
     }
@@ -569,7 +570,10 @@ export async function buildStructure(bot: Bot, structureName: string | undefined
     // oriented perpendicular to their look direction.
     let site: BuildSite | null;
     if (blueprint.depth === 1) {
-        const player = bot.nearestEntity((e) => e.type === 'player' && e.username !== bot.username);
+        // Exclude the bot itself and any other registered bots — find only the human player
+        const player = bot.nearestEntity(
+            (e) => e.type === 'player' && e.username !== bot.username && !names.hasMcUsername(e.username ?? ''),
+        );
         if (player) {
             const yaw = player.yaw ?? 0;
             // Quantize to 4 cardinal directions
@@ -614,7 +618,7 @@ export async function buildStructure(bot: Bot, structureName: string | undefined
     }
 
     if (!site) {
-        setSuppressPickups(false);
+        setSuppressPickups(bot, false);
         return `Can't find a flat enough spot nearby to build a ${blueprint.displayName}. Help clear an area first.`;
     }
     console.log(`[MC Build] Site selected: origin=(${site.originX}, ${site.originY}, ${site.originZ})`);
@@ -659,7 +663,7 @@ export async function buildStructure(bot: Bot, structureName: string | undefined
     }
 
     // --- Step 4: Build ---
-    const signal = getActionAbort().signal;
+    const signal = getActionAbort(bot).signal;
 
     // Disable pathfinder digging during building — prevents the bot from
     // breaking through walls it just placed to reach the roof.
@@ -675,7 +679,7 @@ export async function buildStructure(bot: Bot, structureName: string | undefined
     } finally {
         // Always restore canDig, even on error/abort
         bot.pathfinder.movements.canDig = savedCanDig;
-        setSuppressPickups(false);
+        setSuppressPickups(bot, false);
     }
 
     // --- Step 5: Report ---

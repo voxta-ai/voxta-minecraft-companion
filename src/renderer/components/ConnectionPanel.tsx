@@ -14,6 +14,8 @@ interface SavedConfig {
     voxtaUrl?: string;
     voxtaApiKey?: string;
     lastCharacterId?: string;
+    lastCharacterId2?: string;
+    secondMcUsername?: string;
     mcOnly?: boolean;
 }
 
@@ -66,6 +68,8 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     const [mcUsername, setMcUsername] = createSignal(saved.mcUsername ?? '');
     const [playerMcName, setPlayerMcName] = createSignal(saved.playerMcUsername ?? '');
     const [selectedCharacterId, setSelectedCharacterId] = createSignal<string | null>(null);
+    const [selectedCharacterId2, setSelectedCharacterId2] = createSignal<string | null>(null);
+    const [secondMcUsername, setSecondMcUsername] = createSignal(saved.secondMcUsername ?? '');
     const [launching, setLaunching] = createSignal(false);
 
     // Scenario selection
@@ -178,13 +182,24 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         }
     });
 
-    // Autofill the bot name when the character changes (unless user edited)
+    // Autofill the bot names when the character changes (unless user edited)
     createEffect(() => {
         const charId = selectedCharacterId();
         if (charId && !userEditedBotName()) {
             const character = voxtaInfo.characters.find((c) => c.id === charId);
             if (character) {
                 setMcUsername(character.name);
+            }
+        }
+    });
+
+    const [userEditedBotName2, setUserEditedBotName2] = createSignal(false);
+    createEffect(() => {
+        const charId2 = selectedCharacterId2();
+        if (charId2 && !userEditedBotName2()) {
+            const character = voxtaInfo.characters.find((c) => c.id === charId2);
+            if (character) {
+                setSecondMcUsername(character.name);
             }
         }
     });
@@ -273,6 +288,8 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
             characterId: charId,
+            secondCharacterId: selectedCharacterId2() || undefined,
+            secondMcUsername: secondMcUsername() || undefined,
             scenarioId: selectedScenarioId(),
             chatId: selectedChatId(),
             perceptionIntervalMs: 3000,
@@ -282,11 +299,13 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcHost: mcHost(),
             mcPort: parseInt(mcPort(), 10) || 25565,
             mcUsername: mcUsername(),
+            secondMcUsername: secondMcUsername(),
             mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
             voxtaUrl: voxtaUrl().trim(),
             voxtaApiKey: apiKey().trim(),
             lastCharacterId: charId,
+            lastCharacterId2: selectedCharacterId2() || undefined,
         });
         setLaunching(true);
         try {
@@ -299,8 +318,10 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
     const handleDisconnect = async () => {
         setSelectedCharacterId(null);
+        setSelectedCharacterId2(null);
         setSelectedScenarioId(null);
         setUserEditedBotName(false);
+        setUserEditedBotName2(false);
         setUserEditedPlayerName(false);
         setPreviousChats([]);
         setSelectedChatId(null);
@@ -393,6 +414,27 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                             />
                         </div>
 
+                        <div class="field full-width">
+                            <label>Second Companion (Optional)</label>
+                            <CustomDropdown
+                                options={[
+                                    { value: '', label: 'None' },
+                                    ...displayCharacters()
+                                        .filter(char => char.id !== selectedCharacterId())
+                                        .map((char) => ({
+                                            value: char.id,
+                                            label: `${char.hasMcConfig ? '⛏️ ' : ''}${char.name}`,
+                                        }))
+                                ]}
+                                value={selectedCharacterId2() ?? ''}
+                                onChange={(val) => {
+                                    setSelectedCharacterId2(val || null);
+                                    setUserEditedBotName2(false);
+                                }}
+                                placeholder="Select a second character..."
+                            />
+                        </div>
+
                         {/* Scenario Selection */}
                         <div class="field full-width">
                             <label>Scenario</label>
@@ -478,7 +520,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                         </div>
 
                         <div class="field">
-                            <label>Bot Username</label>
+                            <label>Bot 1 Username</label>
                             <input
                                 type="text"
                                 value={mcUsername()}
@@ -488,8 +530,24 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                 }}
                                 placeholder="Character name"
                             />
-                            <span class="field-hint">The bot's name in Minecraft</span>
+                            <span class="field-hint">The primary bot's name in Minecraft</span>
                         </div>
+
+                        <div class="field">
+                            <label>Bot 2 Username (Optional)</label>
+                            <input
+                                type="text"
+                                value={secondMcUsername()}
+                                onInput={(e) => {
+                                    setSecondMcUsername(e.currentTarget.value);
+                                    setUserEditedBotName2(true);
+                                }}
+                                placeholder="Second character name..."
+                                disabled={!selectedCharacterId2()}
+                            />
+                            <span class="field-hint">The second bot's name in Minecraft</span>
+                        </div>
+
                         <div class="field">
                             <label>Your Voxta Name</label>
                             <input

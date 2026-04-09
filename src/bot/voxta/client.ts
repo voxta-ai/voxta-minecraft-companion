@@ -22,7 +22,7 @@ export class VoxtaClient {
     private _sessionId: string | null = null;
     private _chatId: string | null = null;
     private _authenticated = false;
-    private _characterAppConfig: Record<string, string> | undefined = undefined;
+    private _characterAppConfigs: Map<string, Record<string, string>> = new Map();
 
     get sessionId(): string | null {
         return this._sessionId;
@@ -36,8 +36,13 @@ export class VoxtaClient {
         return this._authenticated;
     }
 
+    get characterAppConfigs(): Map<string, Record<string, string>> {
+        return this._characterAppConfigs;
+    }
+
+    /** Convenience getter — app config of the first (primary) character */
     get characterAppConfig(): Record<string, string> | undefined {
-        return this._characterAppConfig;
+        return this._characterAppConfigs.values().next().value;
     }
 
     constructor(private config: CompanionConfig) {
@@ -111,11 +116,15 @@ export class VoxtaClient {
             const started = message as ServerChatStartedMessage;
             this._sessionId = started.sessionId;
             this._chatId = started.chatId;
-            // Capture the character's app configuration (e.g. skin asset)
-            const companion = started.characters[0];
-            this._characterAppConfig = companion?.appConfiguration;
-            if (this._characterAppConfig?.skin) {
-                console.log(`[Voxta] Character skin asset: ${this._characterAppConfig.skin}`);
+            // Capture each character's app configuration (e.g. skin asset) keyed by character ID
+            this._characterAppConfigs.clear();
+            for (const char of started.characters) {
+                if (char.appConfiguration) {
+                    this._characterAppConfigs.set(char.id, char.appConfiguration);
+                    if (char.appConfiguration.skin) {
+                        console.log(`[Voxta] Character ${char.name} skin asset: ${char.appConfiguration.skin}`);
+                    }
+                }
             }
             console.log(`[Voxta] Chat started (session: ${started.sessionId}, chat: ${started.chatId})`);
             // Enable inspector so contextUpdated includes contexts & actions
@@ -202,14 +211,17 @@ export class VoxtaClient {
     }
 
     async startChat(
-        characterId: string,
+        characterIds: string[],
         chatId?: string,
         scenarioId?: string,
         initialContext?: { contextKey: string; contexts: ContextDefinition[]; actions?: ScenarioAction[] },
     ): Promise<void> {
         const message: ClientStartChatMessage = {
             $type: 'startChat',
-            characterId,
+            // Use the array form for multi-char sessions, single-char form for backward compat
+            ...(characterIds.length === 1
+                ? { characterId: characterIds[0] }
+                : { characterIds }),
             chatId,
             scenarioId,
             contextKey: initialContext?.contextKey,
@@ -262,14 +274,14 @@ export class VoxtaClient {
         });
     }
 
-    async updateContext(contexts: ContextDefinition[], actions?: ScenarioAction[]): Promise<void> {
+    async updateContext(contextKey: string, contexts: ContextDefinition[], actions?: ScenarioAction[]): Promise<void> {
         if (!this._sessionId) {
             return;
         }
         await this.send({
             $type: 'updateContext',
             sessionId: this._sessionId,
-            contextKey: 'minecraft',
+            contextKey,
             contexts,
             actions,
         });

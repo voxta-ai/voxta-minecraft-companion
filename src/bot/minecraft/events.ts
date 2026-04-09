@@ -72,6 +72,8 @@ export class McEventBridge {
         private readonly callbacks: McEventCallbacks,
         private readonly getFollowingPlayer: () => string | null,
         private readonly onAutoDefenseAction: (botInstance: Bot, mobName: string) => Promise<void>,
+        private readonly allBotUsernames: Set<string> = new Set(),
+        private readonly skipChatBridging = false,
     ) {
         this.lastHealth = bot.health;
         this.registerListeners();
@@ -251,7 +253,7 @@ export class McEventBridge {
             // NEVER auto-defend against the player we're following — accidental hits happen
             // Skip if aggro/hunt/guard mode is handling combat (global flag) or we started defense
             // Also skip if any combat is already active (AI-directed mc_attack, mode scans, etc.)
-            if (settings.enableAutoDefense && !this.isAutoDefending && !isAutoDefending() && !getCurrentCombatTarget() && getBotMode() === 'passive') {
+            if (settings.enableAutoDefense && !this.isAutoDefending && !isAutoDefending(this.bot) && !getCurrentCombatTarget(this.bot) && getBotMode(this.bot) === 'passive') {
                 let targetName: string | null = null;
                 if (hostileMob) {
                     targetName = hostileMob.name ?? 'unknown';
@@ -265,12 +267,12 @@ export class McEventBridge {
                 }
                 if (targetName) {
                     this.isAutoDefending = true;
-                    setAutoDefending(true);
+                    setAutoDefending(this.bot, true);
                     const botName = this.callbacks.getAssistantName();
                     this.callbacks.onChat('action', 'Action', `${botName} auto-defending against ${targetName}!`);
                     void this.onAutoDefenseAction(this.bot, targetName).finally(() => {
                         this.isAutoDefending = false;
-                        setAutoDefending(false);
+                        setAutoDefending(this.bot, false);
                     });
                 }
             }
@@ -309,7 +311,7 @@ export class McEventBridge {
             const mobName = attacker.name ?? 'unknown';
             const playerName = entity.username ?? entity.displayName ?? 'player';
             this.isAutoDefending = true;
-            setAutoDefending(true);
+            setAutoDefending(this.bot, true);
             const botName = this.callbacks.getAssistantName();
             const voxtaName = this.names.resolveToVoxta(playerName);
             const msg = `[URGENT] ${voxtaName} is being attacked by a ${mobName}! ${botName} is rushing to protect them.`;
@@ -322,7 +324,7 @@ export class McEventBridge {
             }
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
-                setAutoDefending(false);
+                setAutoDefending(this.bot, false);
             });
         }) as (...args: never[]) => void);
 
@@ -334,7 +336,7 @@ export class McEventBridge {
 
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoDefense) return;
-            if (this.isAutoDefending || isAutoDefending() || getCurrentCombatTarget()) return;
+            if (this.isAutoDefending || isAutoDefending(this.bot) || getCurrentCombatTarget(this.bot)) return;
 
             // Find the player we're following
             const followingPlayer = this.getFollowingPlayer();
@@ -370,10 +372,10 @@ export class McEventBridge {
             this.callbacks.onChat('action', 'Action', `${botName} is joining the fight against ${mobName}!`);
 
             this.isAutoDefending = true;
-            setAutoDefending(true);
+            setAutoDefending(this.bot, true);
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
-                setAutoDefending(false);
+                setAutoDefending(this.bot, false);
             });
         }) as (...args: never[]) => void);
 
@@ -389,8 +391,8 @@ export class McEventBridge {
         this.proximityScanTimer = setInterval(() => {
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoDefense) return;
-            if (this.isAutoDefending || isAutoDefending() || getCurrentCombatTarget()) return;
-            if (getBotMode() !== 'passive') return; // aggro/hunt/guard handle their own scanning
+            if (this.isAutoDefending || isAutoDefending(this.bot) || getCurrentCombatTarget(this.bot)) return;
+            if (getBotMode(this.bot) !== 'passive') return; // aggro/hunt/guard handle their own scanning
             if (this.bot.health <= 6) return; // don't attack at critical health — kite instead
 
             const pos = this.bot.entity.position;
@@ -410,10 +412,10 @@ export class McEventBridge {
             const mobName = threat.name ?? 'unknown';
             console.log(`[Bot] Proximity defense: ${mobName} is right next to us, attacking!`);
             this.isAutoDefending = true;
-            setAutoDefending(true);
+            setAutoDefending(this.bot, true);
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
-                setAutoDefending(false);
+                setAutoDefending(this.bot, false);
             });
         }, 1000);
 
@@ -497,7 +499,7 @@ export class McEventBridge {
             }
             pendingPickups.clear();
             // During fishing, the fishing callback handles catch notifications
-            if (getCurrentActivity() === 'fishing') return;
+            if (getCurrentActivity(this.bot) === 'fishing') return;
             this.callbacks.onChat('note', 'Note', `${botName} picked up ${parts.join(', ')}`);
             this.callbacks.onNote(`${botName} picked up ${parts.join(', ')}`);
         };
@@ -528,7 +530,7 @@ export class McEventBridge {
 
                 // Skip during crafting/equipping — update snapshot so items
                 // don't double-report when suppression ends
-                if (isPickupSuppressed()) {
+                if (isPickupSuppressed(this.bot)) {
                     lastInventorySnapshot = takeSnapshot();
                     return;
                 }
@@ -556,7 +558,7 @@ export class McEventBridge {
                 // Detect tool/weapon/armor breaks — item disappeared from inventory.
                 // Guards: skip during death (items lost) and suppression (give/toss/craft).
                 // The only unsuppressed case where a tool count drops to 0 is a real durability break.
-                if (!this.died && !isPickupSuppressed()) {
+                if (!this.died && !isPickupSuppressed(this.bot)) {
                     const BREAKABLE_SUFFIXES = [
                         '_pickaxe', '_sword', '_axe', '_shovel', '_hoe',
                         '_helmet', '_chestplate', '_leggings', '_boots',
@@ -601,55 +603,61 @@ export class McEventBridge {
         // Store for cleanup
         this.pickupCheckTimer = pickupCheckTimer;
 
-        // ---- Log ALL server messages (command output, death msgs, system announcements) ----
-        this.on('message', ((jsonMsg: { toString: () => string }) => {
-            const message = jsonMsg.toString();
-            if (!message || message.startsWith(`<${this.bot.username}>`)) return;
-            console.log(`[MC Server] ${message}`);
-        }) as (...args: never[]) => void);
+        // ---- Chat bridging (only on primary bot — both bots see the same MC chat) ----
+        if (!this.skipChatBridging) {
+            // ---- Log ALL server messages (command output, death msgs, system announcements) ----
+            this.on('message', ((jsonMsg: { toString: () => string }) => {
+                const message = jsonMsg.toString();
+                if (!message) return;
+                // Skip messages from any of our bots (not just this one)
+                for (const name of this.allBotUsernames) {
+                    if (message.startsWith(`<${name}>`)) return;
+                }
+                console.log(`[MC Server] ${message}`);
+            }) as (...args: never[]) => void);
 
-        // ---- Chat bridging ----
-        this.on('chat', ((username: string, message: string) => {
-            console.log(`[MC Chat] <${username ?? 'server'}> ${message}`);
-            if (!username || username === this.bot.username) return;
-            const settings = this.callbacks.getSettings();
-            if (!settings.enableNoteChat) return;
+            this.on('chat', ((username: string, message: string) => {
+                console.log(`[MC Chat] <${username ?? 'server'}> ${message}`);
+                if (!username || this.allBotUsernames.has(username)) return;
+                const settings = this.callbacks.getSettings();
+                if (!settings.enableNoteChat) return;
 
-            // Skip SkinsRestorer system messages — these come from the server
-            // when applying or changing skins and shouldn't be forwarded to the AI.
-            const isSkinsRestorerMsg = /^(Uploading skin|Your skin has been changed|You can change your skin again in|Skin data updated|Failed to set skin)/i.test(message);
-            if (isSkinsRestorerMsg) {
-                this.callbacks.onChat('system', 'SkinsRestorer', message);
-                return; // Don't forward to AI
-            }
+                // Skip SkinsRestorer system messages — these come from the server
+                // when applying or changing skins and shouldn't be forwarded to the AI.
+                const isSkinsRestorerMsg = /^(Uploading skin|Your skin has been changed|You can change your skin again in|Skin data updated|Failed to set skin)/i.test(message);
+                if (isSkinsRestorerMsg) {
+                    this.callbacks.onChat('system', 'SkinsRestorer', message);
+                    return; // Don't forward to AI
+                }
 
-            // Skip Minecraft command output (cheat codes like /give, /tp, /summon, etc.)
-            // These come through the 'chat' event attributed to the player who ran the
-            // command, but aren't actual player messages. Command feedback always follows
-            // predictable patterns: "Verb + rest" (e.g. "Summoned new Skeleton",
-            // "Teleported Emptyngton to 0, 64, 0", "Set the time to 1000").
-            const isCommandOutput = /^(Gave|Teleported|Summoned|Killed|Applied|Enchanted|Cleared|Set |Added |Removed |Changed |Filled |Cloned |Played |Stopped |Enabled |Disabled |Made |Nothing |Data |Gamerule |\[Server])/i.test(message);
-            if (isCommandOutput) {
-                const cleanMsg = message.replace(/^\[|]$/g, '');
-                this.callbacks.onChat('system', 'System', cleanMsg);
-                return; // Don't forward to AI
-            }
+                // Skip Minecraft command output (cheat codes like /give, /tp, /summon, etc.)
+                // These come through the 'chat' event attributed to the player who ran the
+                // command, but aren't actual player messages. Command feedback always follows
+                // predictable patterns: "Verb + rest" (e.g. "Summoned new Skeleton",
+                // "Teleported Emptyngton to 0, 64, 0", "Set the time to 1000").
+                const isCommandOutput = /^(Gave|Teleported|Summoned|Killed|Applied|Enchanted|Cleared|Set |Added |Removed |Changed |Filled |Cloned |Played |Stopped |Enabled |Disabled |Made |Nothing |Data |Gamerule |\[Server])/i.test(message);
+                if (isCommandOutput) {
+                    const cleanMsg = message.replace(/^\[|]$/g, '');
+                    this.callbacks.onChat('system', 'System', cleanMsg);
+                    return; // Don't forward to AI
+                }
 
-            const voxtaName = this.names.resolveToVoxta(username);
-            const resolvedMsg = this.names.resolveNamesInText(message);
-            this.callbacks.onChat('player', voxtaName, resolvedMsg);
-            this.callbacks.onPlayerChat(resolvedMsg);
-        }) as (...args: never[]) => void);
+                const voxtaName = this.names.resolveToVoxta(username);
+                const resolvedMsg = this.names.resolveNamesInText(message);
+                this.callbacks.onChat('player', voxtaName, resolvedMsg);
+                this.callbacks.onPlayerChat(resolvedMsg);
+            }) as (...args: never[]) => void);
 
-        this.on('whisper', ((username: string, message: string) => {
-            if (username === this.bot.username) return;
-            const settings = this.callbacks.getSettings();
-            if (!settings.enableNoteChat) return;
-            const voxtaName = this.names.resolveToVoxta(username);
-            const resolvedMsg = this.names.resolveNamesInText(message);
-            this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
-            this.callbacks.onPlayerChat(resolvedMsg);
-        }) as (...args: never[]) => void);
+            this.on('whisper', ((username: string, message: string) => {
+                if (this.allBotUsernames.has(username)) return;
+                const settings = this.callbacks.getSettings();
+                if (!settings.enableNoteChat) return;
+                const voxtaName = this.names.resolveToVoxta(username);
+                const resolvedMsg = this.names.resolveNamesInText(message);
+                this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
+                this.callbacks.onPlayerChat(resolvedMsg);
+            }) as (...args: never[]) => void);
+        }
     }
 
     /** Send accumulated damage as a single note and start cooldown */
@@ -715,7 +723,7 @@ export class McEventBridge {
         this.autoLookLoop = setInterval(() => {
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoLook) return;
-            if (isActionBusy()) return;
+            if (isActionBusy(this.bot)) return;
             if (this.getFollowingPlayer()) return; // Pathfinder handles looking during follow
 
             const nearestPlayer = Object.values(this.bot.entities).find(

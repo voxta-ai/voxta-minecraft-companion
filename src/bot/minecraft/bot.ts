@@ -11,6 +11,8 @@ export interface MinecraftBot {
     disconnect(): void;
     /** Set the Mojang texture URL to apply via SkinsRestorer on spawn. */
     setSkinUrl(url: string | null): void;
+    /** Set a companion bot reference so the pathfinder avoids overlapping with it. */
+    setCompanion(companion: mineflayer.Bot | null): void;
 }
 
 export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
@@ -19,6 +21,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
     let pendingSkinUrl: string | null = null;
     let botSpawned = false;
     let skinApplied = false;
+    let companionBot: mineflayer.Bot | null = null;
 
     const bot = mineflayer.createBot({
         host: config.mc.host,
@@ -124,6 +127,22 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                 return 0;
             }];
         }
+
+        // Companion bot exclusion zone — avoid walking into the other bot's position.
+        // Uses a closure over companionBot so it works even when set after spawn.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        defaultMovements.exclusionAreasStep.push((block: any) => {
+            if (!companionBot) return 0;
+            const p = block.position;
+            if (!p) return 0;
+            const cp = companionBot.entity?.position;
+            if (!cp) return 0;
+            const dx = Math.abs(p.x - Math.floor(cp.x));
+            const dz = Math.abs(p.z - Math.floor(cp.z));
+            // Blocks within 1 block of the companion get heavy cost penalty
+            if (dx <= 1 && dz <= 1) return 80;
+            return 0;
+        });
 
         bot.pathfinder.setMovements(defaultMovements);
 
@@ -292,14 +311,14 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             const isInWater = (bot.entity as unknown as { isInWater?: boolean }).isInWater;
             if (isInWater) {
                 if (!wasSwimming) {
-                    console.log('[Bot] Entered water — auto-swimming');
+                    console.log(`[${bot.username}] Entered water — auto-swimming`);
                     wasSwimming = true;
                 }
                 bot.setControlState('jump', true);
             } else if (wasSwimming) {
                 bot.setControlState('jump', false);
                 wasSwimming = false;
-                console.log('[Bot] Left water — stopped swimming');
+                console.log(`[${bot.username}] Left water — stopped swimming`);
             }
         });
 
@@ -517,6 +536,9 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         },
         disconnect(): void {
             bot.quit('Companion shutting down');
+        },
+        setCompanion(companion: mineflayer.Bot | null): void {
+            companionBot = companion;
         },
         setSkinUrl(url: string | null): void {
             pendingSkinUrl = url;

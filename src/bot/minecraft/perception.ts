@@ -2,7 +2,7 @@ import type { Bot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import { BED_BLOCKS } from './game-data';
-import { getCurrentActivity, getBotMode, getHomePosition } from './actions';
+import { getCurrentActivity, getBotMode, getHomePosition } from './actions/action-state.js';
 
 export interface WorldState {
     position: { x: number; y: number; z: number };
@@ -24,6 +24,8 @@ export interface WorldState {
     nearbyBlocks: string[];
     shelter: string;
     currentActivity: string | null;
+    botMode: string;
+    homePosition: { x: number; y: number; z: number } | null;
     movement: string;
     oxygenLevel: number;
     isSleeping: boolean;
@@ -188,13 +190,11 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     };
 
     let hasRoof = false;
-    let roofBlockName = '';
     try {
         for (let dy = 1; dy <= 6; dy++) {
             const above = bot.blockAt(pos.offset(0, dy, 0));
             if (above && above.name !== 'air' && above.name !== 'cave_air') {
                 hasRoof = true;
-                roofBlockName = above.name;
                 break;
             }
         }
@@ -350,7 +350,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         inventorySummary,
         nearbyBlocks,
         shelter,
-        currentActivity: getCurrentActivity(),
+        currentActivity: getCurrentActivity(bot),
+        botMode: getBotMode(bot),
+        homePosition: getHomePosition(bot),
         movement,
         oxygenLevel: bot.oxygenLevel ?? 20,
         isSleeping: bot.isSleeping,
@@ -437,7 +439,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     lines.push(`${who}'s current activity: ${activity}`);
 
     // Behavior mode
-    const mode = getBotMode();
+    const mode = state.botMode;
     if (mode !== 'passive') {
         let modeDesc: string;
         if (mode === 'aggro') {
@@ -451,7 +453,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     }
 
     // Home status
-    const home = getHomePosition();
+    const home = state.homePosition;
     if (home) {
         const dx = state.position.x - home.x;
         const dz = state.position.z - home.z;
