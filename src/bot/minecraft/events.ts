@@ -5,6 +5,7 @@ import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
 import { isActionBusy, getCurrentActivity } from './actions';
 import { isPickupSuppressed, setAutoDefending, isAutoDefending, getBotMode, getCurrentCombatTarget } from './actions/action-state.js';
+import { hasLineOfSight } from './perception';
 import { FOOD_ITEMS } from './game-data';
 
 // ---- Callback interface ----
@@ -204,6 +205,8 @@ export class McEventBridge {
                 if (e === this.bot.entity || !isHostileEntity(e)) continue;
                 const d = e.position.distanceTo(this.bot.entity.position);
                 if (d < 28 && Math.abs(e.position.y - this.bot.entity.position.y) < 16 && d < hostileDist) {
+                    // Skip mobs behind solid walls — they aren't the real attacker
+                    if (!hasLineOfSight(this.bot, e)) continue;
                     hostileMob = e;
                     hostileDist = d;
                 }

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
-import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
+import { readWorldState, buildContextStrings, hasLineOfSight } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, initHomePosition, resumeFollowPlayer } from '../bot/minecraft/action-dispatcher';
 import { loadCustomBlueprints } from '../bot/minecraft/blueprints/index.js';
@@ -1148,6 +1148,8 @@ export class BotEngine extends EventEmitter {
                     // Within 16 blocks of bot AND within 20 blocks of player (leash)
                     if (d < 16 && d < nearestDist) {
                         if (player && e.position.distanceTo(player.position) > 20) continue;
+                        // Skip mobs behind solid walls (e.g. in adjacent cave systems)
+                        if (!hasLineOfSight(bot, e)) continue;
                         nearestHostile = e;
                         nearestDist = d;
                     }
@@ -1231,6 +1233,8 @@ export class BotEngine extends EventEmitter {
                     // Within 12 blocks of bot AND within 20 blocks of player (leash)
                     if (d < 12 && d < nearestDist) {
                         if (player && e.position.distanceTo(player.position) > 20) continue;
+                        // Skip animals behind solid walls
+                        if (!hasLineOfSight(bot, e)) continue;
                         nearestAnimal = e;
                         nearestDist = d;
                     }
@@ -1297,6 +1301,8 @@ export class BotEngine extends EventEmitter {
                     if (GUARD_NEUTRAL.includes(name)) continue;
                     const d = e.position.distanceTo(pos);
                     if (d < 16 && d < nearestDist) {
+                        // Skip mobs behind solid walls
+                        if (!hasLineOfSight(bot, e)) continue;
                         nearestHostile = e;
                         nearestDist = d;
                     }

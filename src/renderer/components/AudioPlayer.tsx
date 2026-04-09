@@ -102,7 +102,11 @@ export default function AudioPlayer() {
         // --- Audio input (mic streaming) ---
         const audioInput = new AudioInputService();
 
+        // Track whether the server wants recording enabled (independent of user mute)
+        let serverRecordingEnabled = false;
+
         const unsubRecordingStart = window.api.onRecordingStart((event: RecordingStartEvent) => {
+            serverRecordingEnabled = true;
             if (!micMuted()) {
                 audioInput.handleRecordingRequest(true, event.sessionId, event.voxtaBaseUrl, event.voxtaApiKey);
                 setMicStatus('listening');
@@ -114,13 +118,27 @@ export default function AudioPlayer() {
         });
 
         const unsubRecordingStop = window.api.onRecordingStop(() => {
+            serverRecordingEnabled = false;
             audioInput.handleRecordingRequest(false, audioInput.sessionId ?? '', '', null);
             setMicStatus('paused');
             setSpeechPartialText('');
         });
 
+        let speechActiveTimeout: ReturnType<typeof setTimeout> | null = null;
+
         const unsubSpeechPartial = window.api.onSpeechPartial((text: string) => {
             setSpeechPartialText(text);
+            if (text && !micMuted()) {
+                // Speech detected — show active state
+                if (speechActiveTimeout) clearTimeout(speechActiveTimeout);
+                setMicStatus('active');
+                // Auto-revert to listening after 1.5s of no new partials
+                speechActiveTimeout = setTimeout(() => {
+                    if (!micMuted() && audioInput.enabled && !audioInput.paused) {
+                        setMicStatus('listening');
+                    }
+                }, 1500);
+            }
         });
 
         // React to mic mute toggle
@@ -129,7 +147,8 @@ export default function AudioPlayer() {
             if (muted && audioInput.enabled && !audioInput.paused) {
                 audioInput.pauseStreaming();
                 setMicStatus('paused');
-            } else if (!muted && audioInput.enabled && audioInput.paused) {
+            } else if (!muted && audioInput.enabled && audioInput.paused && serverRecordingEnabled) {
+                // Only resume if server actually wants recording (not during bot speech)
                 audioInput.resumeStreaming();
                 setMicStatus('listening');
             }
@@ -158,6 +177,7 @@ export default function AudioPlayer() {
             unsubRecordingStart();
             unsubRecordingStop();
             unsubSpeechPartial();
+            if (speechActiveTimeout) clearTimeout(speechActiveTimeout);
             audioInput.dispose();
             engine.dispose();
             setMicStatus('off');

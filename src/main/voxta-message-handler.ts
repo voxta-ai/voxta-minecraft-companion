@@ -303,6 +303,9 @@ function handleSpeechRecognitionPartial(message: ServerMessage, ctx: MessageHand
 function handleSpeechRecognitionEnd(message: ServerMessage, ctx: MessageHandlerContext): void {
     const text = (message as { text?: string }).text;
     console.log(`[User >>] said: "${text ?? '(empty)'}"`);
+    // Clear the partial text immediately so it doesn't linger in the input field
+    // alongside the finalized chat bubble
+    ctx.emit('speech-partial', '');
     if (text) {
         resetActionFired();
         ctx.addChat('player', `You (voice)`, text);

@@ -9,11 +9,16 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
     // Find cookable item
     let rawItem;
     if (itemName) {
-        rawItem = items.find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()) && i.name in COOKABLE_ITEMS);
-        if (!rawItem) {
-            // Maybe they gave us the exact name
-            rawItem = items.find((i) => i.name in COOKABLE_ITEMS && i.name.includes(itemName.toLowerCase()));
-        }
+        const normalized = itemName.toLowerCase().replace(/ /g, '_');
+        // Strip "raw_" prefix — Minecraft names are just "porkchop", "beef", etc.
+        const stripped = normalized.replace(/^raw_/, '');
+        rawItem = items.find((i) => i.name in COOKABLE_ITEMS && (
+            i.name === normalized ||
+            i.name === stripped ||
+            i.name.includes(normalized) ||
+            i.name.includes(stripped) ||
+            normalized.includes(i.name)
+        ));
         if (!rawItem) return `Checked inventory but has no cookable ${itemName}`;
     } else {
         rawItem = items.find((i) => i.name in COOKABLE_ITEMS);

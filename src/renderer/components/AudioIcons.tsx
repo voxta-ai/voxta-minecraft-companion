@@ -10,13 +10,20 @@ import {
 
 /**
  * Mic + Speaker toggle buttons for the chat input bar.
- * Mirrors voxta-talk's RecordingIcon.tsx visual states using Bootstrap Icons.
+ *
+ * Mic states:
+ *   disabled  — user muted the mic (gray, mute icon)
+ *   paused    — bot speaking / server stopped recording (amber, outline icon)
+ *   listening — ready, waiting for speech (soft blue, filled icon)
+ *   active    — user speaking, audio being captured (bright cyan, pulse animation)
  */
 export default function AudioIcons() {
     // ---- Mic icon logic ----
     const micIconClass = createMemo(() => {
-        if (micMuted()) return 'bi-mic-mute';
+        if (micMuted()) return 'bi-mic-mute-fill';
         switch (micStatus()) {
+            case 'active':
+                return 'bi-mic-fill';
             case 'listening':
                 return 'bi-mic-fill';
             case 'paused':
@@ -29,22 +36,26 @@ export default function AudioIcons() {
     const micColorClass = createMemo(() => {
         if (micMuted()) return 'audio-icon-disabled';
         switch (micStatus()) {
+            case 'active':
+                return 'audio-icon-speaking';
             case 'listening':
-                return 'audio-icon-active';
+                return 'audio-icon-listening';
             case 'paused':
-                return 'audio-icon-on';
+                return 'audio-icon-paused';
             default:
                 return 'audio-icon-disabled';
         }
     });
 
     const micTitle = createMemo(() => {
-        if (micMuted()) return 'Microphone muted (click to unmute)';
+        if (micMuted()) return 'Microphone disabled (click to enable)';
         switch (micStatus()) {
+            case 'active':
+                return 'Speaking... (click to disable)';
             case 'listening':
-                return 'Listening... (click to mute)';
+                return 'Listening for speech (click to disable)';
             case 'paused':
-                return 'Microphone paused (click to mute)';
+                return 'Microphone paused — waiting for bot (click to disable)';
             default:
                 return 'Microphone off';
         }
@@ -52,7 +63,7 @@ export default function AudioIcons() {
 
     // ---- Speaker icon logic ----
     const speakerIconClass = createMemo(() => {
-        if (speakerMuted()) return 'bi-volume-mute';
+        if (speakerMuted()) return 'bi-volume-mute-fill';
         switch (speakerStatus()) {
             case 'playing':
                 return 'bi-volume-up-fill';
@@ -65,19 +76,19 @@ export default function AudioIcons() {
         if (speakerMuted()) return 'audio-icon-disabled';
         switch (speakerStatus()) {
             case 'playing':
-                return 'audio-icon-active';
+                return 'audio-icon-playing';
             default:
-                return 'audio-icon-on';
+                return 'audio-icon-paused';
         }
     });
 
     const speakerTitle = createMemo(() => {
-        if (speakerMuted()) return 'Speaker muted (click to unmute)';
+        if (speakerMuted()) return 'Speaker disabled (click to enable)';
         switch (speakerStatus()) {
             case 'playing':
-                return 'Playing audio... (click to mute)';
+                return 'Playing audio... (click to disable)';
             default:
-                return 'Speaker on (click to mute)';
+                return 'Speaker on (click to disable)';
         }
     });
 
