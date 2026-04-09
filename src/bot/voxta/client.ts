@@ -204,12 +204,14 @@ export class VoxtaClient {
     async startChat(
         characterId: string,
         chatId?: string,
+        scenarioId?: string,
         initialContext?: { contextKey: string; contexts: ContextDefinition[]; actions?: ScenarioAction[] },
     ): Promise<void> {
         const message: ClientStartChatMessage = {
             $type: 'startChat',
             characterId,
             chatId,
+            scenarioId,
             contextKey: initialContext?.contextKey,
             contexts: initialContext?.contexts,
             actions: initialContext?.actions,

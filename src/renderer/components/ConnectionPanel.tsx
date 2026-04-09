@@ -1,6 +1,6 @@
 import { createSignal, createMemo, Show, For, createEffect } from 'solid-js';
 import { status, connectVoxta, launchBot, disconnect, voxtaInfo, refreshCharacters } from '../stores/app-store';
-import type { BotConfig, CharacterInfo, ChatListItem, VoxtaConnectConfig } from '../../shared/ipc-types';
+import type { BotConfig, CharacterInfo, ChatListItem, ScenarioInfo, VoxtaConnectConfig } from '../../shared/ipc-types';
 import CustomDropdown from './CustomDropdown';
 
 const STORAGE_KEY = 'voxta-mc-config';
@@ -14,6 +14,7 @@ interface SavedConfig {
     voxtaUrl?: string;
     voxtaApiKey?: string;
     lastCharacterId?: string;
+    mcOnly?: boolean;
 }
 
 function loadSavedConfig(): SavedConfig {
@@ -67,6 +68,11 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     const [selectedCharacterId, setSelectedCharacterId] = createSignal<string | null>(null);
     const [launching, setLaunching] = createSignal(false);
 
+    // Scenario selection
+    const [scenarios, setScenarios] = createSignal<ScenarioInfo[]>([]);
+    const [selectedScenarioId, setSelectedScenarioId] = createSignal<string | null>(null);
+    const [loadingScenarios, setLoadingScenarios] = createSignal(false);
+
     // Chat selection
     const [previousChats, setPreviousChats] = createSignal<ChatListItem[]>([]);
     const [loadingChats, setLoadingChats] = createSignal(false);
@@ -118,8 +124,8 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         });
     });
 
-    // MC-only filter
-    const [mcOnly, setMcOnly] = createSignal(false);
+    // MC-only filter (persisted)
+    const [mcOnly, setMcOnly] = createSignal(saved.mcOnly ?? false);
     const displayCharacters = createMemo((): CharacterInfo[] => {
         const all = sortedCharacters();
         if (!mcOnly()) return all;
@@ -128,12 +134,15 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
     // Refresh characters
     const [refreshing, setRefreshing] = createSignal(false);
-    const handleRefreshCharacters = async (): Promise<void> => {
+    const handleRefresh = async (): Promise<void> => {
         setRefreshing(true);
         try {
-            await refreshCharacters();
+            await Promise.all([
+                refreshCharacters(),
+                window.api.loadScenarios().then((list) => setScenarios(list)),
+            ]);
         } catch (err) {
-            console.error('Failed to refresh characters:', err);
+            console.error('Failed to refresh:', err);
         } finally {
             setRefreshing(false);
         }
@@ -147,6 +156,18 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             setSelectedCharacterId(
                 savedExists ? savedId : (voxtaInfo.defaultAssistantId ?? voxtaInfo.characters[0]?.id ?? null),
             );
+        }
+    });
+
+    // Fetch scenarios when Voxta connects
+    createEffect(() => {
+        if (isVoxtaConnected()) {
+            setLoadingScenarios(true);
+            window.api
+                .loadScenarios()
+                .then((list) => setScenarios(list))
+                .catch((err) => console.error('[UI] Failed to load scenarios:', err))
+                .finally(() => setLoadingScenarios(false));
         }
     });
 
@@ -166,6 +187,21 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                 setMcUsername(character.name);
             }
         }
+    });
+
+    // Filter scenarios by MC only toggle
+    const displayScenarios = createMemo(() => {
+        const all = scenarios();
+        if (!mcOnly()) return all;
+        return all.filter((s) => s.client === 'Voxta.Minecraft');
+    });
+
+    // Filter chats by the selected scenario
+    const filteredChats = createMemo((): ChatListItem[] => {
+        const scenarioId = selectedScenarioId();
+        const chats = previousChats();
+        if (!scenarioId) return chats;
+        return chats.filter((c) => c.scenarioId === scenarioId);
     });
 
     // Load previous chats when the character changes
@@ -189,6 +225,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     createEffect(() => {
         const charId = selectedCharacterId();
         if (charId && isVoxtaConnected()) {
+            setSelectedScenarioId(null);
             setSelectedChatId(null);
             setPreviousChats([]);
             refreshChats();
@@ -236,6 +273,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
             characterId: charId,
+            scenarioId: selectedScenarioId(),
             chatId: selectedChatId(),
             perceptionIntervalMs: 3000,
             entityRange: 32,
@@ -261,10 +299,12 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
     const handleDisconnect = async () => {
         setSelectedCharacterId(null);
+        setSelectedScenarioId(null);
         setUserEditedBotName(false);
         setUserEditedPlayerName(false);
         setPreviousChats([]);
         setSelectedChatId(null);
+        setScenarios([]);
         await disconnect();
     };
 
@@ -317,9 +357,9 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                 <div class="field-label-row-actions">
                                     <button
                                         class="char-refresh-btn"
-                                        title="Refresh character list"
+                                        title="Refresh characters and scenarios"
                                         disabled={refreshing()}
-                                        onClick={handleRefreshCharacters}
+                                        onClick={handleRefresh}
                                     >
                                         {refreshing() ? '⏳' : '🔄'}
                                     </button>
@@ -328,7 +368,11 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                             <input
                                                 type="checkbox"
                                                 checked={mcOnly()}
-                                                onChange={(e) => setMcOnly(e.currentTarget.checked)}
+                                                onChange={(e) => {
+                                                    const checked = e.currentTarget.checked;
+                                                    setMcOnly(checked);
+                                                    saveConfig({ ...loadSavedConfig(), mcOnly: checked });
+                                                }}
                                             />
                                             <span class="mc-only-label">⛏️ MC only</span>
                                         </label>
@@ -349,6 +393,34 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                             />
                         </div>
 
+                        {/* Scenario Selection */}
+                        <div class="field full-width">
+                            <label>Scenario</label>
+                            <Show when={loadingScenarios()}>
+                                <span class="field-hint">Loading scenarios...</span>
+                            </Show>
+                            <Show when={!loadingScenarios()}>
+                                <CustomDropdown
+                                    options={[
+                                        { value: '', label: "None (Use Character's Scenario)" },
+                                        ...displayScenarios().map((s) => ({
+                                            value: s.id,
+                                            label: `${s.client === 'Voxta.Minecraft' ? '⛏️ ' : ''}${s.name}`,
+                                        })),
+                                    ]}
+                                    value={selectedScenarioId() ?? ''}
+                                    onChange={(val) => {
+                                        setSelectedScenarioId(val || null);
+                                        setSelectedChatId(null);
+                                    }}
+                                    placeholder="Select a scenario..."
+                                />
+                                <span class="field-hint">
+                                    Override the character's default scenario (e.g. custom Minecraft rules)
+                                </span>
+                            </Show>
+                        </div>
+
                         {/* Chat Selection */}
                         <div class="field full-width">
                             <label>Chat</label>
@@ -364,9 +436,9 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                         <span class="chat-list-icon">✨</span>
                                         <span class="chat-list-label">New Chat</span>
                                     </div>
-                                    <For each={previousChats()}>
+                                    <For each={filteredChats()}>
                                         {(chat, index) => {
-                                            const sessionNumber = previousChats().length - index();
+                                            const sessionNumber = filteredChats().length - index();
                                             const displayName = chat.title ?? `Session #${sessionNumber}`;
                                             return (
                                                 <div

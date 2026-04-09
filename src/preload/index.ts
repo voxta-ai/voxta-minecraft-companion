@@ -8,6 +8,7 @@ import type {
     ChatMessage,
     ActionToggle,
     ChatListItem,
+    ScenarioInfo,
     ToastMessage,
     McSettings,
     AudioChunk,
@@ -53,6 +54,8 @@ const api = {
 
     loadChats: (characterId: string): Promise<ChatListItem[]> =>
         ipcRenderer.invoke(IPC_CHANNELS.LOAD_CHATS, characterId),
+
+    loadScenarios: (): Promise<ScenarioInfo[]> => ipcRenderer.invoke(IPC_CHANNELS.LOAD_SCENARIOS),
 
     favoriteChat: (chatId: string, favorite: boolean): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.FAVORITE_CHAT, chatId, favorite),

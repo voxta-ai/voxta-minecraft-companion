@@ -126,6 +126,10 @@ export function registerIpcHandlers(win: BrowserWindow): void {
         return engine.loadChats(characterId);
     });
 
+    ipcMain.handle(IPC_CHANNELS.LOAD_SCENARIOS, async () => {
+        return engine.loadScenarios();
+    });
+
     ipcMain.handle(IPC_CHANNELS.FAVORITE_CHAT, async (_event, chatId: string, favorite: boolean) => {
         return engine.favoriteChat(chatId, favorite);
     });

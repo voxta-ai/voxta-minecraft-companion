@@ -27,6 +27,7 @@ import type {
     ActionToggle,
     CharacterInfo,
     ChatListItem,
+    ScenarioInfo,
     ToastMessage,
     ToastType,
     McSettings,
@@ -69,6 +70,7 @@ export class BotEngine extends EventEmitter {
     private eventBridge: McEventBridge | null = null;
     private assistantName: string | null = null;
     private activeCharacterId: string | null = null;
+    private activeScenarioId: string | null = null;
     private currentReply = '';
     private messageCounter = 0;
     private actionToggles: Map<string, boolean> = new Map();
@@ -468,6 +470,26 @@ export class BotEngine extends EventEmitter {
         };
     }
 
+    // ---- Load scenarios ----
+
+    async loadScenarios(): Promise<ScenarioInfo[]> {
+        if (!this.voxtaUrl) throw new Error('Must connect to Voxta first');
+        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
+        const headers: Record<string, string> = {};
+        if (this.voxtaApiKey) {
+            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
+        }
+        const res = await fetch(`${baseUrl}/api/scenarios`, { headers });
+        if (!res.ok) {
+            console.error(`[Voxta] Failed to load scenarios: ${res.status}`);
+            return [];
+        }
+        const data = (await res.json()) as {
+            scenarios: Array<{ id: string; name: string; client?: string }>;
+        };
+        return data.scenarios.map((s) => ({ id: s.id, name: s.name, client: s.client ?? null }));
+    }
+
     // ---- Load previous chats for a character ----
 
     async loadChats(characterId: string): Promise<ChatListItem[]> {
@@ -491,6 +513,7 @@ export class BotEngine extends EventEmitter {
                 lastSessionTimestamp?: string;
                 createdTimestamp?: string;
                 favorite?: boolean;
+                scenarioId?: string;
             }>;
         };
         return data.chats.map((c) => ({
@@ -500,6 +523,7 @@ export class BotEngine extends EventEmitter {
             lastSession: c.lastSession ?? null,
             lastSessionTimestamp: c.lastSessionTimestamp ?? c.createdTimestamp ?? null,
             favorite: c.favorite ?? false,
+            scenarioId: c.scenarioId ?? null,
         }));
     }
 
@@ -569,6 +593,7 @@ export class BotEngine extends EventEmitter {
             },
         };
         this.playerMcUsername = uiConfig.playerMcUsername || null;
+        this.activeScenarioId = uiConfig.scenarioId;
 
         // ---- 1. Connect Minecraft ----
         this.updateStatus({ mc: 'connecting' });
@@ -675,11 +700,16 @@ export class BotEngine extends EventEmitter {
             console.error('[Perception] Initial context failed:', err);
         }
 
-        await this.voxta.startChat(uiConfig.characterId, uiConfig.chatId ?? undefined, {
-            contextKey: 'minecraft',
-            contexts: initialContextStrings.map((text) => ({ text })),
-            actions: this.getEnabledActions(),
-        });
+        await this.voxta.startChat(
+            uiConfig.characterId,
+            uiConfig.chatId ?? undefined,
+            uiConfig.scenarioId ?? undefined,
+            {
+                contextKey: 'minecraft',
+                contexts: initialContextStrings.map((text) => ({ text })),
+                actions: this.getEnabledActions(),
+            },
+        );
 
         const chatStart = Date.now();
         while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
@@ -1502,11 +1532,16 @@ export class BotEngine extends EventEmitter {
             // Resume the same conversation (pass chatId to continue history)
             const lastChatId = this.voxta.chatId;
             console.log(`[Voxta] Auto-resuming chat: character=${this.activeCharacterId}, chatId=${lastChatId ?? 'new'}`);
-            await this.voxta.startChat(this.activeCharacterId, lastChatId ?? undefined, {
-                contextKey: 'minecraft',
-                contexts: initialContextStrings.map((text) => ({ text })),
-                actions: this.getEnabledActions(),
-            });
+            await this.voxta.startChat(
+                this.activeCharacterId,
+                lastChatId ?? undefined,
+                undefined,
+                {
+                    contextKey: 'minecraft',
+                    contexts: initialContextStrings.map((text) => ({ text })),
+                    actions: this.getEnabledActions(),
+                },
+            );
 
             // Wait for session
             const chatStart = Date.now();
