@@ -159,6 +159,18 @@ export interface ClientStopChatMessage {
     sessionId: string;
 }
 
+export interface ClientAddChatParticipantMessage {
+    $type: 'addChatParticipant';
+    sessionId: string;
+    characterId: string;
+}
+
+export interface ClientRemoveChatParticipantMessage {
+    $type: 'removeChatParticipant';
+    sessionId: string;
+    characterId: string;
+}
+
 export type ClientMessage =
     | ClientAuthenticateMessage
     | ClientRegisterAppMessage
@@ -169,7 +181,9 @@ export type ClientMessage =
     | ClientSpeechPlaybackStartMessage
     | ClientSpeechPlaybackCompleteMessage
     | ClientInspectMessage
-    | ClientStopChatMessage;
+    | ClientStopChatMessage
+    | ClientAddChatParticipantMessage
+    | ClientRemoveChatParticipantMessage;
 
 // ---- Server → Client messages ----
 
