@@ -103,8 +103,8 @@ export const FOOD_ITEMS: Record<string, number> = {
     cod: 2,
     salmon: 2,
     tropical_fish: 1,
-    rotten_flesh: 4,
-    spider_eye: 2, // edible but risky
+    rotten_flesh: -1, // last resort — 80% chance of Hunger debuff
+    spider_eye: -2, // last resort — gives Poison debuff
 };
 
 /** Raw items that can be smelted in a furnace */

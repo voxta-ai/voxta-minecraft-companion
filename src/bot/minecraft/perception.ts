@@ -188,11 +188,13 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     };
 
     let hasRoof = false;
+    let roofBlockName = '';
     try {
         for (let dy = 1; dy <= 6; dy++) {
             const above = bot.blockAt(pos.offset(0, dy, 0));
             if (above && above.name !== 'air' && above.name !== 'cave_air') {
                 hasRoof = true;
+                roofBlockName = above.name;
                 break;
             }
         }
@@ -200,9 +202,20 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         /* chunk not loaded */
     }
 
+    // Natural cave/underground blocks — used to detect if the bot is in a cave
+    const CAVE_BLOCKS = new Set([
+        'stone', 'deepslate', 'granite', 'diorite', 'andesite', 'tuff',
+        'calcite', 'dripstone_block', 'pointed_dripstone', 'moss_block',
+        'clay', 'gravel', 'dirt', 'coarse_dirt', 'rooted_dirt',
+        'smooth_basalt', 'basalt', 'blackstone', 'netherrack', 'soul_sand', 'soul_soil',
+        'cobbled_deepslate', 'infested_stone', 'infested_deepslate',
+    ]);
+
     // Scan for notable blocks within a radius
     const blockCounts = new Map<string, number>();
     const shelterBlockLabels: string[] = [];
+    let caveBlockCount = 0;
+    let solidWallCount = 0;
     try {
         const searchRadius = 8;
         for (let dx = -searchRadius; dx <= searchRadius; dx++) {
@@ -210,6 +223,13 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
                 for (let dz = -searchRadius; dz <= searchRadius; dz++) {
                     const block = bot.blockAt(pos.offset(dx, dy, dz));
                     if (!block) continue;
+
+                    // Count cave-like blocks for environment detection
+                    if (block.boundingBox === 'block') {
+                        solidWallCount++;
+                        if (CAVE_BLOCKS.has(block.name)) caveBlockCount++;
+                    }
+
                     const label = NOTABLE_BLOCKS[block.name];
                     if (!label) continue;
                     blockCounts.set(label, (blockCounts.get(label) ?? 0) + 1);
@@ -253,8 +273,16 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         .filter(([label]) => label !== 'torch')
         .map(([label, count]) => (count > 1 ? `${label} x${count}` : label));
 
+    // Determine if we're in a cave: roof is present AND most surrounding solid
+    // blocks are natural stone/deepslate rather than player-placed materials
+    const isCave = hasRoof && solidWallCount > 0 && (caveBlockCount / solidWallCount) > 0.6;
+
     let shelter = 'outdoors';
-    if (hasRoof && shelterBlockLabels.length > 0) {
+    if (hasRoof && isCave && shelterBlockLabels.length > 0) {
+        shelter = `underground cave (${shelterBlockLabels.join(', ')} nearby)`;
+    } else if (hasRoof && isCave) {
+        shelter = 'underground cave';
+    } else if (hasRoof && shelterBlockLabels.length > 0) {
         shelter = `indoors, inside shelter (${shelterBlockLabels.join(', ')} nearby)`;
     } else if (hasRoof) {
         shelter = 'indoors (roof overhead)';
@@ -527,4 +555,52 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     }
 
     return lines;
+}
+
+/**
+ * Simple block raycast to check if there's a clear line of sight between
+ * the bot's eye position and the target entity. Steps along the ray in
+ * 0.5-block increments and checks for solid (non-transparent) blocks.
+ * Returns false if a solid wall is in the way.
+ */
+export function hasLineOfSight(bot: Bot, target: Entity): boolean {
+    const eyePos = bot.entity.position.offset(0, bot.entity.height * 0.85, 0);
+    const targetPos = target.position.offset(0, (target.height ?? 1) * 0.5, 0);
+    const dx = targetPos.x - eyePos.x;
+    const dy = targetPos.y - eyePos.y;
+    const dz = targetPos.z - eyePos.z;
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (dist < 1) return true; // Too close to have a wall between
+
+    const steps = Math.ceil(dist / 0.5);
+    const sx = dx / steps;
+    const sy = dy / steps;
+    const sz = dz / steps;
+
+    let prevBx = NaN;
+    let prevBy = NaN;
+    let prevBz = NaN;
+    const checkPos = eyePos.clone();
+
+    for (let i = 1; i < steps; i++) {
+        const bx = Math.floor(eyePos.x + sx * i);
+        const by = Math.floor(eyePos.y + sy * i);
+        const bz = Math.floor(eyePos.z + sz * i);
+
+        // Skip if same block as previous step
+        if (bx === prevBx && by === prevBy && bz === prevBz) continue;
+        prevBx = bx;
+        prevBy = by;
+        prevBz = bz;
+
+        try {
+            checkPos.set(bx, by, bz);
+            const block = bot.blockAt(checkPos);
+            if (block && block.boundingBox === 'block') return false;
+        } catch {
+            // Chunk not loaded — assume blocked
+            return false;
+        }
+    }
+    return true;
 }

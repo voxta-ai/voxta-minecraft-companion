@@ -90,9 +90,15 @@ async function autoCraftWithPrereqs(
     if (depth > 0) await delay(CRAFT_STEP_DELAY_MS);
 
     // Can't craft directly — get ALL recipes (regardless of inventory)
-    const allRecipes = bot.recipesAll(itemId, null, craftingTable);
+    let allRecipes = bot.recipesAll(itemId, null, craftingTable);
     if (allRecipes.length === 0) {
         // No recipe exists — this is a raw material (logs, ores, etc.)
+        // But first: check if this is a specific wood type (e.g. spruce_planks)
+        // and the bot has a different wood type (e.g. oak_log) that could work.
+        const substituted = tryWoodSubstitution(bot, mcData, itemId, craftingTable);
+        if (substituted) {
+            return autoCraftWithPrereqs(bot, mcData, substituted.id, count, craftingTable, depth);
+        }
         return {
             success: false,
             crafted: 0,
@@ -151,7 +157,7 @@ async function autoCraftWithPrereqs(
             const totalNeeded = ingredient.countPerCraft * craftRuns;
             const have = countItemInInventory(bot, ingredient.id);
             if (have < totalNeeded) {
-                const prereqResult = await autoCraftWithPrereqs(
+                let prereqResult = await autoCraftWithPrereqs(
                     bot,
                     mcData,
                     ingredient.id,
@@ -159,6 +165,15 @@ async function autoCraftWithPrereqs(
                     craftingTable,
                     depth + 1,
                 );
+                // If prereq failed, try wood-type substitution (e.g. spruce_planks → oak_planks)
+                if (!prereqResult.success) {
+                    const sub = tryWoodSubstitution(bot, mcData, ingredient.id, craftingTable);
+                    if (sub) {
+                        prereqResult = await autoCraftWithPrereqs(
+                            bot, mcData, sub.id, totalNeeded, craftingTable, depth + 1,
+                        );
+                    }
+                }
                 allSteps.push(...prereqResult.steps);
                 allMissing.push(...prereqResult.missing);
                 if (!prereqResult.success) {
@@ -224,6 +239,60 @@ async function cleanup(bot: Bot, heldItemName: string | null): Promise<void> {
     setTimeout(() => {
         setSuppressPickups(false);
     }, 600);
+}
+
+/**
+ * When a recipe needs a specific wood type (e.g. spruce_log) but the bot has
+ * a different type (e.g. oak_log), find the equivalent item the bot actually has.
+ * This handles Minecraft's tagged recipes where any wood type is interchangeable.
+ */
+const WOOD_FAMILIES: string[][] = [
+    ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'crimson', 'warped'],
+];
+const WOOD_SUFFIXES = ['_log', '_planks', '_slab', '_stairs', '_fence', '_fence_gate', '_door', '_trapdoor', '_button', '_pressure_plate', '_sign', '_boat'];
+
+function tryWoodSubstitution(
+    bot: Bot,
+    mcData: { itemsByName: McDataItems; items: McDataItemsById },
+    missingItemId: number,
+    craftingTable: ReturnType<Bot['findBlock']>,
+): { id: number; displayName: string; name: string } | undefined {
+    const missingInfo = mcData.items[missingItemId];
+    if (!missingInfo) return undefined;
+    const missingName = missingInfo.name;
+
+    // Check if this is a wood-type item (e.g. "spruce_log", "birch_planks")
+    for (const suffix of WOOD_SUFFIXES) {
+        if (!missingName.endsWith(suffix)) continue;
+        const prefix = missingName.slice(0, -suffix.length);
+        const family = WOOD_FAMILIES[0];
+        if (!family.includes(prefix)) continue;
+
+        // Try each wood variant — prefer ones the bot has in inventory
+        for (const variant of family) {
+            if (variant === prefix) continue;
+            const altName = variant + suffix;
+            const altInfo = mcData.itemsByName[altName];
+            if (!altInfo) continue;
+            // Check if bot has this variant OR can craft it
+            const have = countItemInInventory(bot, altInfo.id);
+            if (have > 0) {
+                console.log(`[MC Craft] Substituting ${missingName} → ${altName} (have ${have})`);
+                return altInfo;
+            }
+            // Check if we have the logs to make this variant's planks
+            if (suffix === '_planks') {
+                const logName = variant + '_log';
+                const logInfo = mcData.itemsByName[logName];
+                if (logInfo && countItemInInventory(bot, logInfo.id) > 0) {
+                    console.log(`[MC Craft] Substituting ${missingName} → ${altName} (have ${logName})`);
+                    return altInfo;
+                }
+            }
+        }
+        break;
+    }
+    return undefined;
 }
 
 /** Generic crafting categories — when user says 'planks', try all variants */

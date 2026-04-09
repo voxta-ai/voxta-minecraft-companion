@@ -13,6 +13,8 @@ export async function mineBlock(
     countStr: string | undefined,
 ): Promise<string> {
     if (!blockType) return 'No block type provided';
+    // AI often sends display names with spaces ("copper ore") — normalize to Minecraft IDs
+    blockType = blockType.trim().replace(/\s+/g, '_');
 
     const mcData = require('minecraft-data')(bot.version);
 

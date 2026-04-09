@@ -97,6 +97,34 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             return b;
         };
 
+        // Lava safety — prevent digging blocks adjacent to lava/water (avoids flooding)
+        defaultMovements.dontCreateFlow = true;
+        defaultMovements.dontMineUnderFallingBlock = true;
+
+        // Lava buffer zone — add high cost to blocks adjacent to lava so the
+        // pathfinder routes at least 1 block away. Without this, diagonal moves
+        // clip the lava hitbox and set the bot on fire.
+        const lavaId = mcData.blocksByName['lava']?.id;
+        const flowingLavaId = mcData.blocksByName['flowing_lava']?.id;
+        if (lavaId !== undefined) {
+            const isLava = (id: number): boolean => id === lavaId || id === flowingLavaId;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            defaultMovements.exclusionAreasStep = [(block: any) => {
+                const p = block.position;
+                if (!p) return 0;
+                const offsets = [
+                    [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
+                    [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1], // diagonals
+                    [0, -1, 0], // below — don't walk over lava
+                ];
+                for (const [dx, dy, dz] of offsets) {
+                    const neighbor = bot.blockAt(p.offset(dx, dy, dz));
+                    if (neighbor && isLava(neighbor.type)) return 100;
+                }
+                return 0;
+            }];
+        }
+
         bot.pathfinder.setMovements(defaultMovements);
 
         // ---- NaN position/velocity guard ----
@@ -424,6 +452,32 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                 lastMovePos = pos.clone();
             }
         });
+
+        // ---- Tree-spawn fix ----
+        // If the bot spawned on top of a tree (standing on leaves or logs),
+        // the pathfinder can't find a clean path down and spins in place.
+        // Detect this and make the bot jump + move off the tree so gravity
+        // pulls it down naturally (no position teleport — server-safe).
+        try {
+            const pos = bot.entity.position;
+            const footBlock = bot.blockAt(pos.offset(0, -1, 0));
+            const isOnTree = footBlock && (
+                footBlock.name.endsWith('_leaves') || footBlock.name === 'leaves' ||
+                footBlock.name.endsWith('_log') || footBlock.name === 'log'
+            );
+            if (isOnTree) {
+                console.log(`[MC] Spawned on tree (${footBlock.name}) — jumping off`);
+                // Jump and walk forward briefly to clear the tree canopy
+                bot.setControlState('jump', true);
+                bot.setControlState('forward', true);
+                setTimeout(() => {
+                    bot.setControlState('jump', false);
+                    bot.setControlState('forward', false);
+                }, 1500);
+            }
+        } catch {
+            /* chunk not loaded — skip */
+        }
 
         if (resolveSpawn) {
             resolveSpawn();

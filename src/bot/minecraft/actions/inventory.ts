@@ -102,6 +102,16 @@ export async function eatFood(bot: Bot, foodName: string | undefined): Promise<s
         bot.setControlState('forward', false);
         await bot.equip(foodItem.type, 'hand');
         await bot.consume();
+        const DEBUFF_FOODS: Record<string, string> = {
+            rotten_flesh: 'but got the Hunger debuff (food drains faster for 30s)',
+            spider_eye: 'but got Poison (taking damage for 4s)',
+            chicken: 'but might get food poisoning (30% chance of Hunger debuff)',
+            pufferfish: 'but got severe Nausea, Hunger, and Poison',
+        };
+        const debuff = DEBUFF_FOODS[foodItem.name];
+        if (debuff) {
+            return `Ate ${foodItem.displayName ?? foodItem.name} ${debuff}`;
+        }
         return `Ate some ${foodItem.displayName ?? foodItem.name} and feels better`;
     } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
