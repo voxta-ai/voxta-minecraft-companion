@@ -107,6 +107,12 @@ export const FOOD_ITEMS: Record<string, number> = {
     spider_eye: -2, // last resort — gives Poison debuff
 };
 
+/** Ranged weapon items */
+export const RANGED_WEAPONS = ['bow', 'crossbow'];
+
+/** Arrow items that serve as ranged ammunition */
+export const ARROW_ITEMS = ['arrow', 'spectral_arrow', 'tipped_arrow'];
+
 /** Raw items that can be smelted in a furnace */
 export const COOKABLE_ITEMS: Record<string, string> = {
     // Food

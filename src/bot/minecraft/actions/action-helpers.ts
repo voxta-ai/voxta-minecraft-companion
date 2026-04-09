@@ -3,7 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { ActionInvocationArgument } from '../../voxta/types.js';
 import type { NameRegistry } from '../../name-registry';
 import type { ToolCategory } from '../game-data';
-import { TOOL_REQUIREMENTS, TOOL_TIERS, TOOL_MIN_TIER } from '../game-data';
+import { TOOL_REQUIREMENTS, TOOL_TIERS, TOOL_MIN_TIER, RANGED_WEAPONS, ARROW_ITEMS } from '../game-data';
 
 // ---- Tool helpers ----
 
@@ -60,6 +60,25 @@ export function getBestWeapon(bot: Bot): { item: unknown; name: string } | null 
         }
     }
     return null;
+}
+
+// ---- Ranged weapon helpers ----
+
+/** Find the best ranged weapon in inventory (bow or crossbow) */
+export function getBestBow(bot: Bot): { item: unknown; name: string } | null {
+    const items = bot.inventory.items();
+    for (const bowType of RANGED_WEAPONS) {
+        const found = items.find((item) => item.name === bowType);
+        if (found) return { item: found, name: bowType };
+    }
+    return null;
+}
+
+/** Count available arrows in inventory */
+export function getArrowCount(bot: Bot): number {
+    return bot.inventory.items()
+        .filter((i) => ARROW_ITEMS.includes(i.name))
+        .reduce((sum, i) => sum + i.count, 0);
 }
 
 // ---- Argument helpers ----
