@@ -25,6 +25,7 @@ export interface BotConfig {
     mcVersion: string;
     playerMcUsername: string;
     characterId: string;
+    scenarioId: string | null;
     chatId: string | null;
     perceptionIntervalMs: number;
     entityRange: number;
@@ -152,6 +153,14 @@ export interface ChatListItem {
     lastSession: string | null;
     lastSessionTimestamp: string | null;
     favorite: boolean;
+    scenarioId: string | null;
+}
+
+export interface ScenarioInfo {
+    id: string;
+    name: string;
+    /** The app client this scenario is built for (e.g. 'Voxta.Minecraft') */
+    client: string | null;
 }
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning';
@@ -244,6 +253,7 @@ export const IPC_CHANNELS = {
     UPDATE_SETTINGS: 'bot:update-settings',
     CYCLE_VISION_WINDOW: 'bot:cycle-vision-window',
     LOAD_CHATS: 'bot:load-chats',
+    LOAD_SCENARIOS: 'bot:load-scenarios',
     FAVORITE_CHAT: 'bot:favorite-chat',
     DELETE_CHAT: 'bot:delete-chat',
     REFRESH_CHARACTERS: 'bot:refresh-characters',
