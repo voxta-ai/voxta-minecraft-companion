@@ -72,6 +72,9 @@ export class BotEngine extends EventEmitter {
     private autoDismounting = false;
     private modeScanLoop: ReturnType<typeof setInterval> | null = null;
     private modeScanLoop2: ReturnType<typeof setInterval> | null = null;
+    private proximityLoop: ReturnType<typeof setInterval> | null = null;
+    private bot1InRange = true;
+    private bot2InRange = true;
     private spatialLoop: ReturnType<typeof setInterval> | null = null;
     private eventBridge: McEventBridge | null = null;
     private eventBridge2: McEventBridge | null = null;
@@ -351,6 +354,10 @@ export class BotEngine extends EventEmitter {
                 clearInterval(this.modeScanLoop2);
                 this.modeScanLoop2 = null;
             }
+            if (this.proximityLoop) {
+                clearInterval(this.proximityLoop);
+                this.proximityLoop = null;
+            }
             if (this.spatialLoop) {
                 clearInterval(this.spatialLoop);
                 this.spatialLoop = null;
@@ -399,6 +406,10 @@ export class BotEngine extends EventEmitter {
             if (this.modeScanLoop2) {
                 clearInterval(this.modeScanLoop2);
                 this.modeScanLoop2 = null;
+            }
+            if (this.proximityLoop) {
+                clearInterval(this.proximityLoop);
+                this.proximityLoop = null;
             }
             this.emit('stop-audio');
             this.updateStatus({
@@ -854,11 +865,14 @@ export class BotEngine extends EventEmitter {
                 if (contextHash !== lastContextHash) {
                     lastContextHash = contextHash;
                     // Send actions only with bot1's context (shared between both bots)
-                    void this.voxta.updateContext(
-                        'minecraft-bot1',
-                        contextStrings.map((text) => ({ text })),
-                        this.getEnabledActions(),
-                    );
+                    // Skip if bot1 is out of proximity range (removed from session)
+                    if (this.bot1InRange) {
+                        void this.voxta.updateContext(
+                            'minecraft-bot1',
+                            contextStrings.map((text) => ({ text })),
+                            this.getEnabledActions(),
+                        );
+                    }
                 }
             } catch (err) {
                 // Perception can fail during respawn/chunk loading
@@ -894,11 +908,14 @@ export class BotEngine extends EventEmitter {
                     const contextHash2 = contextStrings2.join('|');
                     if (contextHash2 !== lastContextHash2) {
                         lastContextHash2 = contextHash2;
-                        // No actions here — actions are sent with bot1's context update
-                        void this.voxta.updateContext(
-                            'minecraft-bot2',
-                            contextStrings2.map((text) => ({ text })),
-                        );
+                        // Skip if bot2 is out of proximity range (removed from session)
+                        if (this.bot2InRange) {
+                            // No actions here — actions are sent with bot1's context update
+                            void this.voxta.updateContext(
+                                'minecraft-bot2',
+                                contextStrings2.map((text) => ({ text })),
+                            );
+                        }
                     }
                 } catch (err) {
                     console.error('[Perception] Bot 2 context update failed:', err);
@@ -966,6 +983,77 @@ export class BotEngine extends EventEmitter {
         );
         this.modeScanLoop = scanLoop1;
         this.flushHuntBatch = flushBatch1;
+
+        // ---- Proximity loop: silence/activate characters based on distance to player ----
+        // When a bot is farther than PROXIMITY_RANGE blocks from the player, it gets
+        // disabled in Voxta so it doesn't speak about things it can't see or know about.
+        // It re-activates automatically when it comes back in range.
+        const PROXIMITY_RANGE = 40; // blocks
+        this.bot1InRange = true;
+        this.bot2InRange = true;
+        let proximityLogTick = 0;
+        this.proximityLoop = setInterval(() => {
+            if (!this.voxta?.sessionId || !this.playerMcUsername) return;
+
+            const findPlayer = (b: typeof bot) =>
+                Object.values(b.entities).find(
+                    (e) => e.type === 'player' && e.username?.toLowerCase() === this.playerMcUsername!.toLowerCase(),
+                );
+
+            // Bot 1
+            if (this.mcBot && this.activeCharacterIds[0]) {
+                const playerEntity = findPlayer(this.mcBot.bot);
+                // Player not visible in entities = beyond render distance = definitely out of range
+                const dist1 = playerEntity
+                    ? playerEntity.position.distanceTo(this.mcBot.bot.entity.position)
+                    : Infinity;
+                const inRange = dist1 <= PROXIMITY_RANGE;
+                if (proximityLogTick % 6 === 0) {
+                    console.log(`[Proximity] ${this.assistantName ?? 'Bot1'}: ${dist1 === Infinity ? 'not visible' : `${dist1.toFixed(1)} blocks`} (${inRange ? 'in range' : 'OUT OF RANGE'})`);
+                }
+                if (inRange !== this.bot1InRange) {
+                    this.bot1InRange = inRange;
+                    const name = this.assistantName ?? 'Bot';
+                    if (inRange) {
+                        console.log(`[Proximity] ${name} back in range — rejoining`);
+                        void this.voxta.addChatParticipant(this.activeCharacterIds[0]);
+                        this.addChat('system', 'System', `${name} is back in range.`);
+                        this.queueNote(`${name} rejoined — back within range of the player.`);
+                    } else {
+                        console.log(`[Proximity] ${name} out of range — removing`);
+                        void this.voxta.removeChatParticipant(this.activeCharacterIds[0]);
+                        this.addChat('system', 'System', `${name} is too far away to hear.`);
+                    }
+                }
+            }
+
+            // Bot 2 (dual-bot only)
+            if (isDualBot && this.mcBot2 && this.activeCharacterIds[1]) {
+                const playerEntity2 = findPlayer(this.mcBot2.bot);
+                const dist2 = playerEntity2
+                    ? playerEntity2.position.distanceTo(this.mcBot2.bot.entity.position)
+                    : Infinity;
+                if (proximityLogTick % 6 === 0) {
+                    console.log(`[Proximity] ${this.assistantName2 ?? 'Bot2'}: ${dist2 === Infinity ? 'not visible' : `${dist2.toFixed(1)} blocks`} (${dist2 <= PROXIMITY_RANGE ? 'in range' : 'OUT OF RANGE'})`);
+                }
+                const inRange2 = dist2 <= PROXIMITY_RANGE;
+                if (inRange2 !== this.bot2InRange) {
+                    this.bot2InRange = inRange2;
+                    const name2 = this.assistantName2 ?? 'Bot2';
+                    if (inRange2) {
+                        console.log(`[Proximity] ${name2} back in range — rejoining`);
+                        void this.voxta.addChatParticipant(this.activeCharacterIds[1]);
+                        this.addChat('system', 'System', `${name2} is back in range.`);
+                        this.queueNote(`${name2} rejoined — back within range of the player.`);
+                    } else {
+                        console.log(`[Proximity] ${name2} out of range — removing`);
+                        void this.voxta.removeChatParticipant(this.activeCharacterIds[1]);
+                        this.addChat('system', 'System', `${name2} is too far away to hear.`);
+                    }
+                }
+            }
+            proximityLogTick++;
+        }, 5000);
 
         // ---- 3. Register MC event bridge ----
         this.eventBridge = new McEventBridge(
@@ -1858,6 +1946,12 @@ export class BotEngine extends EventEmitter {
             clearInterval(this.modeScanLoop2);
             this.modeScanLoop2 = null;
         }
+        if (this.proximityLoop) {
+            clearInterval(this.proximityLoop);
+            this.proximityLoop = null;
+        }
+        this.bot1InRange = true;
+        this.bot2InRange = true;
         if (this.spatialLoop) {
             clearInterval(this.spatialLoop);
             this.spatialLoop = null;

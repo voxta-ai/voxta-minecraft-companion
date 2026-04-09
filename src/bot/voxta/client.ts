@@ -287,6 +287,18 @@ export class VoxtaClient {
         });
     }
 
+    /** Add a character to the active session (proximity re-join) */
+    async addChatParticipant(characterId: string): Promise<void> {
+        if (!this._sessionId) return;
+        await this.send({ $type: 'addChatParticipant', sessionId: this._sessionId, characterId });
+    }
+
+    /** Remove a character from the active session (proximity silence) */
+    async removeChatParticipant(characterId: string): Promise<void> {
+        if (!this._sessionId) return;
+        await this.send({ $type: 'removeChatParticipant', sessionId: this._sessionId, characterId });
+    }
+
     /** Tell the server we started playing a speech chunk */
     async speechPlaybackStart(
         messageId: string,
