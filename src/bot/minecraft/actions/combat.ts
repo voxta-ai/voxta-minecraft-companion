@@ -2,7 +2,7 @@ import type { Bot } from 'mineflayer';
 import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
-import { findPlayerEntity, getBestWeapon } from './action-helpers.js';
+import { findPlayerEntity, getBestWeapon, getBestBow, getArrowCount } from './action-helpers.js';
 import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget, setCurrentActivity } from './action-state.js';
 import { ENTITY_ALIASES } from '../game-data';
 import { dismountEntity } from './movement.js';
@@ -71,6 +71,19 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
         }
     }
 
+    // Check for ranged combat capability
+    const bow = getBestBow(bot);
+    let canUseRanged = bow && getArrowCount(bot) > 0;
+    let isDrawingBow = false;
+    let bowDrawStart = 0;
+    const BOW_CHARGE_MS = 1200; // Full charge = 1000ms + 200ms safety margin
+    const RANGED_MIN_DIST = 5;  // Switch to melee below this
+    const RANGED_MAX_DIST = 30; // Don't try shooting beyond this
+
+    if (canUseRanged && bow) {
+        console.log(`[MC Action] Ranged combat available: ${bow.name} + ${getArrowCount(bot)} arrows`);
+    }
+
     // Track combat target to prevent duplicate attacks from cancelling this fight
     const normalizedTarget = (entityName ?? 'unknown').toLowerCase();
     setCurrentCombatTarget(normalizedTarget);
@@ -97,11 +110,30 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
 
     return new Promise<string>((resolve) => {
         const signal = getActionAbort().signal;
+        let tickBusy = false; // Prevent overlapping async ticks
+
+        /** Cancel bow draw and re-equip melee weapon */
+        const cancelBowDraw = async (): Promise<void> => {
+            if (isDrawingBow) {
+                bot.deactivateItem();
+                isDrawingBow = false;
+                if (weapon) {
+                    try { await bot.equip(weapon.item as number, 'hand'); } catch { /* best effort */ }
+                }
+            }
+            bot.setControlState('back', false);
+        };
+
         const attackLoop = setInterval(() => {
+            if (tickBusy) return;
+            tickBusy = true;
+            void (async () => {
+            try {
             // Check if canceled
             if (signal.aborted) {
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
+                await cancelBowDraw();
                 if (getCurrentCombatTarget() === normalizedTarget) setCurrentCombatTarget(null);
                 // Don't call pathfinder.stop() — the new action owns it now
                 resolve(`Stopped fighting ${displayName}`);
@@ -112,6 +144,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
             if (!bot.entities[target.id]) {
                 clearInterval(attackLoop);
                 setCurrentCombatTarget(null);
+                await cancelBowDraw();
                 bot.pathfinder.stop();
                 // If the bot itself died, all entities disappear — don't claim victory
                 if (bot.health <= 0) {
@@ -140,6 +173,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
             if (bot.health > 0 && (bot.health <= LOW_HEALTH_THRESHOLD || isCreeper)) {
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
+                await cancelBowDraw();
                 setCurrentCombatTarget(null);
                 setCurrentActivity(`fleeing from ${displayName} — critically wounded`);
 
@@ -339,6 +373,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
             if (Date.now() - combatStart > MAX_COMBAT_MS) {
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
+                await cancelBowDraw();
                 setCurrentCombatTarget(null);
                 bot.pathfinder.stop();
                 resolve(`Gave up fighting ${displayName} — too tough to kill`);
@@ -349,34 +384,104 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
             } else if (Date.now() - startTime > TIMEOUT_MS) {
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
+                await cancelBowDraw();
                 setCurrentCombatTarget(null);
                 bot.pathfinder.stop();
                 resolve(`Lost sight of ${displayName} and gave up the chase`);
                 return;
             }
 
-            // Attack if in range
+            // Attack — choose ranged or melee based on distance
             const dist = target.position.distanceTo(bot.entity.position);
             if (!Number.isFinite(dist)) return; // Stale entity — skip this tick
-            if (dist < 3.5) {
-                // Lower shield briefly to attack
-                if (hasShield) bot.deactivateItem();
-                bot.attack(target);
-                // Raise shield again after swing
-                if (hasShield) {
-                    setTimeout(() => {
-                        bot.activateItem(true);
-                    }, 100);
+
+            // --- RANGED COMBAT ---
+            // Use bow if: in range AND (target is far enough for comfortable shooting,
+            // OR we have no melee weapon so bow is always better than fists)
+            const preferRanged = canUseRanged && bow && dist <= RANGED_MAX_DIST &&
+                (dist >= RANGED_MIN_DIST || !weapon);
+            if (preferRanged) {
+                // If mob is too close and we have no melee weapon, walk backward
+                // while facing the target — looks natural and keeps aim on target
+                if (dist < RANGED_MIN_DIST && !weapon) {
+                    bot.pathfinder.stop();
+                    bot.setControlState('back', true);
+                    bot.setControlState('sprint', false);
+                } else {
+                    // Stop pathfinder and stop retreating — stand still while aiming
+                    bot.pathfinder.stop();
+                    bot.setControlState('back', false);
+                }
+
+                if (!isDrawingBow) {
+                    // Equip bow and start drawing
+                    try {
+                        if (hasShield) bot.deactivateItem(); // Lower shield
+                        await bot.equip(bow.item as number, 'hand');
+
+                        // Aim at target with gravity compensation for arrow arc
+                        const targetHeight = (target.height ?? 1.8) * 0.5;
+                        const gravityComp = dist * dist * 0.006;
+                        await bot.lookAt(target.position.offset(0, targetHeight + gravityComp, 0));
+
+                        bot.activateItem(); // Start drawing the bow
+                        isDrawingBow = true;
+                        bowDrawStart = Date.now();
+                    } catch {
+                        // Fall through to melee next tick
+                    }
+                } else {
+                    // Bow is being drawn — keep tracking the target
+                    const targetHeight = (target.height ?? 1.8) * 0.5;
+                    const gravityComp = dist * dist * 0.006;
+                    await bot.lookAt(target.position.offset(0, targetHeight + gravityComp, 0));
+
+                    // Release when fully charged
+                    if (Date.now() - bowDrawStart >= BOW_CHARGE_MS) {
+                        bot.deactivateItem(); // Release arrow
+                        isDrawingBow = false;
+                        console.log(`[MC Action] Arrow released at ${displayName} (${dist.toFixed(1)} blocks)`);
+
+                        // Check arrow count — if out, switch to melee permanently
+                        const remaining = getArrowCount(bot);
+                        if (remaining <= 0) {
+                            console.log('[MC Action] Out of arrows — switching to melee');
+                            canUseRanged = false;
+                            if (weapon) {
+                                try { await bot.equip(weapon.item as number, 'hand'); } catch { /* best effort */ }
+                            }
+                        }
+                    }
                 }
             } else {
-                // Out of melee range — re-set follow goal to keep chasing
-                // (ranged mobs like witches back away after being hit)
-                bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
-                if (hasShield) {
-                    // Keep the shield raised while approaching
-                    bot.activateItem(true);
+                // --- MELEE COMBAT ---
+                // If we were drawing the bow, cancel and switch to melee weapon
+                await cancelBowDraw();
+
+                if (dist < 3.5) {
+                    // Lower shield briefly to attack
+                    if (hasShield) bot.deactivateItem();
+                    bot.attack(target);
+                    // Raise shield again after swing
+                    if (hasShield) {
+                        setTimeout(() => {
+                            bot.activateItem(true);
+                        }, 100);
+                    }
+                } else {
+                    // Out of melee range — re-set follow goal to keep chasing
+                    // (ranged mobs like witches back away after being hit)
+                    bot.pathfinder.setGoal(new goals.GoalFollow(target, 1), true);
+                    if (hasShield) {
+                        // Keep the shield raised while approaching
+                        bot.activateItem(true);
+                    }
                 }
             }
+            } finally {
+                tickBusy = false;
+            }
+            })();
         }, 500); // MC attack cooldown is ~500ms
     });
 }
