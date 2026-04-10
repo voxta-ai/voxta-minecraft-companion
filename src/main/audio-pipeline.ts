@@ -16,8 +16,16 @@ export class AudioPipeline {
     private ackCallback: (() => void) | null = null;
     private emitPlayAudio: (chunk: AudioChunk) => void;
 
+    /** Optional callback to forward raw WAV audio to the plugin channel (SVC bridge) */
+    private onRawAudio: ((wavBuffer: Buffer) => void) | null = null;
+
     constructor(emitPlayAudio: (chunk: AudioChunk) => void) {
         this.emitPlayAudio = emitPlayAudio;
+    }
+
+    /** Set a callback to receive raw WAV buffers for plugin channel forwarding */
+    setRawAudioCallback(callback: ((wavBuffer: Buffer) => void) | null): void {
+        this.onRawAudio = callback;
     }
 
     /** Reset the download chain for a new reply */
@@ -61,7 +69,14 @@ export class AudioPipeline {
                 .then((buf) => {
                     // If audio was stopped since this chunk was queued, discard it
                     if (this.epoch !== epoch) return;
-                    const b64 = Buffer.from(buf).toString('base64');
+                    const wavBuffer = Buffer.from(buf);
+
+                    // Fork: send raw WAV to plugin channel for SVC bridge
+                    if (this.onRawAudio) {
+                        this.onRawAudio(wavBuffer);
+                    }
+
+                    const b64 = wavBuffer.toString('base64');
                     const dataUrl = `data:audio/wav;base64,${b64}`;
                     const audioChunk: AudioChunk = {
                         url: dataUrl,

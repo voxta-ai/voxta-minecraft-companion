@@ -38,6 +38,9 @@ const PLUGIN_CATALOG: CatalogPlugin[] = [
     },
 ];
 
+// Bundled voice bridge JAR — built from plugins/voxta-voice-bridge/
+const VOICE_BRIDGE_JAR = 'voxta-voice-bridge-1.0.0.jar';
+
 const PAPER_API = 'https://api.papermc.io';
 const HANGAR_API = 'https://hangar.papermc.io/api/v1';
 
@@ -131,8 +134,8 @@ export class ServerManager extends EventEmitter {
         this.emitProgress({ step: 3, totalSteps, label: 'Writing server configuration...' });
         await this.writeDefaultConfigs();
 
-        // Step 4: Download default plugins (SkinsRestorer)
-        this.emitProgress({ step: 4, totalSteps, label: 'Installing SkinsRestorer...' });
+        // Step 4: Download default plugins (SkinsRestorer, Simple Voice Chat, Voice Bridge)
+        this.emitProgress({ step: 4, totalSteps, label: 'Installing plugins...' });
         const skinsRestorer = PLUGIN_CATALOG.find((p) => p.id === 'skinsrestorer');
         if (skinsRestorer) {
             const dest = path.join(this.serverDir, 'plugins', skinsRestorer.fileName);
@@ -142,6 +145,8 @@ export class ServerManager extends EventEmitter {
                 await this.downloadFile(skinsRestorer.downloadUrl, dest);
             }
         }
+        await this.installSimpleVoiceChat();
+        await this.installVoiceBridge();
 
         // Save installed version
         await fs.writeFile(path.join(this.serverDir, 'version.txt'), version);
@@ -161,6 +166,9 @@ export class ServerManager extends EventEmitter {
 
         // Write eula.txt every time to ensure it's accepted
         await fs.writeFile(path.join(this.serverDir, 'eula.txt'), 'eula=true\n');
+
+        // Ensure voice bridge plugin is up to date
+        await this.installVoiceBridge();
 
         this.setState('starting');
 
@@ -990,6 +998,74 @@ export class ServerManager extends EventEmitter {
         const downloadUrl = `${PAPER_API}/v2/projects/paper/versions/${version}/builds/${buildNumber}/downloads/${downloadName}`;
         const dest = path.join(this.serverDir, 'paper.jar');
         await this.downloadFile(downloadUrl, dest);
+    }
+
+    /**
+     * Auto-install Simple Voice Chat from Hangar during setup.
+     * Fetches the latest Paper version and installs it. Skips if already installed.
+     */
+    private async installSimpleVoiceChat(): Promise<void> {
+        // Check if already installed (by Hangar metadata)
+        const meta = await this.loadPluginMeta();
+        const existing = meta.find((m) => m.hangarSlug === 'SimpleVoiceChat');
+        if (existing) {
+            console.log(`[Setup] Simple Voice Chat already installed (${existing.installedVersion})`);
+            return;
+        }
+
+        try {
+            console.log('[Setup] Installing Simple Voice Chat from Hangar...');
+            const versions = await this.hangarGetVersions('henkelmax', 'SimpleVoiceChat');
+            if (versions.length === 0) {
+                console.warn('[Setup] No Simple Voice Chat versions found on Hangar');
+                return;
+            }
+            const latest = versions[0];
+            this.emitConsoleLine(`Installing Simple Voice Chat ${latest.name}...`, 'info');
+            await this.hangarInstallPlugin('henkelmax', 'SimpleVoiceChat', latest.name);
+            console.log(`[Setup] Simple Voice Chat ${latest.name} installed`);
+        } catch (err) {
+            // Non-fatal — voice bridge will still load, just won't have SVC to connect to
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`[Setup] Failed to install Simple Voice Chat: ${message}`);
+            this.emitConsoleLine(`Could not install Simple Voice Chat: ${message}`, 'warn');
+        }
+    }
+
+    /**
+     * Copy the bundled Voxta Voice Bridge JAR into the server's plugins folder.
+     * Resolves the JAR from extraResources (production) or the build output (dev).
+     */
+    private async installVoiceBridge(): Promise<void> {
+        const pluginsDir = path.join(this.serverDir, 'plugins');
+        await fs.mkdir(pluginsDir, { recursive: true });
+        const dest = path.join(pluginsDir, VOICE_BRIDGE_JAR);
+
+        // In production: extraResources/plugins/voxta-voice-bridge-1.0.0.jar
+        // In dev: plugins/voxta-voice-bridge/build/libs/voxta-voice-bridge-1.0.0.jar
+        const candidates = [
+            path.join(process.resourcesPath, 'plugins', VOICE_BRIDGE_JAR),
+            path.join(app.getAppPath(), '..', '..', 'plugins', 'voxta-voice-bridge', 'build', 'libs', VOICE_BRIDGE_JAR),
+            path.join(process.cwd(), 'plugins', 'voxta-voice-bridge', 'build', 'libs', VOICE_BRIDGE_JAR),
+        ];
+
+        console.log(`[VoiceBridge] Looking for JAR: ${VOICE_BRIDGE_JAR}`);
+        for (const src of candidates) {
+            try {
+                await fs.access(src);
+                await fs.copyFile(src, dest);
+                console.log(`[VoiceBridge] Installed from: ${src}`);
+                this.emitConsoleLine(`Installed voice bridge plugin: ${VOICE_BRIDGE_JAR}`, 'info');
+                return;
+            } catch {
+                console.log(`[VoiceBridge] Not found at: ${src}`);
+            }
+        }
+
+        // Not found — non-fatal, SVC integration is optional
+        console.warn(`[VoiceBridge] JAR not found in any candidate path — SVC integration unavailable`);
+        console.warn(`[VoiceBridge] Build it with: cd plugins/voxta-voice-bridge && ./gradlew.bat build`);
+        this.emitConsoleLine('Voice bridge JAR not found — SVC integration will be unavailable', 'warn');
     }
 
     private async writeDefaultConfigs(): Promise<void> {

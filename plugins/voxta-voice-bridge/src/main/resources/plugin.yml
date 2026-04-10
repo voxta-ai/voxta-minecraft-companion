@@ -1,0 +1,8 @@
+name: VoxtaVoiceBridge
+version: "${version}"
+main: com.voxta.voicebridge.VoxtaVoiceBridge
+api-version: "1.21"
+description: Bridges Voxta bot TTS audio into Simple Voice Chat for all players
+author: Voxta
+depend:
+  - voicechat

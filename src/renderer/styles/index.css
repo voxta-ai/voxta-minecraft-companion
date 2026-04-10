@@ -3835,6 +3835,27 @@ body {
     border-color: var(--accent-red);
 }
 
+.tunnel-voice-hint {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+}
+
+.tunnel-voice-hint a {
+    color: var(--accent-green);
+    text-decoration: none;
+}
+
+.tunnel-voice-hint a:hover {
+    text-decoration: underline;
+}
+
 .tunnel-error {
     display: flex;
     align-items: center;
