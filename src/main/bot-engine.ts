@@ -1037,12 +1037,17 @@ export class BotEngine extends EventEmitter {
         }, 100);
 
         // ---- Mounted steering + Follow watchdog ----
-        this.mountedSteeringLoop = this.createMountedSteeringLoop(bot, () => !!this.mcBot);
+        this.mountedSteeringLoop = this.createMountedSteeringLoop(
+            bot, () => !!this.mcBot,
+            isDualBot && this.mcBot2 ? this.mcBot2.bot : null,
+        );
         this.followWatchdog = this.createFollowWatchdog(bot, () => !!this.mcBot, 'Bot');
 
         // ---- Same loops for bot 2 (dual-bot mode) ----
         if (isDualBot && this.mcBot2) {
-            this.mountedSteeringLoop2 = this.createMountedSteeringLoop(this.mcBot2.bot, () => !!this.mcBot2);
+            this.mountedSteeringLoop2 = this.createMountedSteeringLoop(
+                this.mcBot2.bot, () => !!this.mcBot2, bot,
+            );
             this.followWatchdog2 = this.createFollowWatchdog(this.mcBot2.bot, () => !!this.mcBot2, 'Bot2');
             const { loop: scanLoop2, flush: flushBatch2 } = this.createModeScanLoop(
                 this.mcBot2.bot, () => !!this.mcBot2, 'Bot2', () => this.assistantName2 ?? 'Bot2',
@@ -1779,10 +1784,13 @@ export class BotEngine extends EventEmitter {
     private createMountedSteeringLoop(
         bot: MineflayerBot,
         isBotActive: () => boolean,
+        companionBot: MineflayerBot | null,
     ): ReturnType<typeof setInterval> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const mcClient = (bot as any)._client;
         let lastSteerLog = 0;
+        // Per-bot mounted stop distance — mirrors the on-foot staggered followDistance
+        const mountedStopDist = (bot as unknown as { followDistance?: number }).followDistance === 5 ? 8 : 5;
         return setInterval(() => {
             if (!isBotActive() || !this.followingPlayer) return;
             if (isActionBusy(bot) || this.autoDismounting) return;
@@ -1801,15 +1809,36 @@ export class BotEngine extends EventEmitter {
             const vPos = vehicleEntity.position;
             if (!vPos) return;
             const dist = vPos.distanceTo(targetPos);
-            if (dist < 5) {
+            if (dist < mountedStopDist) {
                 mcClient.write('player_input', {
                     inputs: { forward: false, backward: false, left: false, right: false, jump: false, shift: false, sprint: false },
                 });
                 return;
             }
 
-            const dx = targetPos.x - vPos.x;
-            const dz = targetPos.z - vPos.z;
+            let dx = targetPos.x - vPos.x;
+            let dz = targetPos.z - vPos.z;
+
+            // Companion avoidance: if the other bot's horse is nearby, push away
+            if (companionBot) {
+                const compVehicle = (companionBot as unknown as { vehicle: { id: number } | null }).vehicle;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const compPos = compVehicle ? (compVehicle as any).position : companionBot.entity?.position;
+                if (compPos) {
+                    const compDist = vPos.distanceTo(compPos);
+                    if (compDist < 4) {
+                        // Push direction: away from companion
+                        const pushX = vPos.x - compPos.x;
+                        const pushZ = vPos.z - compPos.z;
+                        const pushLen = Math.sqrt(pushX * pushX + pushZ * pushZ) || 1;
+                        // Stronger push the closer they are (weight: 0.5 at 4 blocks, up to 2.0 at 0 blocks)
+                        const pushWeight = Math.max(0.3, (4 - compDist) / 2);
+                        dx += (pushX / pushLen) * pushWeight;
+                        dz += (pushZ / pushLen) * pushWeight;
+                    }
+                }
+            }
+
             const yaw = -Math.atan2(dx, dz);
             const yawDeg = yaw * (180 / Math.PI);
 
