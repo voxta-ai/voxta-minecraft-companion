@@ -58,6 +58,8 @@ export default function PluginBrowser() {
     const [installedPlugins, setInstalledPlugins] = createSignal<PluginInfo[]>([]);
     const [installedFileNames, setInstalledFileNames] = createSignal<Set<string>>(new Set());
     const [loadingMore, setLoadingMore] = createSignal(false);
+    const [removingPlugin, setRemovingPlugin] = createSignal<string | null>(null);
+    const [confirmRemove, setConfirmRemove] = createSignal<string | null>(null);
     let searchTimeout: ReturnType<typeof setTimeout> | undefined;
 
     onMount(() => {
@@ -151,11 +153,15 @@ export default function PluginBrowser() {
     }
 
     async function handleRemove(fileName: string): Promise<void> {
+        setRemovingPlugin(fileName);
         try {
             await window.api.serverRemovePlugin(fileName);
+            setConfirmRemove(null);
             await refreshInstalled();
         } catch (err) {
             console.error('Remove failed:', err);
+        } finally {
+            setRemovingPlugin(null);
         }
     }
 
@@ -390,20 +396,45 @@ export default function PluginBrowser() {
                         <For each={installedPlugins()}>
                             {(plugin) => (
                                 <div class="setting-card">
-                                    <div class="setting-card-info">
-                                        <div class="setting-card-name">{plugin.name}</div>
-                                        <div class="setting-card-desc">
-                                            {plugin.fileName} ({formatFileSize(plugin.fileSize)})
-                                        </div>
-                                    </div>
-                                    <button
-                                        class="server-plugin-remove-btn"
-                                        onClick={() => void handleRemove(plugin.fileName)}
-                                        disabled={serverState() === 'running'}
-                                        title={serverState() === 'running' ? 'Stop the server first' : 'Remove plugin'}
+                                    <Show
+                                        when={confirmRemove() !== plugin.fileName}
+                                        fallback={
+                                            <div class="plugin-remove-confirm">
+                                                <span class="plugin-remove-confirm-text">
+                                                    Remove <strong>{plugin.name}</strong>?
+                                                </span>
+                                                <button
+                                                    class="plugin-remove-confirm-btn"
+                                                    onClick={() => void handleRemove(plugin.fileName)}
+                                                    disabled={removingPlugin() === plugin.fileName || serverState() === 'running'}
+                                                >
+                                                    {removingPlugin() === plugin.fileName ? 'Removing...' : 'Remove'}
+                                                </button>
+                                                <button
+                                                    class="plugin-remove-cancel-btn"
+                                                    onClick={() => setConfirmRemove(null)}
+                                                    disabled={removingPlugin() === plugin.fileName}
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        }
                                     >
-                                        <i class="bi bi-trash"></i>
-                                    </button>
+                                        <div class="setting-card-info">
+                                            <div class="setting-card-name">{plugin.name}</div>
+                                            <div class="setting-card-desc">
+                                                {plugin.fileName} ({formatFileSize(plugin.fileSize)})
+                                            </div>
+                                        </div>
+                                        <button
+                                            class="server-plugin-remove-btn"
+                                            onClick={() => setConfirmRemove(plugin.fileName)}
+                                            disabled={serverState() === 'running'}
+                                            title={serverState() === 'running' ? 'Stop the server first' : 'Remove plugin'}
+                                        >
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </Show>
                                 </div>
                             )}
                         </For>

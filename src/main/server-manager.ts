@@ -311,6 +311,9 @@ export class ServerManager extends EventEmitter {
     }
 
     async removePlugin(fileName: string): Promise<void> {
+        if (this.state === 'running' || this.state === 'starting') {
+            throw new Error('Stop the server before removing plugins');
+        }
         const filePath = path.join(this.serverDir, 'plugins', fileName);
         await fs.unlink(filePath);
     }
@@ -630,6 +633,10 @@ export class ServerManager extends EventEmitter {
         await fs.mkdir(pluginsDir, { recursive: true });
         const dest = path.join(pluginsDir, fileName);
         await this.downloadFile(downloadUrl, dest);
+    }
+
+    isRunning(): boolean {
+        return this.childProcess !== null;
     }
 
     // Called when the app is quitting — ensure we clean up the child process
