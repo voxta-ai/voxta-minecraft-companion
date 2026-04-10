@@ -63,9 +63,13 @@ public class AudioChannelManager {
      * @param pcmData    Raw PCM audio (16-bit signed, mono)
      * @param sampleRate Source sample rate (e.g. 24000)
      */
+    // Track frames sent for periodic logging
+    private int totalFramesSent = 0;
+
     public void sendAudio(Player botPlayer, byte[] pcmData, int sampleRate) {
         if (serverApi == null) {
-            bridge.getLogger().warning("SVC API not ready — dropping audio");
+            bridge.getLogger().warning("SVC API not ready — dropping audio from " + botPlayer.getName()
+                    + " (" + pcmData.length + " bytes)");
             return;
         }
 
@@ -73,44 +77,84 @@ public class AudioChannelManager {
 
         // Get or create the audio channel for this bot
         EntityAudioChannel channel = channels.computeIfAbsent(botUuid, uuid -> {
-            var serverPlayer = serverApi.fromServerPlayer(botPlayer);
-            EntityAudioChannel ch = serverApi.createEntityAudioChannel(uuid, serverPlayer);
-            if (ch != null) {
-                ch.setCategory("voxta");
-                ch.setDistance(32); // Default — will be synced with maxDistance setting
-                bridge.getLogger().info("Created SVC audio channel for bot: " + botPlayer.getName());
+            bridge.getLogger().info("Creating SVC audio channel for bot: " + botPlayer.getName()
+                    + " (UUID: " + uuid + ")");
+            try {
+                var serverPlayer = serverApi.fromServerPlayer(botPlayer);
+                EntityAudioChannel ch = serverApi.createEntityAudioChannel(uuid, serverPlayer);
+                if (ch != null) {
+                    ch.setCategory("voxta");
+                    ch.setDistance(32); // Default — will be synced with maxDistance setting
+                    bridge.getLogger().info("SVC audio channel created successfully for " + botPlayer.getName());
+                } else {
+                    bridge.getLogger().severe("serverApi.createEntityAudioChannel returned null for " + botPlayer.getName());
+                }
+                return ch;
+            } catch (Exception e) {
+                bridge.getLogger().severe("Exception creating SVC audio channel for " + botPlayer.getName()
+                        + ": " + e.getMessage());
+                e.printStackTrace();
+                return null;
             }
-            return ch;
         });
 
         if (channel == null) {
-            bridge.getLogger().warning("Failed to create audio channel for bot: " + botPlayer.getName());
+            bridge.getLogger().warning("No audio channel available for bot: " + botPlayer.getName()
+                    + " — dropping " + pcmData.length + " bytes");
             return;
         }
 
         // Get or create Opus encoder for this bot
-        OpusEncoder encoder = encoders.computeIfAbsent(botUuid, uuid ->
-                serverApi.createEncoder()
-        );
+        OpusEncoder encoder = encoders.computeIfAbsent(botUuid, uuid -> {
+            try {
+                OpusEncoder enc = serverApi.createEncoder();
+                if (enc != null) {
+                    bridge.getLogger().info("Opus encoder created for " + botPlayer.getName());
+                } else {
+                    bridge.getLogger().severe("serverApi.createEncoder() returned null");
+                }
+                return enc;
+            } catch (Exception e) {
+                bridge.getLogger().severe("Exception creating Opus encoder: " + e.getMessage());
+                e.printStackTrace();
+                return null;
+            }
+        });
 
         if (encoder == null) {
-            bridge.getLogger().warning("Failed to create Opus encoder for bot: " + botPlayer.getName());
+            bridge.getLogger().warning("No Opus encoder available for bot: " + botPlayer.getName());
             return;
         }
 
         // Resample to 48kHz if needed
         short[] samples = bytesToShorts(pcmData);
         if (sampleRate != SVC_SAMPLE_RATE) {
+            int originalLength = samples.length;
             samples = resample(samples, sampleRate, SVC_SAMPLE_RATE);
+            bridge.getLogger().info("Resampled " + sampleRate + "Hz -> " + SVC_SAMPLE_RATE + "Hz: "
+                    + originalLength + " -> " + samples.length + " samples");
         }
 
         // Split into 20ms frames (960 samples at 48kHz) and send
+        int framesSent = 0;
         for (int offset = 0; offset + FRAME_SIZE <= samples.length; offset += FRAME_SIZE) {
             short[] frame = new short[FRAME_SIZE];
             System.arraycopy(samples, offset, frame, 0, FRAME_SIZE);
-            byte[] encoded = encoder.encode(frame);
-            channel.send(encoded);
+            try {
+                byte[] encoded = encoder.encode(frame);
+                channel.send(encoded);
+                framesSent++;
+            } catch (Exception e) {
+                bridge.getLogger().severe("Failed to encode/send frame " + framesSent
+                        + " for " + botPlayer.getName() + ": " + e.getMessage());
+                break;
+            }
         }
+
+        totalFramesSent += framesSent;
+        int leftoverSamples = samples.length % FRAME_SIZE;
+        bridge.getLogger().info("Sent " + framesSent + " Opus frames for " + botPlayer.getName()
+                + " (total: " + totalFramesSent + ", leftover: " + leftoverSamples + " samples)");
     }
 
     /** Set the SVC audio channel distance for a bot */

@@ -1016,18 +1016,22 @@ export class ServerManager extends EventEmitter {
             path.join(process.cwd(), 'plugins', 'voxta-voice-bridge', 'build', 'libs', VOICE_BRIDGE_JAR),
         ];
 
+        console.log(`[VoiceBridge] Looking for JAR: ${VOICE_BRIDGE_JAR}`);
         for (const src of candidates) {
             try {
                 await fs.access(src);
                 await fs.copyFile(src, dest);
+                console.log(`[VoiceBridge] Installed from: ${src}`);
                 this.emitConsoleLine(`Installed voice bridge plugin: ${VOICE_BRIDGE_JAR}`, 'info');
                 return;
             } catch {
-                // Try next candidate
+                console.log(`[VoiceBridge] Not found at: ${src}`);
             }
         }
 
         // Not found — non-fatal, SVC integration is optional
+        console.warn(`[VoiceBridge] JAR not found in any candidate path — SVC integration unavailable`);
+        console.warn(`[VoiceBridge] Build it with: cd plugins/voxta-voice-bridge && ./gradlew.bat build`);
         this.emitConsoleLine('Voice bridge JAR not found — SVC integration will be unavailable', 'warn');
     }
 

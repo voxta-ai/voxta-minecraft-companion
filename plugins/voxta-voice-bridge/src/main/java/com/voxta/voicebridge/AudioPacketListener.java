@@ -63,10 +63,13 @@ public class AudioPacketListener implements PluginMessageListener {
         }
     }
 
+    // Track first audio received for a one-time confirmation log
+    private boolean firstAudioReceived = false;
+
     private void handleAudioPacket(Player sender, byte[] data) {
         // Minimum: type(1) + chunkId(2) + partIndex(2) + totalParts(2) + sampleRate(4) = 11
         if (data.length < 11) {
-            bridge.getLogger().warning("Audio packet too short from " + sender.getName());
+            bridge.getLogger().warning("Audio packet too short (" + data.length + " bytes) from " + sender.getName());
             return;
         }
 
@@ -82,6 +85,13 @@ public class AudioPacketListener implements PluginMessageListener {
         byte[] pcmPart = new byte[buf.remaining()];
         buf.get(pcmPart);
 
+        if (!firstAudioReceived) {
+            firstAudioReceived = true;
+            bridge.getLogger().info("First audio packet received from " + sender.getName()
+                    + " — chunkId=" + chunkId + ", " + sampleRate + "Hz, "
+                    + totalParts + " part(s), " + pcmPart.length + " bytes");
+        }
+
         String key = sender.getUniqueId() + ":" + chunkId;
 
         ChunkAssembly assembly = pendingChunks.computeIfAbsent(key, k ->
@@ -93,7 +103,16 @@ public class AudioPacketListener implements PluginMessageListener {
         if (assembly.isComplete()) {
             pendingChunks.remove(key);
             byte[] fullPcm = assembly.assemble();
-            bridge.getAudioChannelManager().sendAudio(sender, fullPcm, sampleRate);
+            bridge.getLogger().info("Audio chunk " + chunkId + " complete: "
+                    + fullPcm.length + " bytes PCM from " + sender.getName()
+                    + " — sending to SVC");
+            try {
+                bridge.getAudioChannelManager().sendAudio(sender, fullPcm, sampleRate);
+            } catch (Exception e) {
+                bridge.getLogger().severe("Failed to send audio to SVC for " + sender.getName()
+                        + ": " + e.getMessage());
+                e.printStackTrace();
+            }
         }
     }
 

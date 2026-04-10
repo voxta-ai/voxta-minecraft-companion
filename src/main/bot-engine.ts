@@ -269,12 +269,21 @@ export class BotEngine extends EventEmitter {
     /** Register the voxta:audio plugin channel and wire up audio forwarding to SVC */
     private setupPluginChannel(bot: MineflayerBot, playerMcUsername: string | undefined): void {
         try {
+            console.log(`[PluginChannel] Setting up voice bridge for ${bot.username}...`);
             registerPluginChannel(bot);
 
             // Tell the server-side plugin which player is the host (excluded from SVC audio)
             if (playerMcUsername) {
-                // Small delay to ensure the channel registration is processed
-                setTimeout(() => sendRegisterHost(bot, playerMcUsername), 1000);
+                console.log(`[PluginChannel] Will register host exclusion for "${playerMcUsername}" in 1s`);
+                setTimeout(() => {
+                    try {
+                        sendRegisterHost(bot, playerMcUsername);
+                    } catch (err) {
+                        console.error('[PluginChannel] Failed to send host registration:', err);
+                    }
+                }, 1000);
+            } else {
+                console.warn('[PluginChannel] No playerMcUsername provided — host exclusion will not be set');
             }
 
             // Sync current distance setting
@@ -282,19 +291,30 @@ export class BotEngine extends EventEmitter {
 
             // Wire up audio forwarding: when AudioPipeline downloads a WAV chunk,
             // also send the raw PCM through the plugin channel for the SVC bridge
+            let forwardedChunks = 0;
             this.audioPipeline.setRawAudioCallback((wavBuffer: Buffer) => {
                 try {
                     const { pcm, sampleRate } = extractPcmFromWav(wavBuffer);
                     sendAudioData(bot, pcm, sampleRate);
+                    forwardedChunks++;
+                    if (forwardedChunks === 1) {
+                        console.log('[PluginChannel] First audio chunk forwarded to SVC bridge successfully');
+                    }
                 } catch (err) {
-                    console.error('[PluginChannel] Failed to forward audio:', err);
+                    console.error(
+                        `[PluginChannel] Failed to forward audio chunk #${forwardedChunks + 1}:`,
+                        err instanceof Error ? err.message : err,
+                    );
                 }
             });
 
             console.log(`[PluginChannel] Voice bridge setup complete for ${bot.username}`);
         } catch (err) {
             // Non-fatal — SVC bridge is optional, bot works fine without it
-            console.warn('[PluginChannel] Failed to setup voice bridge (SVC plugin may not be installed):', err);
+            console.warn(
+                '[PluginChannel] Failed to setup voice bridge (SVC plugin may not be installed):',
+                err instanceof Error ? err.message : err,
+            );
         }
     }
 

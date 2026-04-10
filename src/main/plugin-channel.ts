@@ -35,7 +35,11 @@ let chunkIdCounter = 0;
 
 /** Get the raw protocol client from a mineflayer bot */
 function getClient(bot: MineflayerBot): { write: (name: string, data: Record<string, unknown>) => void } {
-    return (bot as unknown as { _client: { write: (name: string, data: Record<string, unknown>) => void } })._client;
+    const client = (bot as unknown as { _client: { write: (name: string, data: Record<string, unknown>) => void } })._client;
+    if (!client) {
+        throw new Error('Bot._client is not available — bot may not be connected');
+    }
+    return client;
 }
 
 /** Register the voxta:audio plugin channel with the server */
@@ -47,7 +51,7 @@ export function registerPluginChannel(bot: MineflayerBot): void {
         channel: 'minecraft:register',
         data: channelBuf,
     });
-    console.log(`[PluginChannel] Registered channel: ${CHANNEL}`);
+    console.log(`[PluginChannel] Registered channel: ${CHANNEL} for bot ${bot.username}`);
 }
 
 /**
@@ -63,6 +67,10 @@ export function sendAudioData(bot: MineflayerBot, pcmData: Buffer, sampleRate: n
     const chunkId = (chunkIdCounter++) & 0xFFFF; // Wrap at 65535
 
     const totalParts = Math.ceil(pcmData.length / MAX_PCM_PER_PACKET);
+    console.log(
+        `[PluginChannel] Sending audio: chunkId=${chunkId}, ${pcmData.length} bytes PCM, ` +
+        `${sampleRate}Hz, ${totalParts} packet(s) → ${bot.username}`,
+    );
 
     for (let i = 0; i < totalParts; i++) {
         const offset = i * MAX_PCM_PER_PACKET;
@@ -77,10 +85,15 @@ export function sendAudioData(bot: MineflayerBot, pcmData: Buffer, sampleRate: n
         packet.writeUInt32LE(sampleRate, 7);
         pcmSlice.copy(packet, HEADER_SIZE);
 
-        client.write('custom_payload', {
-            channel: CHANNEL,
-            data: packet,
-        });
+        try {
+            client.write('custom_payload', {
+                channel: CHANNEL,
+                data: packet,
+            });
+        } catch (err) {
+            console.error(`[PluginChannel] Failed to send packet ${i + 1}/${totalParts} for chunk ${chunkId}:`, err);
+            return; // Don't send remaining parts if one fails
+        }
     }
 }
 
@@ -112,6 +125,7 @@ export function sendSetDistance(bot: MineflayerBot, distance: number): void {
         channel: CHANNEL,
         data: packet,
     });
+    console.log(`[PluginChannel] Set SVC distance: ${distance} blocks for ${bot.username}`);
 }
 
 /** Send control packet: stop/clear audio for this bot */
@@ -125,6 +139,7 @@ export function sendStopAudio(bot: MineflayerBot): void {
         channel: CHANNEL,
         data: packet,
     });
+    console.log(`[PluginChannel] Sent stop audio for ${bot.username}`);
 }
 
 /**
@@ -132,10 +147,22 @@ export function sendStopAudio(bot: MineflayerBot): void {
  * Returns the PCM data and sample rate.
  */
 export function extractPcmFromWav(wavBuffer: Buffer): { pcm: Buffer; sampleRate: number } {
-    // Standard WAV header: first 4 bytes = "RIFF"
-    // Sample rate at offset 24 (4 bytes LE)
-    // Data chunk starts after "data" marker + 4 byte size
+    // Validate minimum WAV header
+    if (wavBuffer.length < 44) {
+        console.error(`[PluginChannel] WAV buffer too small: ${wavBuffer.length} bytes`);
+        throw new Error(`WAV buffer too small: ${wavBuffer.length} bytes`);
+    }
+
+    const magic = wavBuffer.toString('ascii', 0, 4);
+    if (magic !== 'RIFF') {
+        console.error(`[PluginChannel] Not a WAV file — magic: "${magic}" (expected "RIFF")`);
+        throw new Error(`Not a WAV file — magic: "${magic}"`);
+    }
+
+    // Standard WAV header: sample rate at offset 24
     const sampleRate = wavBuffer.readUInt32LE(24);
+    const channels = wavBuffer.readUInt16LE(22);
+    const bitsPerSample = wavBuffer.readUInt16LE(34);
 
     // Find the "data" chunk
     let dataOffset = 12; // Skip RIFF header (12 bytes)
@@ -143,17 +170,22 @@ export function extractPcmFromWav(wavBuffer: Buffer): { pcm: Buffer; sampleRate:
         const chunkId = wavBuffer.toString('ascii', dataOffset, dataOffset + 4);
         const chunkSize = wavBuffer.readUInt32LE(dataOffset + 4);
         if (chunkId === 'data') {
-            return {
-                pcm: wavBuffer.subarray(dataOffset + 8, dataOffset + 8 + chunkSize),
-                sampleRate,
-            };
+            const pcm = wavBuffer.subarray(dataOffset + 8, dataOffset + 8 + chunkSize);
+            const durationMs = Math.round((pcm.length / (sampleRate * channels * (bitsPerSample / 8))) * 1000);
+            console.log(
+                `[PluginChannel] WAV parsed: ${sampleRate}Hz, ${channels}ch, ${bitsPerSample}bit, ` +
+                `${pcm.length} bytes PCM (~${durationMs}ms)`,
+            );
+            return { pcm, sampleRate };
         }
         dataOffset += 8 + chunkSize;
     }
 
     // Fallback: assume 44-byte header
-    return {
-        pcm: wavBuffer.subarray(44),
-        sampleRate,
-    };
+    const pcm = wavBuffer.subarray(44);
+    console.warn(
+        `[PluginChannel] WAV "data" chunk not found — using 44-byte header fallback. ` +
+        `${sampleRate}Hz, ${channels}ch, ${bitsPerSample}bit, ${pcm.length} bytes PCM`,
+    );
+    return { pcm, sampleRate };
 }
