@@ -134,7 +134,7 @@ export class ServerManager extends EventEmitter {
         this.emitProgress({ step: 3, totalSteps, label: 'Writing server configuration...' });
         await this.writeDefaultConfigs();
 
-        // Step 4: Download default plugins (SkinsRestorer + Voice Bridge)
+        // Step 4: Download default plugins (SkinsRestorer, Simple Voice Chat, Voice Bridge)
         this.emitProgress({ step: 4, totalSteps, label: 'Installing plugins...' });
         const skinsRestorer = PLUGIN_CATALOG.find((p) => p.id === 'skinsrestorer');
         if (skinsRestorer) {
@@ -145,6 +145,7 @@ export class ServerManager extends EventEmitter {
                 await this.downloadFile(skinsRestorer.downloadUrl, dest);
             }
         }
+        await this.installSimpleVoiceChat();
         await this.installVoiceBridge();
 
         // Save installed version
@@ -997,6 +998,38 @@ export class ServerManager extends EventEmitter {
         const downloadUrl = `${PAPER_API}/v2/projects/paper/versions/${version}/builds/${buildNumber}/downloads/${downloadName}`;
         const dest = path.join(this.serverDir, 'paper.jar');
         await this.downloadFile(downloadUrl, dest);
+    }
+
+    /**
+     * Auto-install Simple Voice Chat from Hangar during setup.
+     * Fetches the latest Paper version and installs it. Skips if already installed.
+     */
+    private async installSimpleVoiceChat(): Promise<void> {
+        // Check if already installed (by Hangar metadata)
+        const meta = await this.loadPluginMeta();
+        const existing = meta.find((m) => m.hangarSlug === 'SimpleVoiceChat');
+        if (existing) {
+            console.log(`[Setup] Simple Voice Chat already installed (${existing.installedVersion})`);
+            return;
+        }
+
+        try {
+            console.log('[Setup] Installing Simple Voice Chat from Hangar...');
+            const versions = await this.hangarGetVersions('henkelmax', 'SimpleVoiceChat');
+            if (versions.length === 0) {
+                console.warn('[Setup] No Simple Voice Chat versions found on Hangar');
+                return;
+            }
+            const latest = versions[0];
+            this.emitConsoleLine(`Installing Simple Voice Chat ${latest.name}...`, 'info');
+            await this.hangarInstallPlugin('henkelmax', 'SimpleVoiceChat', latest.name);
+            console.log(`[Setup] Simple Voice Chat ${latest.name} installed`);
+        } catch (err) {
+            // Non-fatal — voice bridge will still load, just won't have SVC to connect to
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`[Setup] Failed to install Simple Voice Chat: ${message}`);
+            this.emitConsoleLine(`Could not install Simple Voice Chat: ${message}`, 'warn');
+        }
     }
 
     /**

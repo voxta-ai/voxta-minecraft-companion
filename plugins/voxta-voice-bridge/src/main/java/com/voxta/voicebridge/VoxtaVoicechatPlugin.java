@@ -11,11 +11,10 @@ import de.maxhenkel.voicechat.api.events.EventRegistration;
  */
 public class VoxtaVoicechatPlugin implements VoicechatPlugin {
 
-    private final VoxtaVoiceBridge bridge;
     private VoicechatServerApi serverApi;
 
-    public VoxtaVoicechatPlugin(VoxtaVoiceBridge bridge) {
-        this.bridge = bridge;
+    /** No-arg constructor required by ServiceLoader (SVC plugin discovery) */
+    public VoxtaVoicechatPlugin() {
     }
 
     @Override
@@ -25,15 +24,21 @@ public class VoxtaVoicechatPlugin implements VoicechatPlugin {
 
     @Override
     public void initialize(VoicechatApi api) {
-        bridge.getLogger().info("Simple Voice Chat API initialized");
+        VoxtaVoiceBridge bridge = VoxtaVoiceBridge.getInstance();
+        if (bridge != null) {
+            bridge.getLogger().info("Simple Voice Chat API initialized");
+        }
     }
 
     @Override
     public void registerEvents(EventRegistration registration) {
         registration.registerEvent(de.maxhenkel.voicechat.api.events.VoicechatServerStartedEvent.class, event -> {
             serverApi = event.getVoicechat();
-            bridge.getLogger().info("Simple Voice Chat server ready — audio bridge active");
-            bridge.getAudioChannelManager().onVoicechatReady(serverApi);
+            VoxtaVoiceBridge bridge = VoxtaVoiceBridge.getInstance();
+            if (bridge != null) {
+                bridge.getLogger().info("Simple Voice Chat server ready — audio bridge active");
+                bridge.getAudioChannelManager().onVoicechatReady(serverApi);
+            }
         });
     }
 
