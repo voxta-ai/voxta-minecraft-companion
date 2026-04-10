@@ -32,6 +32,7 @@ import type {
     WhitelistEntry,
     OpsEntry,
     PluginUpdateInfo,
+    TunnelStatus,
 } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
@@ -282,6 +283,31 @@ const api = {
         const handler = (_event: Electron.IpcRendererEvent, progress: SetupProgress): void => callback(progress);
         ipcRenderer.on(IPC_CHANNELS.SERVER_SETUP_PROGRESS, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.SERVER_SETUP_PROGRESS, handler);
+    },
+
+    // Tunnel Manager
+    tunnelGetStatus: (): Promise<TunnelStatus> =>
+        ipcRenderer.invoke(IPC_CHANNELS.TUNNEL_GET_STATUS),
+
+    tunnelIsInstalled: (): Promise<boolean> =>
+        ipcRenderer.invoke(IPC_CHANNELS.TUNNEL_IS_INSTALLED),
+
+    tunnelInstall: (): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.TUNNEL_INSTALL),
+
+    tunnelStart: (): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.TUNNEL_START),
+
+    tunnelStop: (): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.TUNNEL_STOP),
+
+    tunnelSetUrl: (url: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.TUNNEL_SET_URL, url),
+
+    onTunnelStatusChanged: (callback: (status: TunnelStatus) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, status: TunnelStatus): void => callback(status);
+        ipcRenderer.on(IPC_CHANNELS.TUNNEL_STATUS_CHANGED, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.TUNNEL_STATUS_CHANGED, handler);
     },
 };
 

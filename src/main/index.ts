@@ -144,7 +144,7 @@ void app.whenReady().then(() => {
 
     const win = createWindow();
     mainWindow = win;
-    const serverManager = registerIpcHandlers(win);
+    const { serverManager, tunnelManager } = registerIpcHandlers(win);
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -154,11 +154,14 @@ void app.whenReady().then(() => {
         }
     });
 
-    // Gracefully stop the MC server when the app is closing
+    // Gracefully stop the MC server and tunnel when the app is closing
     app.on('before-quit', (e) => {
-        if (serverManager.isRunning()) {
+        if (serverManager.isRunning() || tunnelManager.isRunning()) {
             e.preventDefault();
-            void serverManager.cleanup().finally(() => app.quit());
+            void Promise.all([
+                serverManager.isRunning() ? serverManager.cleanup() : Promise.resolve(),
+                tunnelManager.isRunning() ? tunnelManager.cleanup() : Promise.resolve(),
+            ]).finally(() => app.quit());
         }
     });
 });
