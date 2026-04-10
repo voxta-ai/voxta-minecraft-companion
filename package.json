@@ -13,7 +13,8 @@
         "format": "prettier --check src/",
         "format:fix": "prettier --write src/",
         "pack": "electron-vite build && electron-builder --dir",
-        "dist": "electron-vite build && electron-builder"
+        "dist": "electron-vite build && electron-builder",
+        "postinstall": "patch-package"
     },
     "build": {
         "appId": "com.voxta.minecraft-companion",
@@ -68,6 +69,7 @@
         "electron-vite": "^2.3.0",
         "eslint": "^10.0.3",
         "eslint-config-prettier": "^10.1.8",
+        "patch-package": "^8.0.1",
         "prettier": "^3.8.1",
         "solid-js": "^1.9.0",
         "typescript": "^5.7.0",
