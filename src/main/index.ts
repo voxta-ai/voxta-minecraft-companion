@@ -155,8 +155,11 @@ void app.whenReady().then(() => {
     });
 
     // Gracefully stop the MC server when the app is closing
-    app.on('before-quit', () => {
-        void serverManager.cleanup();
+    app.on('before-quit', (e) => {
+        if (serverManager.isRunning()) {
+            e.preventDefault();
+            serverManager.cleanup().finally(() => app.quit());
+        }
     });
 });
 
