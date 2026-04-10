@@ -2634,8 +2634,11 @@ body {
 }
 
 .server-plugins-section,
-.server-properties-section,
 .server-worlds-section {
+    padding: 0;
+}
+
+.server-properties-section {
     padding: 0;
 }
 
@@ -2722,9 +2725,14 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 12px 0;
-    margin-top: 4px;
+    position: sticky;
+    bottom: -12px;
+    padding: 12px 16px;
+    margin: 0 -16px -12px;
+    background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    z-index: 10;
 }
 
 .server-props-save .btn {
@@ -2768,6 +2776,23 @@ body {
 .btn-test-voice:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.server-reset-btn {
+    padding: 5px 14px;
+    font-size: 12px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+
+.server-reset-btn:hover {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
 }
 
 /* ---- World Management ---- */
@@ -3120,4 +3145,61 @@ body {
 .world-delete-yes {
     padding: 4px 14px;
     font-size: 11px;
+}
+
+/* ---- Memory Slider ---- */
+
+.setting-card-column {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.memory-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.memory-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: var(--border-color);
+    border-radius: 2px;
+    outline: none;
+}
+
+.memory-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent-blue);
+    cursor: pointer;
+    border: 2px solid var(--bg-primary);
+    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.3);
+}
+
+.memory-slider::-webkit-slider-thumb:hover {
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.2);
+}
+
+.memory-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-blue);
+    min-width: 50px;
+    text-align: right;
+}
+
+.memory-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-secondary);
+    opacity: 0.6;
+    margin-top: -4px;
 }

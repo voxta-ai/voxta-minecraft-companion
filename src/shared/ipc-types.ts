@@ -308,6 +308,10 @@ export interface WorldInfo {
 
 export type ServerProperties = Record<string, string>;
 
+export interface ServerConfig {
+    memoryMb: number;
+}
+
 // ---- Console Log ----
 
 export type ConsoleLogLevel = 'log' | 'warn' | 'error';
@@ -401,6 +405,8 @@ export const IPC_CHANNELS = {
     SERVER_RENAME_WORLD: 'server:rename-world',
     SERVER_DELETE_WORLD: 'server:delete-world',
     SERVER_CREATE_WORLD: 'server:create-world',
+    SERVER_GET_CONFIG: 'server:get-config',
+    SERVER_SAVE_CONFIG: 'server:save-config',
 
     // Server Manager: Main → Renderer
     SERVER_STATUS_CHANGED: 'server:status-changed',

@@ -153,7 +153,8 @@ export class ServerManager extends EventEmitter {
         this.setState('starting');
 
         const jarPath = path.join(this.serverDir, 'paper.jar');
-        this.childProcess = spawn('java', ['-Xmx1G', '-jar', jarPath, '--nogui'], {
+        const memoryMb = await this.getMemoryMb();
+        this.childProcess = spawn('java', [`-Xmx${memoryMb}M`, `-Xms${memoryMb}M`, '-jar', jarPath, '--nogui'], {
             cwd: this.serverDir,
             stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
@@ -602,6 +603,29 @@ export class ServerManager extends EventEmitter {
         }
 
         return lines.join('\n');
+    }
+
+    private async getMemoryMb(): Promise<number> {
+        try {
+            const configPath = path.join(this.serverDir, 'voxta-config.json');
+            const content = await fs.readFile(configPath, 'utf-8');
+            const config = JSON.parse(content) as Record<string, unknown>;
+            const memoryMb = config['memoryMb'];
+            if (typeof memoryMb === 'number' && memoryMb >= 512) return memoryMb;
+        } catch {
+            // No config file or invalid — use default
+        }
+        return 1024;
+    }
+
+    async getServerConfig(): Promise<{ memoryMb: number }> {
+        const memoryMb = await this.getMemoryMb();
+        return { memoryMb };
+    }
+
+    async saveServerConfig(config: { memoryMb: number }): Promise<void> {
+        const configPath = path.join(this.serverDir, 'voxta-config.json');
+        await fs.writeFile(configPath, JSON.stringify(config, null, 2));
     }
 
     private async getActiveWorldName(): Promise<string> {
