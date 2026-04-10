@@ -782,6 +782,22 @@ export default function ServerPanel() {
                                     Stop Sharing
                                 </button>
                             </div>
+                            <Show when={tunnelUrl()}>
+                                <div class="tunnel-voice-hint">
+                                    <i class="bi bi-headset"></i>
+                                    <span>
+                                        To hear bot voices, friends need the{' '}
+                                        <a
+                                            href="https://www.curseforge.com/minecraft/mc-mods/simple-voice-chat"
+                                            target="_blank"
+                                            rel="noopener"
+                                        >
+                                            Simple Voice Chat
+                                        </a>{' '}
+                                        mod on their Minecraft client.
+                                    </span>
+                                </div>
+                            </Show>
                         </div>
                     </Show>
 
