@@ -222,6 +222,22 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
         return serverManager.getWorlds();
     });
 
+    ipcMain.handle(IPC_CHANNELS.SERVER_SET_ACTIVE_WORLD, async (_event, worldName: string) => {
+        await serverManager.setActiveWorld(worldName);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_RENAME_WORLD, async (_event, oldName: string, newName: string) => {
+        await serverManager.renameWorld(oldName, newName);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_DELETE_WORLD, async (_event, worldName: string) => {
+        await serverManager.deleteWorld(worldName);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_CREATE_WORLD, async (_event, worldName: string) => {
+        await serverManager.createWorld(worldName);
+    });
+
     // Hangar Plugin Store
     ipcMain.handle(IPC_CHANNELS.SERVER_HANGAR_SEARCH, async (_event, query: string, offset: number) => {
         return serverManager.hangarSearch(query, offset);

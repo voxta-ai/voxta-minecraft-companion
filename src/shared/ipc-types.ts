@@ -302,6 +302,8 @@ export interface HangarVersion {
 export interface WorldInfo {
     name: string;
     directory: string;
+    isActive: boolean;
+    sizeBytes: number;
 }
 
 export type ServerProperties = Record<string, string>;
@@ -395,6 +397,10 @@ export const IPC_CHANNELS = {
     SERVER_HANGAR_VERSIONS: 'server:hangar-versions',
     SERVER_HANGAR_INSTALL: 'server:hangar-install',
     SERVER_GET_WORLDS: 'server:get-worlds',
+    SERVER_SET_ACTIVE_WORLD: 'server:set-active-world',
+    SERVER_RENAME_WORLD: 'server:rename-world',
+    SERVER_DELETE_WORLD: 'server:delete-world',
+    SERVER_CREATE_WORLD: 'server:create-world',
 
     // Server Manager: Main → Renderer
     SERVER_STATUS_CHANGED: 'server:status-changed',

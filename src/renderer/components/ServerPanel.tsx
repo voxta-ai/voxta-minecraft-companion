@@ -25,8 +25,15 @@ import type {
 
 type ServerSection = 'console' | 'properties' | 'plugins' | 'worlds';
 
+function formatWorldSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export default function ServerPanel() {
-    const [activeSection, setActiveSection] = createSignal<ServerSection>('console');
+    const [activeSection, setActiveSection] = createSignal<ServerSection>('worlds');
     const [commandInput, setCommandInput] = createSignal('');
     const [properties, setProperties] = createSignal<ServerProperties>({});
     const [worlds, setWorlds] = createSignal<WorldInfo[]>([]);
@@ -37,6 +44,16 @@ export default function ServerPanel() {
     const [loadingVersions, setLoadingVersions] = createSignal(false);
     const [installedVersion, setInstalledVersion] = createSignal<string | null>(null);
     const [changingVersion, setChangingVersion] = createSignal(false);
+
+    // World management state
+    const [renamingWorld, setRenamingWorld] = createSignal<string | null>(null);
+    const [renameInput, setRenameInput] = createSignal('');
+    const [deletingWorld, setDeletingWorld] = createSignal<string | null>(null);
+    const [creatingWorld, setCreatingWorld] = createSignal(false);
+    const [newWorldName, setNewWorldName] = createSignal('');
+    const [worldBusy, setWorldBusy] = createSignal(false);
+    const [worldError, setWorldError] = createSignal<string | null>(null);
+
     let consoleRef: HTMLDivElement | undefined;
 
     // Auto-scroll console to bottom
@@ -175,6 +192,79 @@ export default function ServerPanel() {
             console.error('Save failed:', err);
         } finally {
             setSavingProps(false);
+        }
+    }
+
+    async function refreshWorlds(): Promise<void> {
+        const worldList = await window.api.serverGetWorlds();
+        setWorlds(worldList);
+    }
+
+    async function handleSetActiveWorld(worldName: string): Promise<void> {
+        setWorldBusy(true);
+        setWorldError(null);
+        try {
+            await window.api.serverSetActiveWorld(worldName);
+            await refreshWorlds();
+        } catch (err) {
+            setWorldError(err instanceof Error ? err.message : 'Failed to set active world');
+        } finally {
+            setWorldBusy(false);
+        }
+    }
+
+    function sanitizeWorldName(name: string): string {
+        return name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+    }
+
+    async function handleRenameWorld(): Promise<void> {
+        const oldName = renamingWorld();
+        const newName = sanitizeWorldName(renameInput());
+        if (!oldName || !newName || newName === oldName) {
+            setRenamingWorld(null);
+            return;
+        }
+        setWorldBusy(true);
+        setWorldError(null);
+        try {
+            await window.api.serverRenameWorld(oldName, newName);
+            setRenamingWorld(null);
+            await refreshWorlds();
+        } catch (err) {
+            setWorldError(err instanceof Error ? err.message : 'Failed to rename world');
+        } finally {
+            setWorldBusy(false);
+        }
+    }
+
+    async function handleDeleteWorld(worldName: string): Promise<void> {
+        setWorldBusy(true);
+        setWorldError(null);
+        try {
+            await window.api.serverDeleteWorld(worldName);
+            setDeletingWorld(null);
+            await refreshWorlds();
+        } catch (err) {
+            setWorldError(err instanceof Error ? err.message : 'Failed to delete world');
+        } finally {
+            setWorldBusy(false);
+        }
+    }
+
+    async function handleCreateWorld(): Promise<void> {
+        const name = sanitizeWorldName(newWorldName());
+        if (!name) return;
+        setWorldBusy(true);
+        setWorldError(null);
+        try {
+            await window.api.serverCreateWorld(name);
+            setCreatingWorld(false);
+            setNewWorldName('');
+            await refreshWorlds();
+        } catch (err) {
+            setWorldError(err instanceof Error ? err.message : 'Failed to create world');
+        } finally {
+            setWorldBusy(false);
         }
     }
 
@@ -375,6 +465,15 @@ export default function ServerPanel() {
             {/* Section Tabs */}
             <div class="server-tabs">
                 <button
+                    class={`server-tab ${activeSection() === 'worlds' ? 'active' : ''}`}
+                    onClick={() => {
+                        setActiveSection('worlds');
+                        void refreshWorlds();
+                    }}
+                >
+                    <i class="bi bi-globe-americas"></i> Worlds
+                </button>
+                <button
                     class={`server-tab ${activeSection() === 'console' ? 'active' : ''}`}
                     onClick={() => setActiveSection('console')}
                 >
@@ -394,15 +493,6 @@ export default function ServerPanel() {
                     }}
                 >
                     <i class="bi bi-sliders"></i> Settings
-                </button>
-                <button
-                    class={`server-tab ${activeSection() === 'worlds' ? 'active' : ''}`}
-                    onClick={() => {
-                        setActiveSection('worlds');
-                        void window.api.serverGetWorlds().then(setWorlds);
-                    }}
-                >
-                    <i class="bi bi-globe-americas"></i> Worlds
                 </button>
             </div>
 
@@ -641,20 +731,198 @@ export default function ServerPanel() {
             {/* Worlds Section */}
             <Show when={activeSection() === 'worlds'}>
                 <div class="server-worlds-section">
+                    {/* Error banner */}
+                    <Show when={worldError()}>
+                        <div class="world-error">
+                            <i class="bi bi-exclamation-triangle"></i> {worldError()}
+                            <button class="world-error-dismiss" onClick={() => setWorldError(null)}>
+                                <i class="bi bi-x"></i>
+                            </button>
+                        </div>
+                    </Show>
+
+                    {/* Toolbar */}
+                    <div class="world-toolbar">
+                        <Show
+                            when={!creatingWorld()}
+                            fallback={
+                                <div class="world-create-form">
+                                    <input
+                                        type="text"
+                                        class="world-name-input"
+                                        placeholder="Enter world name..."
+                                        value={newWorldName()}
+                                        onInput={(e) => setNewWorldName(e.currentTarget.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') void handleCreateWorld();
+                                            if (e.key === 'Escape') { setCreatingWorld(false); setNewWorldName(''); }
+                                        }}
+                                        disabled={worldBusy()}
+                                        autofocus
+                                    />
+                                    <button
+                                        class="btn btn-connect world-create-confirm"
+                                        onClick={() => void handleCreateWorld()}
+                                        disabled={worldBusy() || !newWorldName().trim()}
+                                    >
+                                        Create
+                                    </button>
+                                    <button
+                                        class="world-action-cancel"
+                                        onClick={() => { setCreatingWorld(false); setNewWorldName(''); }}
+                                        disabled={worldBusy()}
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            }
+                        >
+                            <button
+                                class="world-new-btn"
+                                onClick={() => { setCreatingWorld(true); setWorldError(null); }}
+                                disabled={serverState() === 'running' || serverState() === 'starting'}
+                                title={serverState() === 'running' ? 'Stop the server first' : 'Create a new world'}
+                            >
+                                <i class="bi bi-plus-lg"></i> New World
+                            </button>
+                        </Show>
+                    </div>
+
+                    <Show when={serverState() === 'running' || serverState() === 'starting'}>
+                        <div class="server-hint world-running-hint">
+                            <i class="bi bi-info-circle"></i> Stop the server to manage worlds.
+                        </div>
+                    </Show>
+
                     <Show
                         when={worlds().length > 0}
                         fallback={<div class="server-empty-hint">No worlds found. Start the server to generate a world.</div>}
                     >
-                        <div class="setting-card-list">
+                        <div class="world-list">
                             <For each={worlds()}>
                                 {(world) => (
-                                    <div class="setting-card">
-                                        <div class="setting-card-info">
-                                            <div class="setting-card-name">
-                                                <i class="bi bi-globe-americas"></i> {world.name}
+                                    <div
+                                        class={`world-card ${world.isActive ? 'world-card-active' : ''}`}
+                                        onClick={() => {
+                                            if (!world.isActive && serverState() !== 'running' && serverState() !== 'starting' && !worldBusy() && !deletingWorld() && !renamingWorld()) {
+                                                void handleSetActiveWorld(world.name);
+                                            }
+                                        }}
+                                    >
+                                        {/* Delete confirmation overlay */}
+                                        <Show when={deletingWorld() === world.name}>
+                                            <div class="world-delete-confirm">
+                                                <div class="world-delete-confirm-text">
+                                                    <i class="bi bi-exclamation-triangle"></i>
+                                                    Delete <strong>{world.name}</strong> permanently?
+                                                </div>
+                                                <div class="world-delete-confirm-actions">
+                                                    <button
+                                                        class="btn btn-disconnect world-delete-yes"
+                                                        onClick={(e) => { e.stopPropagation(); void handleDeleteWorld(world.name); }}
+                                                        disabled={worldBusy()}
+                                                    >
+                                                        {worldBusy() ? 'Deleting...' : 'Delete'}
+                                                    </button>
+                                                    <button
+                                                        class="world-action-cancel"
+                                                        onClick={(e) => { e.stopPropagation(); setDeletingWorld(null); }}
+                                                        disabled={worldBusy()}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div class="setting-card-desc">{world.directory}/</div>
-                                        </div>
+                                        </Show>
+
+                                        {/* Normal card content */}
+                                        <Show when={deletingWorld() !== world.name}>
+                                            <div class="world-card-left">
+                                                <div class={`world-radio ${world.isActive ? 'world-radio-active' : ''}`}>
+                                                    <div class="world-radio-dot" />
+                                                </div>
+                                                <div class="world-card-info">
+                                                    <Show
+                                                        when={renamingWorld() !== world.name}
+                                                        fallback={
+                                                            <div class="world-rename-form" onClick={(e) => e.stopPropagation()}>
+                                                                <input
+                                                                    type="text"
+                                                                    class="world-name-input"
+                                                                    value={renameInput()}
+                                                                    onInput={(e) => setRenameInput(e.currentTarget.value)}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') void handleRenameWorld();
+                                                                        if (e.key === 'Escape') setRenamingWorld(null);
+                                                                    }}
+                                                                    disabled={worldBusy()}
+                                                                    autofocus
+                                                                />
+                                                                <button
+                                                                    class="world-rename-save"
+                                                                    onClick={() => void handleRenameWorld()}
+                                                                    disabled={worldBusy() || !renameInput().trim()}
+                                                                    title="Save"
+                                                                >
+                                                                    <i class="bi bi-check-lg"></i>
+                                                                </button>
+                                                                <button
+                                                                    class="world-rename-cancel"
+                                                                    onClick={() => setRenamingWorld(null)}
+                                                                    disabled={worldBusy()}
+                                                                    title="Cancel"
+                                                                >
+                                                                    <i class="bi bi-x-lg"></i>
+                                                                </button>
+                                                            </div>
+                                                        }
+                                                    >
+                                                        <div class="world-card-name">
+                                                            {world.name}
+                                                        </div>
+                                                        <div class="world-card-meta">
+                                                            <Show
+                                                                when={world.sizeBytes > 0}
+                                                                fallback={
+                                                                    <span class="world-card-pending">
+                                                                        <i class="bi bi-clock"></i> Will be generated on next start
+                                                                    </span>
+                                                                }
+                                                            >
+                                                                <span class="world-card-size">
+                                                                    <i class="bi bi-hdd"></i> {formatWorldSize(world.sizeBytes)}
+                                                                </span>
+                                                            </Show>
+                                                        </div>
+                                                    </Show>
+                                                </div>
+                                            </div>
+                                            <div class="world-card-actions">
+                                                <Show when={serverState() !== 'running' && serverState() !== 'starting'}>
+                                                    <button
+                                                        class="world-action-btn"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setRenamingWorld(world.name);
+                                                            setRenameInput(world.name);
+                                                            setWorldError(null);
+                                                        }}
+                                                        disabled={worldBusy()}
+                                                        title="Rename world"
+                                                    >
+                                                        <i class="bi bi-pencil"></i>
+                                                    </button>
+                                                    <button
+                                                        class="world-action-btn world-delete-btn"
+                                                        onClick={(e) => { e.stopPropagation(); setDeletingWorld(world.name); setWorldError(null); }}
+                                                        disabled={worldBusy()}
+                                                        title="Delete world"
+                                                    >
+                                                        <i class="bi bi-trash3"></i>
+                                                    </button>
+                                                </Show>
+                                            </div>
+                                        </Show>
                                     </div>
                                 )}
                             </For>

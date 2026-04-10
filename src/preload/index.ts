@@ -197,6 +197,18 @@ const api = {
 
     serverGetWorlds: (): Promise<WorldInfo[]> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_WORLDS),
 
+    serverSetActiveWorld: (worldName: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_SET_ACTIVE_WORLD, worldName),
+
+    serverRenameWorld: (oldName: string, newName: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_RENAME_WORLD, oldName, newName),
+
+    serverDeleteWorld: (worldName: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_DELETE_WORLD, worldName),
+
+    serverCreateWorld: (worldName: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_CREATE_WORLD, worldName),
+
     // Hangar Plugin Store
     hangarSearch: (query: string, offset?: number): Promise<HangarSearchResult> =>
         ipcRenderer.invoke(IPC_CHANNELS.SERVER_HANGAR_SEARCH, query, offset ?? 0),

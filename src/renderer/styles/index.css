@@ -2769,3 +2769,355 @@ body {
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+/* ---- World Management ---- */
+
+.world-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.world-new-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    font-size: 12px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.world-new-btn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+}
+
+.world-new-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.world-create-form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+}
+
+.world-name-input {
+    flex: 1;
+    padding: 5px 10px;
+    font-size: 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-family: inherit;
+    outline: none;
+}
+
+.world-name-input:focus {
+    border-color: var(--accent-blue);
+}
+
+.world-create-confirm {
+    padding: 5px 14px;
+    font-size: 12px;
+}
+
+.world-running-hint {
+    margin: 8px 12px 0;
+}
+
+.world-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--accent-red);
+    background: rgba(239, 68, 68, 0.1);
+    border-bottom: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.world-error-dismiss {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--accent-red);
+    cursor: pointer;
+    padding: 2px;
+    font-size: 14px;
+    line-height: 1;
+}
+
+.world-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+}
+
+.world-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--surface-dark);
+    border-radius: 6px;
+    border: 1px solid rgba(96, 165, 250, 0.12);
+    transition: all var(--transition);
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+}
+
+.world-card:hover {
+    background: var(--surface-hover);
+    border-color: rgba(96, 165, 250, 0.25);
+}
+
+.world-card-active {
+    border-color: rgba(96, 165, 250, 0.4);
+    background: rgba(96, 165, 250, 0.06);
+}
+
+.world-card-active:hover {
+    background: rgba(96, 165, 250, 0.1);
+}
+
+.world-card-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+}
+
+.world-radio {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 2px solid var(--text-secondary);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition);
+}
+
+.world-radio-active {
+    border-color: var(--accent-blue);
+}
+
+.world-radio-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: transparent;
+    transition: all var(--transition);
+}
+
+.world-radio-active .world-radio-dot {
+    background: var(--accent-blue);
+}
+
+.world-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.world-card-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.world-active-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 10px;
+    background: rgba(96, 165, 250, 0.15);
+    color: var(--accent-blue);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.world-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.world-card-size {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.world-card-pending {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--accent-yellow, #eab308);
+    font-style: italic;
+}
+
+.world-card-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.world-card:hover .world-card-actions {
+    opacity: 1;
+}
+
+.world-action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all var(--transition);
+}
+
+.world-action-btn:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+.world-action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.world-activate-btn:hover:not(:disabled) {
+    color: var(--accent-green);
+    border-color: var(--accent-green);
+}
+
+.world-delete-btn:hover:not(:disabled) {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
+.world-action-cancel {
+    padding: 5px 12px;
+    font-size: 12px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.world-action-cancel:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+.world-action-cancel:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Rename inline form */
+.world-rename-form {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+}
+
+.world-rename-form .world-name-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.world-rename-save,
+.world-rename-cancel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all var(--transition);
+}
+
+.world-rename-save {
+    color: var(--accent-green);
+    border-color: var(--accent-green);
+}
+
+.world-rename-save:hover:not(:disabled) {
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.world-rename-cancel {
+    color: var(--text-secondary);
+}
+
+.world-rename-cancel:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+/* Delete confirmation overlay */
+.world-delete-confirm {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 12px;
+}
+
+.world-delete-confirm-text {
+    font-size: 12px;
+    color: var(--accent-red);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.world-delete-confirm-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.world-delete-yes {
+    padding: 4px 14px;
+    font-size: 11px;
+}
