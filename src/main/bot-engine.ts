@@ -41,6 +41,14 @@ import type { ScenarioAction } from '../bot/voxta/types';
 import { AudioPipeline } from './audio-pipeline';
 import { dispatchVoxtaMessage } from './voxta-message-handler';
 import { resetActionFired } from './action-orchestrator';
+import {
+    registerPluginChannel,
+    sendAudioData,
+    sendRegisterHost,
+    sendSetDistance,
+    sendStopAudio,
+    extractPcmFromWav,
+} from './plugin-channel';
 
 // Centralized version constant
 const CLIENT_NAME = 'Voxta.Minecraft';
@@ -246,9 +254,47 @@ export class BotEngine extends EventEmitter {
 
     updateSettings(newSettings: McSettings): void {
         const timingChanged = this.settings.actionInferenceTiming !== newSettings.actionInferenceTiming;
+        const distanceChanged = this.settings.spatialMaxDistance !== newSettings.spatialMaxDistance;
         this.settings = { ...newSettings };
         if (timingChanged) {
             this.pushActionsToVoxta();
+        }
+        // Sync maxDistance to SVC voice bridge plugin channel
+        if (distanceChanged) {
+            if (this.mcBot) sendSetDistance(this.mcBot.bot, newSettings.spatialMaxDistance);
+            if (this.mcBot2) sendSetDistance(this.mcBot2.bot, newSettings.spatialMaxDistance);
+        }
+    }
+
+    /** Register the voxta:audio plugin channel and wire up audio forwarding to SVC */
+    private setupPluginChannel(bot: MineflayerBot, playerMcUsername: string | undefined): void {
+        try {
+            registerPluginChannel(bot);
+
+            // Tell the server-side plugin which player is the host (excluded from SVC audio)
+            if (playerMcUsername) {
+                // Small delay to ensure the channel registration is processed
+                setTimeout(() => sendRegisterHost(bot, playerMcUsername), 1000);
+            }
+
+            // Sync current distance setting
+            sendSetDistance(bot, this.settings.spatialMaxDistance);
+
+            // Wire up audio forwarding: when AudioPipeline downloads a WAV chunk,
+            // also send the raw PCM through the plugin channel for the SVC bridge
+            this.audioPipeline.setRawAudioCallback((wavBuffer: Buffer) => {
+                try {
+                    const { pcm, sampleRate } = extractPcmFromWav(wavBuffer);
+                    sendAudioData(bot, pcm, sampleRate);
+                } catch (err) {
+                    console.error('[PluginChannel] Failed to forward audio:', err);
+                }
+            });
+
+            console.log(`[PluginChannel] Voice bridge setup complete for ${bot.username}`);
+        } catch (err) {
+            // Non-fatal — SVC bridge is optional, bot works fine without it
+            console.warn('[PluginChannel] Failed to setup voice bridge (SVC plugin may not be installed):', err);
         }
     }
 
@@ -654,6 +700,10 @@ export class BotEngine extends EventEmitter {
             await this.mcBot.connect();
             initHomePosition(this.mcBot.bot, config.mc.host, config.mc.port);
             loadCustomBlueprints();
+
+            // Register plugin channel for SVC voice bridge
+            this.setupPluginChannel(this.mcBot.bot, uiConfig.playerMcUsername);
+
             this.updateStatus({ mc: 'connected' });
             this.addChat('system', 'System', `Minecraft bot spawned as ${config.mc.username}`);
             this.toast('success', `Bot "${config.mc.username}" joined the Minecraft server!`);
@@ -677,6 +727,10 @@ export class BotEngine extends EventEmitter {
                 this.mcBot2 = createMinecraftBot(config2);
                 await this.mcBot2.connect();
                 initHomePosition(this.mcBot2.bot, config2.mc.host, config2.mc.port);
+
+                // Register plugin channel for SVC voice bridge (bot 2)
+                this.setupPluginChannel(this.mcBot2.bot, uiConfig.playerMcUsername);
+
                 this.updateStatus({ mc2: 'connected' });
                 this.addChat('system', 'System', `Minecraft bot 2 spawned as ${config2.mc.username}`);
                 this.toast('success', `Bot "${config2.mc.username}" joined the Minecraft server!`);
@@ -1963,6 +2017,15 @@ export class BotEngine extends EventEmitter {
         if (this.eventBridge2) {
             this.eventBridge2.destroy();
             this.eventBridge2 = null;
+        }
+
+        // Clear SVC voice bridge
+        this.audioPipeline.setRawAudioCallback(null);
+        if (this.mcBot) {
+            try { sendStopAudio(this.mcBot.bot); } catch { /* bot may already be gone */ }
+        }
+        if (this.mcBot2) {
+            try { sendStopAudio(this.mcBot2.bot); } catch { /* bot may already be gone */ }
         }
 
         // Clear companion references before disconnecting
