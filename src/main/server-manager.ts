@@ -222,7 +222,7 @@ export class ServerManager extends EventEmitter {
         });
     }
 
-    async stop(): Promise<void> {
+    stop(): void {
         if (!this.childProcess || this.state === 'stopping' || this.state === 'idle') return;
 
         this.setState('stopping');
@@ -1031,7 +1031,7 @@ export class ServerManager extends EventEmitter {
                     res.on('end', () => {
                         try {
                             resolve(JSON.parse(data) as Record<string, unknown>);
-                        } catch (e) {
+                        } catch {
                             reject(new Error(`Failed to parse JSON from ${url}`));
                         }
                     });

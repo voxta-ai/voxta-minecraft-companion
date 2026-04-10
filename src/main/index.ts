@@ -158,7 +158,7 @@ void app.whenReady().then(() => {
     app.on('before-quit', (e) => {
         if (serverManager.isRunning()) {
             e.preventDefault();
-            serverManager.cleanup().finally(() => app.quit());
+            void serverManager.cleanup().finally(() => app.quit());
         }
     });
 });

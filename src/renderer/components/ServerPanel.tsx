@@ -1,11 +1,8 @@
 import { createSignal, createEffect, onMount, onCleanup, Show, For } from 'solid-js';
 import {
     serverState,
-    setServerState,
     serverPort,
-    setServerPort,
     serverError,
-    setServerError,
     isInstalled,
     setIsInstalled,
     setupProgress,
@@ -13,19 +10,16 @@ import {
     isSettingUp,
     setIsSettingUp,
     serverConsole,
-    addServerConsoleLine,
     clearServerConsole,
 } from '../stores/server-store';
 import { addToast } from '../stores/toast-store';
 import PluginBrowser from './PluginBrowser';
 import type {
     ServerProperties,
-    ServerConfig,
     WorldInfo,
     WorldBackup,
     WhitelistEntry,
     OpsEntry,
-    ServerState as ServerStateType,
 } from '../../shared/ipc-types';
 
 type ServerSection = 'console' | 'properties' | 'plugins' | 'worlds' | 'players';
@@ -258,7 +252,7 @@ export default function ServerPanel() {
             setWhitelistInput('');
             await refreshPlayers();
             addToast('success', `Added ${name} to whitelist`);
-        } catch (err) {
+        } catch {
             addToast('error', `Failed to add ${name} to whitelist`);
         } finally {
             setPlayerBusy(false);
@@ -271,7 +265,7 @@ export default function ServerPanel() {
             await window.api.serverRemoveWhitelist(name);
             await refreshPlayers();
             addToast('success', `Removed ${name} from whitelist`);
-        } catch (err) {
+        } catch {
             addToast('error', `Failed to remove ${name} from whitelist`);
         } finally {
             setRemovingPlayer(null);
@@ -287,7 +281,7 @@ export default function ServerPanel() {
             setOpsInput('');
             await refreshPlayers();
             addToast('success', `Added ${name} as operator`);
-        } catch (err) {
+        } catch {
             addToast('error', `Failed to add ${name} as operator`);
         } finally {
             setPlayerBusy(false);
@@ -300,7 +294,7 @@ export default function ServerPanel() {
             await window.api.serverRemoveOp(name);
             await refreshPlayers();
             addToast('success', `Removed ${name} from operators`);
-        } catch (err) {
+        } catch {
             addToast('error', `Failed to remove ${name} from operators`);
         } finally {
             setRemovingPlayer(null);

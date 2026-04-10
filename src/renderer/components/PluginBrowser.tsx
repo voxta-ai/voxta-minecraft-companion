@@ -1,4 +1,4 @@
-import { createSignal, createEffect, Show, For, onMount } from 'solid-js';
+import { createSignal, Show, For, onMount } from 'solid-js';
 import { marked } from 'marked';
 import { serverState } from '../stores/server-store';
 import { addToast } from '../stores/toast-store';
@@ -226,7 +226,7 @@ export default function PluginBrowser() {
     }
 
     function renderMarkdown(content: string): string {
-        return marked.parse(content, { async: false }) as string;
+        return marked.parse(content, { async: false });
     }
 
     return (

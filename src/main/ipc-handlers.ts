@@ -190,11 +190,11 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
         await serverManager.start();
     });
 
-    ipcMain.handle(IPC_CHANNELS.SERVER_STOP, async () => {
-        await serverManager.stop();
+    ipcMain.handle(IPC_CHANNELS.SERVER_STOP, () => {
+        serverManager.stop();
     });
 
-    ipcMain.handle(IPC_CHANNELS.SERVER_SEND_COMMAND, async (_event, cmd: string) => {
+    ipcMain.handle(IPC_CHANNELS.SERVER_SEND_COMMAND, (_event, cmd: string) => {
         serverManager.sendCommand(cmd);
     });
 
