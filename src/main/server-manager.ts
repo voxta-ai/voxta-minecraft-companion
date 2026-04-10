@@ -642,7 +642,7 @@ export class ServerManager extends EventEmitter {
     // Called when the app is quitting — ensure we clean up the child process
     async cleanup(): Promise<void> {
         if (this.childProcess) {
-            this.childProcess.stdin?.write('stop\n');
+            try { this.childProcess.stdin?.write('stop\n'); } catch { /* pipe may be broken */ }
             // Give it a few seconds to stop gracefully
             await new Promise<void>((resolve) => {
                 const timeout = setTimeout(() => {
@@ -749,14 +749,39 @@ export class ServerManager extends EventEmitter {
         return 1024;
     }
 
-    async getServerConfig(): Promise<{ memoryMb: number }> {
+    async getServerConfig(): Promise<{ memoryMb: number; autoStart: boolean }> {
         const memoryMb = await this.getMemoryMb();
-        return { memoryMb };
+        const autoStart = await this.getAutoStart();
+        return { memoryMb, autoStart };
     }
 
-    async saveServerConfig(config: { memoryMb: number }): Promise<void> {
+    async saveServerConfig(config: { memoryMb: number; autoStart: boolean }): Promise<void> {
         const configPath = path.join(this.serverDir, 'voxta-config.json');
         await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+    }
+
+    private async getAutoStart(): Promise<boolean> {
+        try {
+            const configPath = path.join(this.serverDir, 'voxta-config.json');
+            const content = await fs.readFile(configPath, 'utf-8');
+            const config = JSON.parse(content) as Record<string, unknown>;
+            return config['autoStart'] === true;
+        } catch {
+            return false;
+        }
+    }
+
+    async tryAutoStart(): Promise<void> {
+        try {
+            const installed = await this.isInstalled();
+            if (!installed) return;
+            const autoStart = await this.getAutoStart();
+            if (!autoStart) return;
+            console.log('[Server] Auto-starting server...');
+            await this.start();
+        } catch (err) {
+            console.error('[Server] Auto-start failed:', err);
+        }
     }
 
     private async getActiveWorldName(): Promise<string> {

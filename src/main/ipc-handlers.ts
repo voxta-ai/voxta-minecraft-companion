@@ -26,53 +26,58 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
     const engine = new BotEngine();
     const serverManager = new ServerManager();
 
+    // Safe send — skip if window is already destroyed (e.g. during quit)
+    function send(channel: string, ...args: unknown[]): void {
+        if (!win.isDestroyed()) win.webContents.send(channel, ...args);
+    }
+
     // Forward events to renderer
     engine.on('status-changed', (status: BotStatus) => {
-        win.webContents.send(IPC_CHANNELS.STATUS_CHANGED, status);
+        send(IPC_CHANNELS.STATUS_CHANGED, status);
     });
 
     engine.on('chat-message', (msg: ChatMessage) => {
-        win.webContents.send(IPC_CHANNELS.CHAT_MESSAGE, msg);
+        send(IPC_CHANNELS.CHAT_MESSAGE, msg);
     });
 
     engine.on('clear-chat', () => {
-        win.webContents.send(IPC_CHANNELS.CLEAR_CHAT);
+        send(IPC_CHANNELS.CLEAR_CHAT);
     });
 
     engine.on('inspector-update', (data: InspectorData) => {
-        win.webContents.send(IPC_CHANNELS.INSPECTOR_UPDATE, data);
+        send(IPC_CHANNELS.INSPECTOR_UPDATE, data);
     });
 
     engine.on('action-triggered', (actionName: string) => {
-        win.webContents.send(IPC_CHANNELS.ACTION_TRIGGERED, actionName);
+        send(IPC_CHANNELS.ACTION_TRIGGERED, actionName);
     });
 
     engine.on('toast', (toast: ToastMessage) => {
-        win.webContents.send(IPC_CHANNELS.TOAST, toast);
+        send(IPC_CHANNELS.TOAST, toast);
     });
 
     engine.on('play-audio', (chunk: AudioChunk) => {
-        win.webContents.send(IPC_CHANNELS.PLAY_AUDIO, chunk);
+        send(IPC_CHANNELS.PLAY_AUDIO, chunk);
     });
 
     engine.on('stop-audio', () => {
-        win.webContents.send(IPC_CHANNELS.STOP_AUDIO);
+        send(IPC_CHANNELS.STOP_AUDIO);
     });
 
     engine.on('recording-start', (event: RecordingStartEvent) => {
-        win.webContents.send(IPC_CHANNELS.RECORDING_START, event);
+        send(IPC_CHANNELS.RECORDING_START, event);
     });
 
     engine.on('recording-stop', () => {
-        win.webContents.send(IPC_CHANNELS.RECORDING_STOP);
+        send(IPC_CHANNELS.RECORDING_STOP);
     });
 
     engine.on('speech-partial', (text: string) => {
-        win.webContents.send(IPC_CHANNELS.SPEECH_PARTIAL, text);
+        send(IPC_CHANNELS.SPEECH_PARTIAL, text);
     });
 
     engine.on('spatial-position', (data: SpatialPosition) => {
-        win.webContents.send(IPC_CHANNELS.SPATIAL_POSITION, data);
+        send(IPC_CHANNELS.SPATIAL_POSITION, data);
     });
 
     // Audio ack from renderer
@@ -90,6 +95,8 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
 
     // Handle renderer requests
     ipcMain.handle(IPC_CHANNELS.CONNECT_VOXTA, async (_event, config: VoxtaConnectConfig) => {
+        // Auto-start server in background when connecting to Voxta
+        void serverManager.tryAutoStart();
         return engine.connectVoxta(config);
     });
 
@@ -152,15 +159,15 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
     // ---- Server Manager ----
 
     serverManager.on('server-status-changed', (status: ServerStatus) => {
-        win.webContents.send(IPC_CHANNELS.SERVER_STATUS_CHANGED, status);
+        send(IPC_CHANNELS.SERVER_STATUS_CHANGED, status);
     });
 
     serverManager.on('server-console-line', (line: ServerConsoleLine) => {
-        win.webContents.send(IPC_CHANNELS.SERVER_CONSOLE_LINE, line);
+        send(IPC_CHANNELS.SERVER_CONSOLE_LINE, line);
     });
 
     serverManager.on('server-setup-progress', (progress: SetupProgress) => {
-        win.webContents.send(IPC_CHANNELS.SERVER_SETUP_PROGRESS, progress);
+        send(IPC_CHANNELS.SERVER_SETUP_PROGRESS, progress);
     });
 
     ipcMain.handle(IPC_CHANNELS.SERVER_IS_INSTALLED, async () => {

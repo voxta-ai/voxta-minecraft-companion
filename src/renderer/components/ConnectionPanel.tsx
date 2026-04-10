@@ -1,5 +1,6 @@
 import { createSignal, createMemo, Show, For, createEffect } from 'solid-js';
 import { status, connectVoxta, launchBot, disconnect, voxtaInfo, refreshCharacters } from '../stores/app-store';
+import { serverState, serverPort as managedServerPort } from '../stores/server-store';
 import type { BotConfig, CharacterInfo, ChatListItem, ScenarioInfo, VoxtaConnectConfig } from '../../shared/ipc-types';
 import CustomDropdown from './CustomDropdown';
 
@@ -71,6 +72,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     const [selectedCharacterId2, setSelectedCharacterId2] = createSignal<string | null>(null);
     const [secondMcUsername, setSecondMcUsername] = createSignal(saved.secondMcUsername ?? '');
     const [launching, setLaunching] = createSignal(false);
+    const [showAdvanced, setShowAdvanced] = createSignal(false);
 
     // Scenario selection
     const [scenarios, setScenarios] = createSignal<ScenarioInfo[]>([]);
@@ -282,8 +284,8 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         if (!charId) return;
 
         const config: BotConfig = {
-            mcHost: mcHost(),
-            mcPort: parseInt(mcPort(), 10) || 25565,
+            mcHost: mcHost() || 'localhost',
+            mcPort: parseInt(mcPort(), 10) || managedServerPort(),
             mcUsername: mcUsername(),
             mcVersion: mcVersion(),
             playerMcUsername: playerMcName(),
@@ -296,8 +298,8 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             entityRange: 32,
         };
         saveConfig({
-            mcHost: mcHost(),
-            mcPort: parseInt(mcPort(), 10) || 25565,
+            mcHost: mcHost() || 'localhost',
+            mcPort: parseInt(mcPort(), 10) || managedServerPort(),
             mcUsername: mcUsername(),
             secondMcUsername: secondMcUsername(),
             mcVersion: mcVersion(),
@@ -564,43 +566,61 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                             />
                             <span class="field-hint">Auto-filled from your Voxta profile</span>
                         </div>
-                        <div class="field">
-                            <label>Server Host</label>
-                            <input
-                                type="text"
-                                value={mcHost()}
-                                onInput={(e) => setMcHost(e.currentTarget.value)}
-                                placeholder="localhost"
-                            />
-                        </div>
-                        <div class="field">
-                            <label>Server Port</label>
-                            <input
-                                type="text"
-                                value={mcPort()}
-                                onInput={(e) => setMcPort(e.currentTarget.value)}
-                                placeholder="Default: 25565"
-                            />
-                        </div>
-                        <div class="field">
-                            <label>Game Version</label>
-                            <input
-                                type="text"
-                                value={mcVersion()}
-                                onInput={(e) => setMcVersion(e.currentTarget.value)}
-                                placeholder="Auto-detect"
-                            />
-                            <span class="field-hint">Leave empty to auto-detect from server</span>
-                        </div>
+                        <button
+                            class="advanced-toggle"
+                            onClick={() => setShowAdvanced(!showAdvanced())}
+                        >
+                            <i class={`bi bi-chevron-${showAdvanced() ? 'up' : 'down'}`}></i>
+                            Advanced
+                        </button>
+                        <Show when={showAdvanced()}>
+                            <div class="field">
+                                <label>Server Host</label>
+                                <input
+                                    type="text"
+                                    value={mcHost()}
+                                    onInput={(e) => setMcHost(e.currentTarget.value)}
+                                    placeholder="localhost"
+                                />
+                            </div>
+                            <div class="field">
+                                <label>Server Port</label>
+                                <input
+                                    type="text"
+                                    value={mcPort()}
+                                    onInput={(e) => setMcPort(e.currentTarget.value)}
+                                    placeholder={`Default: ${managedServerPort()}`}
+                                />
+                            </div>
+                            <div class="field">
+                                <label>Game Version</label>
+                                <input
+                                    type="text"
+                                    value={mcVersion()}
+                                    onInput={(e) => setMcVersion(e.currentTarget.value)}
+                                    placeholder="Auto-detect"
+                                />
+                                <span class="field-hint">Leave empty to auto-detect from server</span>
+                            </div>
+                        </Show>
                     </div>
 
                     <div class="connection-actions">
                         <button
-                            class="btn btn-connect"
+                            class={`btn btn-connect ${serverState() !== 'running' && !launching() ? 'btn-waiting' : ''}`}
                             onClick={handleLaunchBot}
-                            disabled={launching() || !selectedCharacterId()}
+                            disabled={launching() || !selectedCharacterId() || serverState() !== 'running'}
+                            title={serverState() !== 'running' ? 'Start the server first' : ''}
                         >
-                            {launching() ? '⏳ Launching...' : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
+                            {launching()
+                                ? '⏳ Launching...'
+                                : serverState() === 'starting'
+                                    ? '⏳ Starting server...'
+                                    : serverState() === 'stopping'
+                                        ? '⏳ Server stopping...'
+                                        : serverState() !== 'running'
+                                            ? '⏳ Waiting for server...'
+                                            : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
                         </button>
                         <button class="btn btn-disconnect" onClick={handleDisconnect}>
                             ⏹ Disconnect

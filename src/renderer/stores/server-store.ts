@@ -15,6 +15,24 @@ const [isSettingUp, setIsSettingUp] = createSignal(false);
 // ---- Server console ----
 const [serverConsole, setServerConsole] = createStore<{ lines: ServerConsoleLine[] }>({ lines: [] });
 
+// Initialize global server status listener — call once at app startup
+export function initServerStore(): void {
+    // Fetch initial status
+    void window.api.serverGetStatus().then((status) => {
+        setServerState(status.state);
+        setServerPort(status.port);
+        setServerError(status.error);
+    });
+    void window.api.serverIsInstalled().then(setIsInstalled);
+
+    // Subscribe to status changes globally
+    window.api.onServerStatusChanged((status) => {
+        setServerState(status.state);
+        setServerPort(status.port);
+        setServerError(status.error);
+    });
+}
+
 export function addServerConsoleLine(line: ServerConsoleLine): void {
     setServerConsole('lines', (prev) => {
         const next = [...prev, line];
