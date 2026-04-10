@@ -321,6 +321,20 @@ export interface ServerConfig {
     autoStart: boolean;
 }
 
+// ---- Player Management ----
+
+export interface WhitelistEntry {
+    uuid: string;
+    name: string;
+}
+
+export interface OpsEntry {
+    uuid: string;
+    name: string;
+    level: number;
+    bypassesPlayerLimit: boolean;
+}
+
 // ---- Console Log ----
 
 export type ConsoleLogLevel = 'log' | 'warn' | 'error';
@@ -420,6 +434,12 @@ export const IPC_CHANNELS = {
     SERVER_GET_BACKUPS: 'server:get-backups',
     SERVER_RESTORE_BACKUP: 'server:restore-backup',
     SERVER_DELETE_BACKUP: 'server:delete-backup',
+    SERVER_GET_WHITELIST: 'server:get-whitelist',
+    SERVER_ADD_WHITELIST: 'server:add-whitelist',
+    SERVER_REMOVE_WHITELIST: 'server:remove-whitelist',
+    SERVER_GET_OPS: 'server:get-ops',
+    SERVER_ADD_OP: 'server:add-op',
+    SERVER_REMOVE_OP: 'server:remove-op',
 
     // Server Manager: Main → Renderer
     SERVER_STATUS_CHANGED: 'server:status-changed',

@@ -2595,6 +2595,7 @@ body {
 }
 
 .server-console-count {
+    flex: 1;
     font-size: 11px;
     color: #666;
 }
@@ -2880,6 +2881,47 @@ body {
     border-color: var(--accent-red);
 }
 
+/* ---- Player Management ---- */
+
+.server-players-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.server-players-section .section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.player-add-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.player-add-input {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    outline: none;
+}
+
+.player-add-input:focus {
+    border-color: var(--accent-blue);
+}
+
+.player-add-btn {
+    padding: 6px 16px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
 /* ---- World Management ---- */
 
 .world-toolbar {
@@ -2916,9 +2958,41 @@ body {
 
 .world-create-form {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    gap: 6px;
     flex: 1;
+}
+
+.world-seed-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.world-seed-random {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 28px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    flex-shrink: 0;
+    font-size: 14px;
+}
+
+.world-seed-random:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-blue);
+}
+
+.world-create-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
 .world-name-input {

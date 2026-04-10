@@ -29,6 +29,8 @@ import type {
     HangarVersion,
     ServerConfig,
     WorldBackup,
+    WhitelistEntry,
+    OpsEntry,
 } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
@@ -208,8 +210,8 @@ const api = {
     serverDeleteWorld: (worldName: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.SERVER_DELETE_WORLD, worldName),
 
-    serverCreateWorld: (worldName: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.SERVER_CREATE_WORLD, worldName),
+    serverCreateWorld: (worldName: string, seed?: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_CREATE_WORLD, worldName, seed),
 
     serverGetConfig: (): Promise<ServerConfig> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_CONFIG),
 
@@ -240,6 +242,25 @@ const api = {
 
     hangarInstallPlugin: (owner: string, slug: string, versionName: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.SERVER_HANGAR_INSTALL, owner, slug, versionName),
+
+    // Player Management
+    serverGetWhitelist: (): Promise<WhitelistEntry[]> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_WHITELIST),
+
+    serverAddWhitelist: (name: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_ADD_WHITELIST, name),
+
+    serverRemoveWhitelist: (name: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_REMOVE_WHITELIST, name),
+
+    serverGetOps: (): Promise<OpsEntry[]> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_OPS),
+
+    serverAddOp: (name: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_ADD_OP, name),
+
+    serverRemoveOp: (name: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_REMOVE_OP, name),
 
     onServerStatusChanged: (callback: (status: ServerStatus) => void): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, status: ServerStatus): void => callback(status);

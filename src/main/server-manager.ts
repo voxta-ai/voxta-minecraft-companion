@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as https from 'https';
 import * as http from 'http';
+import * as crypto from 'crypto';
 import type {
     ServerState,
     ServerStatus,
@@ -14,6 +15,8 @@ import type {
     CatalogPlugin,
     WorldInfo,
     WorldBackup,
+    WhitelistEntry,
+    OpsEntry,
     ServerProperties,
     HangarSearchResult,
     HangarProjectDetail,
@@ -447,7 +450,7 @@ export class ServerManager extends EventEmitter {
         }
     }
 
-    async createWorld(worldName: string): Promise<void> {
+    async createWorld(worldName: string, seed?: string): Promise<void> {
         if (this.state === 'running' || this.state === 'starting') {
             throw new Error('Cannot create world while server is running. Stop the server first.');
         }
@@ -461,8 +464,10 @@ export class ServerManager extends EventEmitter {
             if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
         }
 
-        // Set as active world — Paper will generate it on next server start
-        await this.saveProperties({ 'level-name': worldName });
+        // Set as active world + seed — Paper will generate it on next server start
+        const props: ServerProperties = { 'level-name': worldName };
+        if (seed) props['level-seed'] = seed;
+        await this.saveProperties(props);
     }
 
     // ---- World Backups ----
@@ -637,6 +642,67 @@ export class ServerManager extends EventEmitter {
 
     isRunning(): boolean {
         return this.childProcess !== null;
+    }
+
+    // ---- Player Management (Whitelist & Ops) ----
+
+    async getWhitelist(): Promise<WhitelistEntry[]> {
+        try {
+            const content = await fs.readFile(path.join(this.serverDir, 'whitelist.json'), 'utf-8');
+            return JSON.parse(content) as WhitelistEntry[];
+        } catch {
+            return [];
+        }
+    }
+
+    async addWhitelist(name: string): Promise<void> {
+        const list = await this.getWhitelist();
+        const lower = name.toLowerCase();
+        if (list.some((e) => e.name.toLowerCase() === lower)) return;
+        const uuid = this.offlineUuid(name);
+        list.push({ uuid, name });
+        await fs.writeFile(path.join(this.serverDir, 'whitelist.json'), JSON.stringify(list, null, 2));
+    }
+
+    async removeWhitelist(name: string): Promise<void> {
+        const list = await this.getWhitelist();
+        const lower = name.toLowerCase();
+        const filtered = list.filter((e) => e.name.toLowerCase() !== lower);
+        await fs.writeFile(path.join(this.serverDir, 'whitelist.json'), JSON.stringify(filtered, null, 2));
+    }
+
+    async getOps(): Promise<OpsEntry[]> {
+        try {
+            const content = await fs.readFile(path.join(this.serverDir, 'ops.json'), 'utf-8');
+            return JSON.parse(content) as OpsEntry[];
+        } catch {
+            return [];
+        }
+    }
+
+    async addOp(name: string): Promise<void> {
+        const list = await this.getOps();
+        const lower = name.toLowerCase();
+        if (list.some((e) => e.name.toLowerCase() === lower)) return;
+        const uuid = this.offlineUuid(name);
+        list.push({ uuid, name, level: 4, bypassesPlayerLimit: false });
+        await fs.writeFile(path.join(this.serverDir, 'ops.json'), JSON.stringify(list, null, 2));
+    }
+
+    async removeOp(name: string): Promise<void> {
+        const list = await this.getOps();
+        const lower = name.toLowerCase();
+        const filtered = list.filter((e) => e.name.toLowerCase() !== lower);
+        await fs.writeFile(path.join(this.serverDir, 'ops.json'), JSON.stringify(filtered, null, 2));
+    }
+
+    /** Generate an offline-mode UUID v3 from a player name */
+    private offlineUuid(name: string): string {
+        const md5 = crypto.createHash('md5').update(`OfflinePlayer:${name}`).digest();
+        md5[6] = (md5[6] & 0x0f) | 0x30; // version 3
+        md5[8] = (md5[8] & 0x3f) | 0x80; // variant
+        const hex = md5.toString('hex');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
     }
 
     // Called when the app is quitting — ensure we clean up the child process
