@@ -1,11 +1,13 @@
 import { createSignal, createEffect, Show, For, onMount } from 'solid-js';
 import { marked } from 'marked';
 import { serverState } from '../stores/server-store';
+import { addToast } from '../stores/toast-store';
 import type {
     HangarProject,
     HangarProjectDetail,
     HangarVersion,
     PluginInfo,
+    PluginUpdateInfo,
 } from '../../shared/ipc-types';
 
 type PluginTab = 'browse' | 'installed';
@@ -60,6 +62,8 @@ export default function PluginBrowser() {
     const [loadingMore, setLoadingMore] = createSignal(false);
     const [removingPlugin, setRemovingPlugin] = createSignal<string | null>(null);
     const [confirmRemove, setConfirmRemove] = createSignal<string | null>(null);
+    const [pluginUpdates, setPluginUpdates] = createSignal<PluginUpdateInfo[]>([]);
+    const [checkingUpdates, setCheckingUpdates] = createSignal(false);
     let searchTimeout: ReturnType<typeof setTimeout> | undefined;
 
     onMount(() => {
@@ -145,8 +149,9 @@ export default function PluginBrowser() {
                 version.name,
             );
             await refreshInstalled();
+            addToast('success', `Installed ${project.name} v${version.name}`);
         } catch (err) {
-            console.error('Install failed:', err);
+            addToast('error', `Failed to install plugin: ${err instanceof Error ? err.message : 'Unknown error'}`);
         } finally {
             setInstallingVersion(null);
         }
@@ -158,8 +163,9 @@ export default function PluginBrowser() {
             await window.api.serverRemovePlugin(fileName);
             setConfirmRemove(null);
             await refreshInstalled();
+            addToast('success', `Removed ${fileName}`);
         } catch (err) {
-            console.error('Remove failed:', err);
+            addToast('error', `Failed to remove plugin: ${err instanceof Error ? err.message : 'Unknown error'}`);
         } finally {
             setRemovingPlugin(null);
         }
@@ -169,6 +175,54 @@ export default function PluginBrowser() {
         const plugins = await window.api.serverGetPlugins();
         setInstalledPlugins(plugins);
         setInstalledFileNames(new Set(plugins.map((p) => p.fileName)));
+    }
+
+    async function viewOnHangar(owner: string, slug: string): Promise<void> {
+        setActiveTab('browse');
+        setLoadingDetail(true);
+        try {
+            const [detail, versions] = await Promise.all([
+                window.api.hangarGetProject(owner, slug),
+                window.api.hangarGetVersions(owner, slug),
+            ]);
+            setSelectedProject(detail);
+            setSelectedVersions(versions);
+        } catch (err) {
+            console.error('Failed to load plugin details:', err);
+        } finally {
+            setLoadingDetail(false);
+        }
+    }
+
+    async function checkForUpdates(): Promise<void> {
+        setCheckingUpdates(true);
+        try {
+            const updates = await window.api.checkPluginUpdates();
+            setPluginUpdates(updates);
+        } catch (err) {
+            console.error('Failed to check plugin updates:', err);
+        } finally {
+            setCheckingUpdates(false);
+        }
+    }
+
+    function getUpdateForPlugin(fileName: string): PluginUpdateInfo | undefined {
+        return pluginUpdates().find((u) => u.fileName === fileName);
+    }
+
+    async function handleUpdate(update: PluginUpdateInfo): Promise<void> {
+        setInstallingVersion(update.latestVersion);
+        try {
+            await window.api.hangarInstallPlugin(update.hangarOwner, update.hangarSlug, update.latestVersion);
+            await refreshInstalled();
+            // Re-check updates to clear the badge
+            setPluginUpdates((prev) => prev.filter((u) => u.fileName !== update.fileName));
+            addToast('success', `Updated to v${update.latestVersion}`);
+        } catch (err) {
+            addToast('error', `Update failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        } finally {
+            setInstallingVersion(null);
+        }
     }
 
     function renderMarkdown(content: string): string {
@@ -389,58 +443,121 @@ export default function PluginBrowser() {
             {/* Installed Tab */}
             <Show when={activeTab() === 'installed'}>
                 <div class="plugin-installed-list">
+                    <div class="plugin-update-toolbar">
+                        <button
+                            class="btn btn-sm plugin-check-updates-btn"
+                            onClick={() => void checkForUpdates()}
+                            disabled={checkingUpdates() || installedPlugins().length === 0}
+                        >
+                            <i class={`bi ${checkingUpdates() ? 'bi-arrow-repeat spinning' : 'bi-arrow-repeat'}`}></i>
+                            {checkingUpdates() ? 'Checking...' : 'Check for Updates'}
+                        </button>
+                        <Show when={pluginUpdates().length > 0}>
+                            <span class="plugin-update-count">
+                                {pluginUpdates().length} update{pluginUpdates().length > 1 ? 's' : ''} available
+                            </span>
+                        </Show>
+                    </div>
                     <Show
                         when={installedPlugins().length > 0}
                         fallback={<div class="plugin-empty">No plugins installed yet.</div>}
                     >
                         <For each={installedPlugins()}>
-                            {(plugin) => (
-                                <div class="setting-card">
-                                    <Show
-                                        when={confirmRemove() !== plugin.fileName}
-                                        fallback={
-                                            <div class="plugin-remove-confirm">
-                                                <span class="plugin-remove-confirm-text">
-                                                    Remove <strong>{plugin.name}</strong>?
-                                                </span>
-                                                <button
-                                                    class="plugin-remove-confirm-btn"
-                                                    onClick={() => void handleRemove(plugin.fileName)}
-                                                    disabled={removingPlugin() === plugin.fileName || serverState() === 'running'}
-                                                >
-                                                    {removingPlugin() === plugin.fileName ? 'Removing...' : 'Remove'}
-                                                </button>
-                                                <button
-                                                    class="plugin-remove-cancel-btn"
-                                                    onClick={() => setConfirmRemove(null)}
-                                                    disabled={removingPlugin() === plugin.fileName}
-                                                >
-                                                    Cancel
-                                                </button>
-                                            </div>
-                                        }
-                                    >
-                                        <div class="setting-card-info">
-                                            <div class="setting-card-name">{plugin.name}</div>
-                                            <div class="setting-card-desc">
-                                                {plugin.fileName} ({formatFileSize(plugin.fileSize)})
-                                            </div>
-                                        </div>
-                                        <button
-                                            class="server-plugin-remove-btn"
-                                            onClick={() => setConfirmRemove(plugin.fileName)}
-                                            disabled={serverState() === 'running'}
-                                            title={serverState() === 'running' ? 'Stop the server first' : 'Remove plugin'}
+                            {(plugin) => {
+                                const update = (): PluginUpdateInfo | undefined => getUpdateForPlugin(plugin.fileName);
+                                return (
+                                    <div class="setting-card">
+                                        <Show
+                                            when={confirmRemove() !== plugin.fileName}
+                                            fallback={
+                                                <div class="plugin-remove-confirm">
+                                                    <span class="plugin-remove-confirm-text">
+                                                        Remove <strong>{plugin.name}</strong>?
+                                                    </span>
+                                                    <button
+                                                        class="plugin-remove-confirm-btn"
+                                                        onClick={() => void handleRemove(plugin.fileName)}
+                                                        disabled={removingPlugin() === plugin.fileName || serverState() === 'running'}
+                                                    >
+                                                        {removingPlugin() === plugin.fileName ? 'Removing...' : 'Remove'}
+                                                    </button>
+                                                    <button
+                                                        class="plugin-remove-cancel-btn"
+                                                        onClick={() => setConfirmRemove(null)}
+                                                        disabled={removingPlugin() === plugin.fileName}
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            }
                                         >
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </Show>
-                                </div>
-                            )}
+                                            <div class="setting-card-info">
+                                                <div class="setting-card-name">
+                                                    <Show
+                                                        when={plugin.hangarOwner && plugin.hangarSlug}
+                                                        fallback={<span>{plugin.name}</span>}
+                                                    >
+                                                        <button
+                                                            class="plugin-name-link"
+                                                            onClick={() => void viewOnHangar(plugin.hangarOwner!, plugin.hangarSlug!)}
+                                                            title="View on Hangar"
+                                                        >
+                                                            {plugin.name} <i class="bi bi-box-arrow-up-right"></i>
+                                                        </button>
+                                                    </Show>
+                                                    <Show when={plugin.installedVersion}>
+                                                        <span class="plugin-version-label">v{plugin.installedVersion}</span>
+                                                    </Show>
+                                                </div>
+                                                <div class="setting-card-desc">
+                                                    {plugin.fileName} ({formatFileSize(plugin.fileSize)})
+                                                    <Show when={!plugin.hangarOwner}>
+                                                        <span class="plugin-source-label">Manually installed</span>
+                                                    </Show>
+                                                </div>
+                                                <Show when={update()}>
+                                                    {(upd) => (
+                                                        <div class={`plugin-update-banner ${upd().compatible ? '' : 'incompatible'}`}>
+                                                            <i class={`bi ${upd().compatible ? 'bi-arrow-up-circle-fill' : 'bi-exclamation-triangle-fill'}`}></i>
+                                                            <span>
+                                                                v{upd().latestVersion} available
+                                                                <Show when={!upd().compatible}>
+                                                                    {' '}— requires MC {formatVersionRange(upd().supportedMcVersions)}
+                                                                </Show>
+                                                            </span>
+                                                            <button
+                                                                class={`btn btn-sm plugin-update-btn ${upd().compatible ? '' : 'plugin-update-btn-warn'}`}
+                                                                onClick={() => void handleUpdate(upd())}
+                                                                disabled={
+                                                                    installingVersion() === upd().latestVersion ||
+                                                                    serverState() === 'running'
+                                                                }
+                                                                title={!upd().compatible ? 'This version may not be compatible with your server' : ''}
+                                                            >
+                                                                {installingVersion() === upd().latestVersion
+                                                                    ? 'Updating...'
+                                                                    : upd().compatible ? 'Update' : 'Update Anyway'}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </Show>
+                                            </div>
+                                            <button
+                                                class="server-plugin-remove-btn"
+                                                onClick={() => setConfirmRemove(plugin.fileName)}
+                                                disabled={serverState() === 'running'}
+                                                title={serverState() === 'running' ? 'Stop the server first' : 'Remove plugin'}
+                                            >
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </Show>
+                                    </div>
+                                );
+                            }}
                         </For>
                     </Show>
                     <Show when={serverState() === 'running'}>
-                        <div class="server-hint">Stop the server to remove plugins.</div>
+                        <div class="server-hint">Stop the server to manage plugins.</div>
                     </Show>
                 </div>
             </Show>
