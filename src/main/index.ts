@@ -135,7 +135,7 @@ void app.whenReady().then(() => {
 
     const win = createWindow();
     mainWindow = win;
-    registerIpcHandlers(win);
+    const serverManager = registerIpcHandlers(win);
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -143,6 +143,11 @@ void app.whenReady().then(() => {
             mainWindow = newWin;
             registerIpcHandlers(newWin);
         }
+    });
+
+    // Gracefully stop the MC server when the app is closing
+    app.on('before-quit', () => {
+        void serverManager.cleanup();
     });
 });
 

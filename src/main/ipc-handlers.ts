@@ -1,5 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
+import { ServerManager } from './server-manager';
 import { cycleVisionWindow } from './vision-capture';
 import { IPC_CHANNELS } from '../shared/ipc-types';
 import type {
@@ -14,10 +15,15 @@ import type {
     RecordingStartEvent,
     InspectorData,
     SpatialPosition,
+    ServerStatus,
+    ServerConsoleLine,
+    SetupProgress,
+    ServerProperties,
 } from '../shared/ipc-types';
 
-export function registerIpcHandlers(win: BrowserWindow): void {
+export function registerIpcHandlers(win: BrowserWindow): ServerManager {
     const engine = new BotEngine();
+    const serverManager = new ServerManager();
 
     // Forward events to renderer
     engine.on('status-changed', (status: BotStatus) => {
@@ -141,4 +147,80 @@ export function registerIpcHandlers(win: BrowserWindow): void {
     ipcMain.handle(IPC_CHANNELS.REFRESH_CHARACTERS, async () => {
         return engine.refreshCharacters();
     });
+
+    // ---- Server Manager ----
+
+    serverManager.on('server-status-changed', (status: ServerStatus) => {
+        win.webContents.send(IPC_CHANNELS.SERVER_STATUS_CHANGED, status);
+    });
+
+    serverManager.on('server-console-line', (line: ServerConsoleLine) => {
+        win.webContents.send(IPC_CHANNELS.SERVER_CONSOLE_LINE, line);
+    });
+
+    serverManager.on('server-setup-progress', (progress: SetupProgress) => {
+        win.webContents.send(IPC_CHANNELS.SERVER_SETUP_PROGRESS, progress);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_IS_INSTALLED, async () => {
+        return serverManager.isInstalled();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_INSTALLED_VERSION, async () => {
+        return serverManager.getInstalledVersion();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_VERSIONS, async () => {
+        return serverManager.getAvailableVersions();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_SETUP, async (_event, version: string) => {
+        await serverManager.setup(version);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_START, async () => {
+        await serverManager.start();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_STOP, async () => {
+        await serverManager.stop();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_SEND_COMMAND, async (_event, cmd: string) => {
+        serverManager.sendCommand(cmd);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_STATUS, () => {
+        return serverManager.getStatus();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_PROPERTIES, async () => {
+        return serverManager.getProperties();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_SAVE_PROPERTIES, async (_event, props: ServerProperties) => {
+        await serverManager.saveProperties(props);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_PLUGINS, async () => {
+        return serverManager.getPlugins();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_CATALOG, () => {
+        return serverManager.getCatalog();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_INSTALL_PLUGIN, async (_event, pluginId: string) => {
+        await serverManager.installPlugin(pluginId);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_REMOVE_PLUGIN, async (_event, fileName: string) => {
+        await serverManager.removePlugin(fileName);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_WORLDS, async () => {
+        return serverManager.getWorlds();
+    });
+
+    return serverManager;
 }

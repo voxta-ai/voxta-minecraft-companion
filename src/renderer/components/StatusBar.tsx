@@ -1,11 +1,38 @@
 import { Show } from 'solid-js';
 import { status } from '../stores/app-store';
+import { serverState } from '../stores/server-store';
 
 export default function StatusBar() {
     const isDualBot = () => !!status.assistantName2;
 
+    const serverStatusClass = () => {
+        switch (serverState()) {
+            case 'running': return 'connected';
+            case 'starting':
+            case 'stopping': return 'connecting';
+            case 'error': return 'error';
+            default: return 'disconnected';
+        }
+    };
+
+    const serverLabel = () => {
+        switch (serverState()) {
+            case 'running': return 'running';
+            case 'starting': return 'starting';
+            case 'stopping': return 'stopping';
+            case 'error': return 'error';
+            default: return 'stopped';
+        }
+    };
+
     return (
         <div class="status-bar">
+            <Show when={serverState() !== 'not-installed'}>
+                <div class="status-bar-item">
+                    <span class={`status-dot ${serverStatusClass()}`} />
+                    Server: {serverLabel()}
+                </div>
+            </Show>
             <div class="status-bar-item">
                 <span class={`status-dot ${status.mc}`} />
                 Bot 1 (MC): {status.mc}
