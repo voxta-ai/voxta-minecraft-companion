@@ -257,6 +257,48 @@ export interface CatalogPlugin {
     fileName: string;
 }
 
+// ---- Hangar Plugin Store ----
+
+export interface HangarSearchResult {
+    pagination: { count: number; limit: number; offset: number };
+    result: HangarProject[];
+}
+
+export interface HangarProject {
+    name: string;
+    description: string;
+    namespace: { owner: string; slug: string };
+    stats: { downloads: number; recentDownloads: number; stars: number };
+    category: string;
+    lastUpdated: string;
+    avatarUrl: string;
+    mainPageContent?: string | null;
+    supportedPlatforms?: Record<string, string[]>;
+}
+
+export interface HangarProjectDetail extends HangarProject {
+    mainPageContent: string | null;
+    settings: {
+        links: Array<{ id: number; type: string; title: string; links: Array<{ name: string; url: string }> }>;
+        tags: string[];
+        license: { name: string; url: string; type: string } | null;
+        keywords: string[];
+    };
+}
+
+export interface HangarVersion {
+    name: string;
+    description: string;
+    stats: { totalDownloads: number };
+    channel: { name: string; color: string };
+    downloads: Record<string, {
+        fileInfo: { name: string; sizeBytes: number } | null;
+        externalUrl: string | null;
+        downloadUrl: string | null;
+    }>;
+    platformDependencies: Record<string, string[]>;
+}
+
 export interface WorldInfo {
     name: string;
     directory: string;
@@ -348,6 +390,10 @@ export const IPC_CHANNELS = {
     SERVER_GET_CATALOG: 'server:get-catalog',
     SERVER_INSTALL_PLUGIN: 'server:install-plugin',
     SERVER_REMOVE_PLUGIN: 'server:remove-plugin',
+    SERVER_HANGAR_SEARCH: 'server:hangar-search',
+    SERVER_HANGAR_PROJECT: 'server:hangar-project',
+    SERVER_HANGAR_VERSIONS: 'server:hangar-versions',
+    SERVER_HANGAR_INSTALL: 'server:hangar-install',
     SERVER_GET_WORLDS: 'server:get-worlds',
 
     // Server Manager: Main → Renderer

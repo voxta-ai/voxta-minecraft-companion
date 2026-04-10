@@ -117,6 +117,15 @@ function createWindow(): BrowserWindow {
         return { action: 'deny' };
     });
 
+    // Prevent external links from navigating the app window — open in system browser
+    win.webContents.on('will-navigate', (event, url) => {
+        const appUrl = is.dev ? process.env['ELECTRON_RENDERER_URL'] ?? '' : 'file://';
+        if (!url.startsWith(appUrl)) {
+            event.preventDefault();
+            void shell.openExternal(url);
+        }
+    });
+
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
         void win.loadURL(process.env['ELECTRON_RENDERER_URL']);
     } else {

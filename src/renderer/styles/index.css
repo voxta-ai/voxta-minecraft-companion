@@ -1827,6 +1827,11 @@ body {
 
 .modal-content:has(.server-panel) {
     max-width: 640px;
+    transition: max-width 0.2s ease;
+}
+
+.modal-content:has(.server-panel-wide) {
+    max-width: 960px;
 }
 
 .server-panel {
@@ -2063,6 +2068,445 @@ body {
     color: var(--accent-blue);
     flex-shrink: 0;
     margin-top: 1px;
+}
+
+/* ---- Plugin Browser ---- */
+
+.plugin-browser {
+    display: flex;
+    flex-direction: column;
+    min-height: 400px;
+}
+
+.plugin-tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 10px;
+}
+
+.plugin-tab {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    padding: 8px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.plugin-tab:hover {
+    color: var(--text-primary);
+}
+
+.plugin-tab.active {
+    color: var(--accent-blue);
+    border-bottom-color: var(--accent-blue);
+}
+
+/* Split Layout */
+.plugin-split {
+    display: flex;
+    gap: 1px;
+    background: var(--border-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.plugin-list-panel {
+    width: 35%;
+    min-width: 240px;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-primary);
+}
+
+.plugin-detail-panel {
+    flex: 1;
+    background: var(--bg-primary);
+    overflow-y: auto;
+    max-height: 450px;
+}
+
+/* Search */
+.plugin-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.plugin-search i {
+    color: var(--text-secondary);
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.plugin-search input {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 12px;
+    outline: none;
+}
+
+.plugin-search input::placeholder {
+    color: var(--text-muted);
+}
+
+.plugin-search-clear {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 14px;
+}
+
+.plugin-search-clear:hover {
+    color: var(--text-primary);
+}
+
+.plugin-result-count {
+    padding: 4px 10px;
+    font-size: 10px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
+}
+
+/* Result List */
+.plugin-result-list {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 400px;
+}
+
+.plugin-result-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    background: none;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    color: var(--text-primary);
+    transition: background 0.1s ease;
+}
+
+.plugin-result-card:hover {
+    background: var(--bg-hover);
+}
+
+.plugin-result-card.selected {
+    background: var(--bg-surface);
+    border-left: 2px solid var(--accent-blue);
+}
+
+.plugin-result-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    flex-shrink: 0;
+    object-fit: cover;
+    background: var(--bg-surface);
+}
+
+.plugin-result-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.plugin-result-name {
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.plugin-result-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.plugin-result-meta {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.plugin-result-meta i {
+    margin-right: 2px;
+}
+
+/* Detail Panel */
+.plugin-detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-muted);
+    gap: 8px;
+    padding: 40px;
+}
+
+.plugin-detail-empty i {
+    font-size: 32px;
+}
+
+.plugin-detail-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+}
+
+.plugin-detail-content {
+    padding: 16px;
+}
+
+.plugin-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.plugin-detail-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: var(--bg-surface);
+}
+
+.plugin-detail-title h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.plugin-detail-author {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.plugin-detail-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+    margin-bottom: 12px;
+}
+
+.plugin-detail-stats i {
+    margin-right: 4px;
+}
+
+.plugin-detail-category {
+    background: var(--bg-surface);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+}
+
+.plugin-detail-section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    margin-top: 12px;
+}
+
+/* Versions */
+.plugin-version-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.plugin-version-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+}
+
+.plugin-version-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.plugin-version-badge {
+    font-size: 12px;
+    font-weight: 500;
+    font-family: 'Consolas', 'Monaco', monospace;
+    border-left: 3px solid;
+    padding-left: 6px;
+}
+
+.plugin-version-channel {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.plugin-version-size {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.plugin-version-mc {
+    font-size: 10px;
+    color: var(--accent-blue);
+    background: rgba(96, 165, 250, 0.1);
+    padding: 1px 6px;
+    border-radius: 3px;
+}
+
+.plugin-version-external {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.plugin-installed-badge {
+    font-size: 11px;
+    color: var(--accent-green);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.plugin-install-btn {
+    padding: 3px 12px;
+    font-size: 11px;
+}
+
+/* Description (markdown) */
+.plugin-detail-description {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.plugin-detail-description h1,
+.plugin-detail-description h2,
+.plugin-detail-description h3 {
+    color: var(--text-primary);
+    margin-top: 16px;
+    margin-bottom: 8px;
+}
+
+.plugin-detail-description h1 { font-size: 18px; }
+.plugin-detail-description h2 { font-size: 15px; }
+.plugin-detail-description h3 { font-size: 13px; }
+
+.plugin-detail-description p {
+    margin: 8px 0;
+}
+
+.plugin-detail-description code {
+    background: var(--bg-surface);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.plugin-detail-description pre {
+    background: var(--bg-surface);
+    padding: 10px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 12px;
+}
+
+.plugin-detail-description pre code {
+    background: none;
+    padding: 0;
+}
+
+.plugin-detail-description img {
+    max-width: 100%;
+    border-radius: 6px;
+}
+
+.plugin-detail-description a {
+    color: var(--accent-blue);
+}
+
+.plugin-detail-description ul,
+.plugin-detail-description ol {
+    padding-left: 20px;
+    margin: 8px 0;
+}
+
+.plugin-detail-description blockquote {
+    border-left: 3px solid var(--border-active);
+    padding-left: 12px;
+    margin: 8px 0;
+    color: var(--text-muted);
+}
+
+.plugin-detail-short-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* Installed List */
+.plugin-installed-list {
+    padding: 0;
+}
+
+.plugin-loading-more {
+    padding: 12px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.plugin-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-style: italic;
 }
 
 /* Tabs */
