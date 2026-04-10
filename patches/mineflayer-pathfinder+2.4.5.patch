@@ -1,0 +1,15 @@
+diff --git a/node_modules/mineflayer-pathfinder/index.js b/node_modules/mineflayer-pathfinder/index.js
+index b38bd30..802a26c 100644
+--- a/node_modules/mineflayer-pathfinder/index.js
++++ b/node_modules/mineflayer-pathfinder/index.js
+@@ -541,7 +541,9 @@ function inject (bot) {
+       let canPlace = true
+       if (placingBlock.jump) {
+         bot.setControlState('jump', true)
+-        canPlace = placingBlock.y + 1 < bot.entity.position.y
++        // Patched: use a small tolerance so the bot places the block earlier in the
++        // jump arc instead of requiring strict > which misses on laggy ticks
++        canPlace = bot.entity.position.y > placingBlock.y + 0.8
+       }
+       if (canPlace) {
+         if (!lockEquipItem.tryAcquire()) return
