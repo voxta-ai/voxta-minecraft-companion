@@ -315,6 +315,7 @@ export class ServerManager extends EventEmitter {
 
     async getWorlds(): Promise<WorldInfo[]> {
         const worlds: WorldInfo[] = [];
+        const activeWorld = await this.getActiveWorldName();
         try {
             const entries = await fs.readdir(this.serverDir, { withFileTypes: true });
             for (const entry of entries) {
@@ -325,14 +326,135 @@ export class ServerManager extends EventEmitter {
                     const hasDim = await fs.access(path.join(dirPath, 'DIM-1')).then(() => true, () => false);
                     const hasSessionLock = await fs.access(path.join(dirPath, 'session.lock')).then(() => true, () => false);
                     if (hasRegion || hasDim || hasSessionLock) {
-                        worlds.push({ name: entry.name, directory: entry.name });
+                        // Skip dimension folders — they belong to a parent world
+                        if (entry.name.endsWith('_nether') || entry.name.endsWith('_the_end')) continue;
+
+                        // Calculate total size including dimension folders
+                        let sizeBytes = await this.getDirectorySize(dirPath);
+                        for (const suffix of ['_nether', '_the_end']) {
+                            const dimPath = path.join(this.serverDir, entry.name + suffix);
+                            try {
+                                await fs.access(dimPath);
+                                sizeBytes += await this.getDirectorySize(dimPath);
+                            } catch {
+                                // Dimension folder doesn't exist
+                            }
+                        }
+
+                        worlds.push({
+                            name: entry.name,
+                            directory: entry.name,
+                            isActive: entry.name === activeWorld,
+                            sizeBytes,
+                        });
                     }
                 }
             }
         } catch {
             // Server dir doesn't exist yet
         }
+        // If active world isn't on disk yet (newly created, pending generation), show it
+        // But only if it's not the default "world" — avoids ghost entry after deleting all worlds
+        const activeExists = worlds.some((w) => w.name === activeWorld);
+        if (!activeExists && activeWorld && activeWorld !== 'world') {
+            worlds.push({
+                name: activeWorld,
+                directory: activeWorld,
+                isActive: true,
+                sizeBytes: 0,
+            });
+        }
+
+        // Sort alphabetically, no reordering on selection
+        worlds.sort((a, b) => a.name.localeCompare(b.name));
         return worlds;
+    }
+
+    async setActiveWorld(worldName: string): Promise<void> {
+        if (this.state === 'running' || this.state === 'starting') {
+            throw new Error('Cannot change active world while server is running. Stop the server first.');
+        }
+        await this.saveProperties({ 'level-name': worldName });
+    }
+
+    async renameWorld(oldName: string, newName: string): Promise<void> {
+        if (this.state === 'running' || this.state === 'starting') {
+            throw new Error('Cannot rename world while server is running. Stop the server first.');
+        }
+        const oldPath = path.join(this.serverDir, oldName);
+        const newPath = path.join(this.serverDir, newName);
+
+        // Check target doesn't already exist
+        try {
+            await fs.access(newPath);
+            throw new Error(`A world named "${newName}" already exists.`);
+        } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        }
+
+        await fs.rename(oldPath, newPath);
+
+        // Also rename associated dimension folders (world_nether, world_the_end)
+        // Paper creates these as separate top-level folders: <world>_nether, <world>_the_end
+        for (const suffix of ['_nether', '_the_end']) {
+            const oldDimPath = path.join(this.serverDir, oldName + suffix);
+            const newDimPath = path.join(this.serverDir, newName + suffix);
+            try {
+                await fs.access(oldDimPath);
+                await fs.rename(oldDimPath, newDimPath);
+            } catch {
+                // Dimension folder doesn't exist, skip
+            }
+        }
+
+        // Update server.properties if this was the active world
+        const activeWorld = await this.getActiveWorldName();
+        if (activeWorld === oldName) {
+            await this.saveProperties({ 'level-name': newName });
+        }
+    }
+
+    async deleteWorld(worldName: string): Promise<void> {
+        if (this.state === 'running' || this.state === 'starting') {
+            throw new Error('Cannot delete world while server is running. Stop the server first.');
+        }
+        const worldPath = path.join(this.serverDir, worldName);
+        await fs.rm(worldPath, { recursive: true, force: true });
+
+        // Also delete associated dimension folders
+        for (const suffix of ['_nether', '_the_end']) {
+            const dimPath = path.join(this.serverDir, worldName + suffix);
+            try {
+                await fs.access(dimPath);
+                await fs.rm(dimPath, { recursive: true, force: true });
+            } catch {
+                // Dimension folder doesn't exist, skip
+            }
+        }
+
+        // If this was the active world, reset level-name to default
+        const activeWorld = await this.getActiveWorldName();
+        if (activeWorld === worldName) {
+            await this.saveProperties({ 'level-name': 'world' });
+        }
+    }
+
+    async createWorld(worldName: string): Promise<void> {
+        if (this.state === 'running' || this.state === 'starting') {
+            throw new Error('Cannot create world while server is running. Stop the server first.');
+        }
+        const worldPath = path.join(this.serverDir, worldName);
+
+        // Check it doesn't already exist
+        try {
+            await fs.access(worldPath);
+            throw new Error(`A world named "${worldName}" already exists.`);
+        } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        }
+
+        // Set as active world — Paper will generate it on next server start
+        await this.saveProperties({ 'level-name': worldName });
     }
 
     // ---- Hangar Plugin Store ----
@@ -480,6 +602,30 @@ export class ServerManager extends EventEmitter {
         }
 
         return lines.join('\n');
+    }
+
+    private async getActiveWorldName(): Promise<string> {
+        const props = await this.getProperties();
+        return props['level-name'] ?? 'world';
+    }
+
+    private async getDirectorySize(dirPath: string): Promise<number> {
+        let totalSize = 0;
+        try {
+            const entries = await fs.readdir(dirPath, { withFileTypes: true });
+            for (const entry of entries) {
+                const entryPath = path.join(dirPath, entry.name);
+                if (entry.isFile()) {
+                    const stat = await fs.stat(entryPath);
+                    totalSize += stat.size;
+                } else if (entry.isDirectory()) {
+                    totalSize += await this.getDirectorySize(entryPath);
+                }
+            }
+        } catch {
+            // Skip unreadable entries
+        }
+        return totalSize;
     }
 
     private async downloadPaper(version: string): Promise<void> {
