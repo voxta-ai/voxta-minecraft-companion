@@ -11,8 +11,9 @@ import ToastContainer from './components/ToastContainer';
 import AudioPlayer from './components/AudioPlayer';
 import InspectorDrawer from './components/InspectorDrawer';
 import TerminalPanel from './components/TerminalPanel';
+import ServerPanel from './components/ServerPanel';
 
-type Popup = 'connection' | 'actions' | 'settings' | null;
+type Popup = 'connection' | 'actions' | 'settings' | 'server' | null;
 
 export default function App() {
     useStatusListener();
@@ -97,6 +98,14 @@ export default function App() {
                         <span class="header-btn-label">Settings</span>
                     </button>
                     <button
+                        class={`header-btn ${activePopup() === 'server' ? 'active' : ''}`}
+                        onClick={() => togglePopup('server')}
+                        title="Server Manager"
+                    >
+                        <span class="header-btn-icon" style={{ color: 'var(--text-secondary)' }}><i class="bi bi-hdd-rack"></i></span>
+                        <span class="header-btn-label">Server</span>
+                    </button>
+                    <button
                         class={`header-btn ${terminalOpen() ? 'active' : ''}`}
                         onClick={() => setTerminalOpen(!terminalOpen())}
                         title="Terminal (F2)"
@@ -141,6 +150,10 @@ export default function App() {
 
             <Modal open={activePopup() === 'settings'} title="⚙️ Settings" onClose={() => setActivePopup(null)}>
                 <SettingsPanel />
+            </Modal>
+
+            <Modal open={activePopup() === 'server'} title="Server Manager" onClose={() => setActivePopup(null)}>
+                <ServerPanel />
             </Modal>
         </div>
     );

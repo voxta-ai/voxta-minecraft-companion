@@ -17,6 +17,13 @@ import type {
     InspectorData,
     ConsoleLogEntry,
     SpatialPosition,
+    ServerStatus,
+    ServerConsoleLine,
+    SetupProgress,
+    ServerProperties,
+    PluginInfo,
+    CatalogPlugin,
+    WorldInfo,
 } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
@@ -150,6 +157,59 @@ const api = {
         const handler = (_event: Electron.IpcRendererEvent, data: SpatialPosition): void => callback(data);
         ipcRenderer.on(IPC_CHANNELS.SPATIAL_POSITION, handler);
         return () => ipcRenderer.removeListener(IPC_CHANNELS.SPATIAL_POSITION, handler);
+    },
+
+    // ---- Server Manager ----
+
+    serverIsInstalled: (): Promise<boolean> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_IS_INSTALLED),
+
+    serverGetInstalledVersion: (): Promise<string | null> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_INSTALLED_VERSION),
+
+    serverGetVersions: (): Promise<string[]> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_VERSIONS),
+
+    serverSetup: (version: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_SETUP, version),
+
+    serverStart: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_START),
+
+    serverStop: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_STOP),
+
+    serverSendCommand: (cmd: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_SEND_COMMAND, cmd),
+
+    serverGetStatus: (): Promise<ServerStatus> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_STATUS),
+
+    serverGetProperties: (): Promise<ServerProperties> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_PROPERTIES),
+
+    serverSaveProperties: (props: ServerProperties): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_SAVE_PROPERTIES, props),
+
+    serverGetPlugins: (): Promise<PluginInfo[]> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_PLUGINS),
+
+    serverGetCatalog: (): Promise<CatalogPlugin[]> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_CATALOG),
+
+    serverInstallPlugin: (pluginId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_INSTALL_PLUGIN, pluginId),
+
+    serverRemovePlugin: (fileName: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_REMOVE_PLUGIN, fileName),
+
+    serverGetWorlds: (): Promise<WorldInfo[]> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_WORLDS),
+
+    onServerStatusChanged: (callback: (status: ServerStatus) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, status: ServerStatus): void => callback(status);
+        ipcRenderer.on(IPC_CHANNELS.SERVER_STATUS_CHANGED, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.SERVER_STATUS_CHANGED, handler);
+    },
+
+    onServerConsoleLine: (callback: (line: ServerConsoleLine) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, line: ServerConsoleLine): void => callback(line);
+        ipcRenderer.on(IPC_CHANNELS.SERVER_CONSOLE_LINE, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.SERVER_CONSOLE_LINE, handler);
+    },
+
+    onServerSetupProgress: (callback: (progress: SetupProgress) => void): (() => void) => {
+        const handler = (_event: Electron.IpcRendererEvent, progress: SetupProgress): void => callback(progress);
+        ipcRenderer.on(IPC_CHANNELS.SERVER_SETUP_PROGRESS, handler);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.SERVER_SETUP_PROGRESS, handler);
     },
 };
 

@@ -331,6 +331,9 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
     return (
         <div class="connection-panel">
+            <div class="connection-compat-badge">
+                <i class="bi bi-controller"></i> Supported Minecraft: 1.8 – 1.21.11
+            </div>
             {/* Phase 1: Voxta Connection */}
             <div class="connection-section">
                 <div class="section-title">Voxta Server</div>

@@ -218,6 +218,52 @@ export interface SpatialPosition {
     playerYaw: number;
 }
 
+// ---- Server Manager ----
+
+export type ServerState = 'not-installed' | 'idle' | 'starting' | 'running' | 'stopping' | 'error';
+
+export interface ServerStatus {
+    state: ServerState;
+    port: number;
+    error?: string;
+}
+
+export interface ServerConsoleLine {
+    timestamp: number;
+    text: string;
+    level: 'info' | 'warn' | 'error';
+}
+
+export interface SetupProgress {
+    step: number;
+    totalSteps: number;
+    label: string;
+    bytesDownloaded?: number;
+    bytesTotal?: number;
+}
+
+export interface PluginInfo {
+    name: string;
+    fileName: string;
+    fileSize: number;
+    installed: boolean;
+}
+
+export interface CatalogPlugin {
+    id: string;
+    name: string;
+    description: string;
+    downloadUrl: string;
+    fileName: string;
+}
+
+export interface WorldInfo {
+    name: string;
+    directory: string;
+}
+
+export type ServerProperties = Record<string, string>;
+
 // ---- Console Log ----
 
 export type ConsoleLogLevel = 'log' | 'warn' | 'error';
@@ -286,4 +332,26 @@ export const IPC_CHANNELS = {
     AUDIO_COMPLETE: 'bot:audio-complete',
     LOG: 'bot:log',
     CONSOLE_LOG: 'bot:console-log',
+
+    // Server Manager: Renderer → Main
+    SERVER_GET_INSTALLED_VERSION: 'server:get-installed-version',
+    SERVER_GET_VERSIONS: 'server:get-versions',
+    SERVER_SETUP: 'server:setup',
+    SERVER_IS_INSTALLED: 'server:is-installed',
+    SERVER_START: 'server:start',
+    SERVER_STOP: 'server:stop',
+    SERVER_SEND_COMMAND: 'server:send-command',
+    SERVER_GET_STATUS: 'server:get-status',
+    SERVER_GET_PROPERTIES: 'server:get-properties',
+    SERVER_SAVE_PROPERTIES: 'server:save-properties',
+    SERVER_GET_PLUGINS: 'server:get-plugins',
+    SERVER_GET_CATALOG: 'server:get-catalog',
+    SERVER_INSTALL_PLUGIN: 'server:install-plugin',
+    SERVER_REMOVE_PLUGIN: 'server:remove-plugin',
+    SERVER_GET_WORLDS: 'server:get-worlds',
+
+    // Server Manager: Main → Renderer
+    SERVER_STATUS_CHANGED: 'server:status-changed',
+    SERVER_CONSOLE_LINE: 'server:console-line',
+    SERVER_SETUP_PROGRESS: 'server:setup-progress',
 } as const;
