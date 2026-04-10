@@ -3147,6 +3147,174 @@ body {
     font-size: 11px;
 }
 
+.world-action-btn-active {
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+    background: rgba(96, 165, 250, 0.1);
+}
+
+/* ---- World Backups ---- */
+
+.world-backup-list {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    margin: 4px 8px 8px;
+    overflow: hidden;
+}
+
+.world-backup-header {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.world-backup-empty {
+    padding: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.world-backup-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+    transition: background var(--transition);
+}
+
+.world-backup-row:last-child {
+    border-bottom: none;
+}
+
+.world-backup-row:hover {
+    background: var(--surface-hover);
+}
+
+.world-backup-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.world-backup-date {
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.world-backup-size {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.world-backup-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.world-backup-row:hover .world-backup-actions {
+    opacity: 1;
+}
+
+.world-backup-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 11px;
+    transition: all var(--transition);
+}
+
+.world-backup-action:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+}
+
+.world-backup-action-delete:hover:not(:disabled) {
+    color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
+.world-backup-action:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.world-backup-confirm {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    font-size: 12px;
+}
+
+.world-backup-confirm-text {
+    flex: 1;
+    color: var(--text-secondary);
+}
+
+.world-backup-confirm-btn {
+    padding: 3px 10px;
+    font-size: 11px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.world-backup-restore-btn {
+    background: var(--accent-blue);
+    color: white;
+}
+
+.world-backup-restore-btn:hover:not(:disabled) {
+    filter: brightness(1.15);
+}
+
+.world-backup-delete-confirm-btn {
+    background: var(--accent-red);
+    color: white;
+}
+
+.world-backup-delete-confirm-btn:hover:not(:disabled) {
+    filter: brightness(1.15);
+}
+
+.world-backup-cancel-btn {
+    padding: 3px 10px;
+    font-size: 11px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.world-backup-cancel-btn:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
 /* ---- Memory Slider ---- */
 
 .setting-card-column {

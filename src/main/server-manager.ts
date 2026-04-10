@@ -13,6 +13,7 @@ import type {
     PluginInfo,
     CatalogPlugin,
     WorldInfo,
+    WorldBackup,
     ServerProperties,
     HangarSearchResult,
     HangarProjectDetail,
@@ -342,11 +343,13 @@ export class ServerManager extends EventEmitter {
                             }
                         }
 
+                        const backupCount = await this.getBackupCount(entry.name);
                         worlds.push({
                             name: entry.name,
                             directory: entry.name,
                             isActive: entry.name === activeWorld,
                             sizeBytes,
+                            backupCount,
                         });
                     }
                 }
@@ -363,6 +366,7 @@ export class ServerManager extends EventEmitter {
                 directory: activeWorld,
                 isActive: true,
                 sizeBytes: 0,
+                backupCount: 0,
             });
         }
 
@@ -456,6 +460,126 @@ export class ServerManager extends EventEmitter {
 
         // Set as active world — Paper will generate it on next server start
         await this.saveProperties({ 'level-name': worldName });
+    }
+
+    // ---- World Backups ----
+
+    private get backupsDir(): string {
+        return path.join(this.serverDir, 'backups');
+    }
+
+    async backupWorld(worldName: string): Promise<void> {
+        const worldPath = path.join(this.serverDir, worldName);
+        try {
+            await fs.access(worldPath);
+        } catch {
+            throw new Error(`World "${worldName}" does not exist.`);
+        }
+
+        const timestamp = Date.now();
+        const backupId = `${worldName}_${timestamp}`;
+        const backupPath = path.join(this.backupsDir, backupId);
+        await fs.mkdir(backupPath, { recursive: true });
+
+        // Copy main world folder
+        await this.copyDirectory(worldPath, path.join(backupPath, worldName));
+
+        // Copy dimension folders
+        for (const suffix of ['_nether', '_the_end']) {
+            const dimPath = path.join(this.serverDir, worldName + suffix);
+            try {
+                await fs.access(dimPath);
+                await this.copyDirectory(dimPath, path.join(backupPath, worldName + suffix));
+            } catch {
+                // Dimension folder doesn't exist
+            }
+        }
+    }
+
+    async getBackups(worldName: string): Promise<WorldBackup[]> {
+        const backups: WorldBackup[] = [];
+        try {
+            const entries = await fs.readdir(this.backupsDir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.isDirectory() && entry.name.startsWith(worldName + '_')) {
+                    const timestampStr = entry.name.substring(worldName.length + 1);
+                    const timestamp = parseInt(timestampStr, 10);
+                    if (isNaN(timestamp)) continue;
+
+                    const backupPath = path.join(this.backupsDir, entry.name);
+                    const sizeBytes = await this.getDirectorySize(backupPath);
+                    backups.push({
+                        id: entry.name,
+                        worldName,
+                        timestamp,
+                        sizeBytes,
+                    });
+                }
+            }
+        } catch {
+            // Backups dir doesn't exist yet
+        }
+        // Newest first
+        backups.sort((a, b) => b.timestamp - a.timestamp);
+        return backups;
+    }
+
+    async restoreBackup(backupId: string): Promise<void> {
+        if (this.state === 'running' || this.state === 'starting') {
+            throw new Error('Cannot restore while server is running. Stop the server first.');
+        }
+
+        const backupPath = path.join(this.backupsDir, backupId);
+        try {
+            await fs.access(backupPath);
+        } catch {
+            throw new Error('Backup not found.');
+        }
+
+        // Read the backup contents to find the world name
+        const entries = await fs.readdir(backupPath, { withFileTypes: true });
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                const destPath = path.join(this.serverDir, entry.name);
+                // Remove existing folder before restoring
+                await fs.rm(destPath, { recursive: true, force: true });
+                await this.copyDirectory(path.join(backupPath, entry.name), destPath);
+            }
+        }
+    }
+
+    async deleteBackup(backupId: string): Promise<void> {
+        const backupPath = path.join(this.backupsDir, backupId);
+        await fs.rm(backupPath, { recursive: true, force: true });
+    }
+
+    private async getBackupCount(worldName: string): Promise<number> {
+        try {
+            const entries = await fs.readdir(this.backupsDir);
+            return entries.filter((e) => e.startsWith(worldName + '_')).length;
+        } catch {
+            return 0;
+        }
+    }
+
+    private async copyDirectory(src: string, dest: string): Promise<void> {
+        await fs.mkdir(dest, { recursive: true });
+        const entries = await fs.readdir(src, { withFileTypes: true });
+        for (const entry of entries) {
+            const srcPath = path.join(src, entry.name);
+            const destPath = path.join(dest, entry.name);
+            if (entry.isDirectory()) {
+                await this.copyDirectory(srcPath, destPath);
+            } else {
+                try {
+                    await fs.copyFile(srcPath, destPath);
+                } catch (err) {
+                    // Skip locked files (e.g. session.lock while server is running)
+                    if ((err as NodeJS.ErrnoException).code === 'EBUSY') continue;
+                    throw err;
+                }
+            }
+        }
     }
 
     // ---- Hangar Plugin Store ----

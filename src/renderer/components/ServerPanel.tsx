@@ -21,6 +21,7 @@ import type {
     ServerProperties,
     ServerConfig,
     WorldInfo,
+    WorldBackup,
     ServerState as ServerStateType,
 } from '../../shared/ipc-types';
 
@@ -59,6 +60,10 @@ export default function ServerPanel() {
     const [newWorldName, setNewWorldName] = createSignal('');
     const [worldBusy, setWorldBusy] = createSignal(false);
     const [worldError, setWorldError] = createSignal<string | null>(null);
+    const [expandedBackups, setExpandedBackups] = createSignal<string | null>(null);
+    const [backups, setBackups] = createSignal<WorldBackup[]>([]);
+    const [restoringBackup, setRestoringBackup] = createSignal<string | null>(null);
+    const [deletingBackup, setDeletingBackup] = createSignal<string | null>(null);
 
     let consoleRef: HTMLDivElement | undefined;
 
@@ -304,6 +309,78 @@ export default function ServerPanel() {
         } finally {
             setWorldBusy(false);
         }
+    }
+
+    async function handleBackupWorld(worldName: string): Promise<void> {
+        setWorldBusy(true);
+        setWorldError(null);
+        try {
+            await window.api.serverBackupWorld(worldName);
+            // Refresh backups if this world's backups are expanded
+            if (expandedBackups() === worldName) {
+                const list = await window.api.serverGetBackups(worldName);
+                setBackups(list);
+            }
+            await refreshWorlds();
+        } catch (err) {
+            setWorldError(err instanceof Error ? err.message : 'Backup failed');
+        } finally {
+            setWorldBusy(false);
+        }
+    }
+
+    async function handleToggleBackups(worldName: string): Promise<void> {
+        if (expandedBackups() === worldName) {
+            setExpandedBackups(null);
+            setBackups([]);
+            return;
+        }
+        setExpandedBackups(worldName);
+        const list = await window.api.serverGetBackups(worldName);
+        setBackups(list);
+    }
+
+    async function handleRestoreBackup(backupId: string): Promise<void> {
+        setWorldBusy(true);
+        setWorldError(null);
+        try {
+            await window.api.serverRestoreBackup(backupId);
+            setRestoringBackup(null);
+            await refreshWorlds();
+        } catch (err) {
+            setWorldError(err instanceof Error ? err.message : 'Restore failed');
+        } finally {
+            setWorldBusy(false);
+        }
+    }
+
+    async function handleDeleteBackup(backupId: string, worldName: string): Promise<void> {
+        setWorldBusy(true);
+        setWorldError(null);
+        try {
+            await window.api.serverDeleteBackup(backupId);
+            setDeletingBackup(null);
+            const list = await window.api.serverGetBackups(worldName);
+            setBackups(list);
+            if (list.length === 0) {
+                setExpandedBackups(null);
+            }
+            await refreshWorlds();
+        } catch (err) {
+            setWorldError(err instanceof Error ? err.message : 'Delete backup failed');
+        } finally {
+            setWorldBusy(false);
+        }
+    }
+
+    function formatBackupDate(timestamp: number): string {
+        const date = new Date(timestamp);
+        return date.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
     }
 
     function getStateLabel(state: string): string {
@@ -893,7 +970,7 @@ export default function ServerPanel() {
                     >
                         <div class="world-list">
                             <For each={worlds()}>
-                                {(world) => (
+                                {(world) => (<>
                                     <div
                                         class={`world-card ${world.isActive ? 'world-card-active' : ''}`}
                                         onClick={() => {
@@ -991,6 +1068,26 @@ export default function ServerPanel() {
                                                 </div>
                                             </div>
                                             <div class="world-card-actions">
+                                                <Show when={world.sizeBytes > 0}>
+                                                    <button
+                                                        class="world-action-btn"
+                                                        onClick={(e) => { e.stopPropagation(); void handleBackupWorld(world.name); }}
+                                                        disabled={worldBusy()}
+                                                        title="Backup world"
+                                                    >
+                                                        <i class="bi bi-download"></i>
+                                                    </button>
+                                                </Show>
+                                                <Show when={world.backupCount > 0}>
+                                                    <button
+                                                        class={`world-action-btn ${expandedBackups() === world.name ? 'world-action-btn-active' : ''}`}
+                                                        onClick={(e) => { e.stopPropagation(); void handleToggleBackups(world.name); }}
+                                                        disabled={worldBusy()}
+                                                        title={`${world.backupCount} backup${world.backupCount > 1 ? 's' : ''}`}
+                                                    >
+                                                        <i class="bi bi-clock-history"></i>
+                                                    </button>
+                                                </Show>
                                                 <Show when={serverState() !== 'running' && serverState() !== 'starting'}>
                                                     <button
                                                         class="world-action-btn"
@@ -1017,7 +1114,78 @@ export default function ServerPanel() {
                                             </div>
                                         </Show>
                                     </div>
-                                )}
+                                    {/* Backup list */}
+                                    <Show when={expandedBackups() === world.name}>
+                                        <div class="world-backup-list" onClick={(e) => e.stopPropagation()}>
+                                            <div class="world-backup-header">
+                                                <i class="bi bi-clock-history"></i> Backups
+                                            </div>
+                                            <Show
+                                                when={backups().length > 0}
+                                                fallback={<div class="world-backup-empty">No backups yet</div>}
+                                            >
+                                                <For each={backups()}>
+                                                    {(backup) => (
+                                                        <div class="world-backup-row">
+                                                            <Show
+                                                                when={restoringBackup() !== backup.id && deletingBackup() !== backup.id}
+                                                                fallback={
+                                                                    <div class="world-backup-confirm">
+                                                                        <span class="world-backup-confirm-text">
+                                                                            {restoringBackup() === backup.id ? 'Restore this backup?' : 'Delete this backup?'}
+                                                                        </span>
+                                                                        <button
+                                                                            class={`world-backup-confirm-btn ${restoringBackup() === backup.id ? 'world-backup-restore-btn' : 'world-backup-delete-confirm-btn'}`}
+                                                                            onClick={() => {
+                                                                                if (restoringBackup() === backup.id) void handleRestoreBackup(backup.id);
+                                                                                else void handleDeleteBackup(backup.id, world.name);
+                                                                            }}
+                                                                            disabled={worldBusy()}
+                                                                        >
+                                                                            {worldBusy() ? '...' : restoringBackup() === backup.id ? 'Restore' : 'Delete'}
+                                                                        </button>
+                                                                        <button
+                                                                            class="world-backup-cancel-btn"
+                                                                            onClick={() => { setRestoringBackup(null); setDeletingBackup(null); }}
+                                                                            disabled={worldBusy()}
+                                                                        >
+                                                                            Cancel
+                                                                        </button>
+                                                                    </div>
+                                                                }
+                                                            >
+                                                                <div class="world-backup-info">
+                                                                    <span class="world-backup-date">{formatBackupDate(backup.timestamp)}</span>
+                                                                    <span class="world-backup-size">{formatWorldSize(backup.sizeBytes)}</span>
+                                                                </div>
+                                                                <div class="world-backup-actions">
+                                                                    <Show when={serverState() !== 'running' && serverState() !== 'starting'}>
+                                                                        <button
+                                                                            class="world-backup-action"
+                                                                            onClick={() => setRestoringBackup(backup.id)}
+                                                                            disabled={worldBusy()}
+                                                                            title="Restore this backup"
+                                                                        >
+                                                                            <i class="bi bi-arrow-counterclockwise"></i>
+                                                                        </button>
+                                                                    </Show>
+                                                                    <button
+                                                                        class="world-backup-action world-backup-action-delete"
+                                                                        onClick={() => setDeletingBackup(backup.id)}
+                                                                        disabled={worldBusy()}
+                                                                        title="Delete backup"
+                                                                    >
+                                                                        <i class="bi bi-trash3"></i>
+                                                                    </button>
+                                                                </div>
+                                                            </Show>
+                                                        </div>
+                                                    )}
+                                                </For>
+                                            </Show>
+                                        </div>
+                                    </Show>
+                                </>)}
                             </For>
                         </div>
                     </Show>

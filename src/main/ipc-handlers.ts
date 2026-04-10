@@ -247,6 +247,22 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
         await serverManager.saveServerConfig(config);
     });
 
+    ipcMain.handle(IPC_CHANNELS.SERVER_BACKUP_WORLD, async (_event, worldName: string) => {
+        await serverManager.backupWorld(worldName);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_BACKUPS, async (_event, worldName: string) => {
+        return serverManager.getBackups(worldName);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_RESTORE_BACKUP, async (_event, backupId: string) => {
+        await serverManager.restoreBackup(backupId);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_DELETE_BACKUP, async (_event, backupId: string) => {
+        await serverManager.deleteBackup(backupId);
+    });
+
     // Hangar Plugin Store
     ipcMain.handle(IPC_CHANNELS.SERVER_HANGAR_SEARCH, async (_event, query: string, offset: number) => {
         return serverManager.hangarSearch(query, offset);

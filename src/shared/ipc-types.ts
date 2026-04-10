@@ -304,6 +304,14 @@ export interface WorldInfo {
     directory: string;
     isActive: boolean;
     sizeBytes: number;
+    backupCount: number;
+}
+
+export interface WorldBackup {
+    id: string;
+    worldName: string;
+    timestamp: number;
+    sizeBytes: number;
 }
 
 export type ServerProperties = Record<string, string>;
@@ -407,6 +415,10 @@ export const IPC_CHANNELS = {
     SERVER_CREATE_WORLD: 'server:create-world',
     SERVER_GET_CONFIG: 'server:get-config',
     SERVER_SAVE_CONFIG: 'server:save-config',
+    SERVER_BACKUP_WORLD: 'server:backup-world',
+    SERVER_GET_BACKUPS: 'server:get-backups',
+    SERVER_RESTORE_BACKUP: 'server:restore-backup',
+    SERVER_DELETE_BACKUP: 'server:delete-backup',
 
     // Server Manager: Main → Renderer
     SERVER_STATUS_CHANGED: 'server:status-changed',
