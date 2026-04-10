@@ -31,6 +31,11 @@ export function initServerStore(): void {
         setServerPort(status.port);
         setServerError(status.error);
     });
+
+    // Subscribe to console lines globally (persists when Server panel is closed)
+    window.api.onServerConsoleLine((line) => {
+        addServerConsoleLine(line);
+    });
 }
 
 export function addServerConsoleLine(line: ServerConsoleLine): void {

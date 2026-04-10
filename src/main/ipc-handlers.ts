@@ -242,8 +242,8 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
         await serverManager.deleteWorld(worldName);
     });
 
-    ipcMain.handle(IPC_CHANNELS.SERVER_CREATE_WORLD, async (_event, worldName: string) => {
-        await serverManager.createWorld(worldName);
+    ipcMain.handle(IPC_CHANNELS.SERVER_CREATE_WORLD, async (_event, worldName: string, seed?: string) => {
+        await serverManager.createWorld(worldName, seed);
     });
 
     ipcMain.handle(IPC_CHANNELS.SERVER_GET_CONFIG, async () => {
@@ -289,6 +289,31 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
             await serverManager.hangarInstallPlugin(owner, slug, versionName);
         },
     );
+
+    // Player Management (Whitelist & Ops)
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_WHITELIST, async () => {
+        return serverManager.getWhitelist();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_ADD_WHITELIST, async (_event, name: string) => {
+        await serverManager.addWhitelist(name);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_REMOVE_WHITELIST, async (_event, name: string) => {
+        await serverManager.removeWhitelist(name);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_OPS, async () => {
+        return serverManager.getOps();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_ADD_OP, async (_event, name: string) => {
+        await serverManager.addOp(name);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_REMOVE_OP, async (_event, name: string) => {
+        await serverManager.removeOp(name);
+    });
 
     return serverManager;
 }

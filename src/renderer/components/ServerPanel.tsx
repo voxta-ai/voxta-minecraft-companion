@@ -22,10 +22,12 @@ import type {
     ServerConfig,
     WorldInfo,
     WorldBackup,
+    WhitelistEntry,
+    OpsEntry,
     ServerState as ServerStateType,
 } from '../../shared/ipc-types';
 
-type ServerSection = 'console' | 'properties' | 'plugins' | 'worlds';
+type ServerSection = 'console' | 'properties' | 'plugins' | 'worlds' | 'players';
 
 function formatWorldSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -59,12 +61,22 @@ export default function ServerPanel() {
     const [deletingWorld, setDeletingWorld] = createSignal<string | null>(null);
     const [creatingWorld, setCreatingWorld] = createSignal(false);
     const [newWorldName, setNewWorldName] = createSignal('');
+    const [newWorldSeed, setNewWorldSeed] = createSignal('');
     const [worldBusy, setWorldBusy] = createSignal(false);
     const [worldError, setWorldError] = createSignal<string | null>(null);
     const [expandedBackups, setExpandedBackups] = createSignal<string | null>(null);
     const [backups, setBackups] = createSignal<WorldBackup[]>([]);
     const [restoringBackup, setRestoringBackup] = createSignal<string | null>(null);
     const [deletingBackup, setDeletingBackup] = createSignal<string | null>(null);
+
+    // Player management state
+    const [whitelist, setWhitelist] = createSignal<WhitelistEntry[]>([]);
+    const [ops, setOps] = createSignal<OpsEntry[]>([]);
+    const [whitelistInput, setWhitelistInput] = createSignal('');
+    const [opsInput, setOpsInput] = createSignal('');
+    const [playerBusy, setPlayerBusy] = createSignal(false);
+    const [removingPlayer, setRemovingPlayer] = createSignal<string | null>(null);
+    const [consoleCopied, setConsoleCopied] = createSignal(false);
 
     let consoleRef: HTMLDivElement | undefined;
 
@@ -80,15 +92,11 @@ export default function ServerPanel() {
 
     // Subscribe to IPC events
     onMount(() => {
-        const unsubConsole = window.api.onServerConsoleLine((line) => {
-            addServerConsoleLine(line);
-        });
-
         const unsubProgress = window.api.onServerSetupProgress((progress) => {
             setSetupProgress(progress);
         });
 
-        // Load panel-specific data (server state is already tracked globally)
+        // Load panel-specific data (server state + console are already tracked globally)
         void window.api.serverGetInstalledVersion().then((version) => {
             setInstalledVersion(version);
         });
@@ -99,7 +107,6 @@ export default function ServerPanel() {
         }
 
         onCleanup(() => {
-            unsubConsole();
             unsubProgress();
         });
     });
@@ -230,6 +237,69 @@ export default function ServerPanel() {
         setWorlds(worldList);
     }
 
+    async function refreshPlayers(): Promise<void> {
+        const [wl, opList] = await Promise.all([
+            window.api.serverGetWhitelist(),
+            window.api.serverGetOps(),
+        ]);
+        setWhitelist(wl);
+        setOps(opList);
+    }
+
+    async function handleAddWhitelist(): Promise<void> {
+        const name = whitelistInput().trim();
+        if (!name) return;
+        setPlayerBusy(true);
+        try {
+            await window.api.serverAddWhitelist(name);
+            setWhitelistInput('');
+            await refreshPlayers();
+        } catch (err) {
+            console.error('Add to whitelist failed:', err);
+        } finally {
+            setPlayerBusy(false);
+        }
+    }
+
+    async function handleRemoveWhitelist(name: string): Promise<void> {
+        setRemovingPlayer(name);
+        try {
+            await window.api.serverRemoveWhitelist(name);
+            await refreshPlayers();
+        } catch (err) {
+            console.error('Remove from whitelist failed:', err);
+        } finally {
+            setRemovingPlayer(null);
+        }
+    }
+
+    async function handleAddOp(): Promise<void> {
+        const name = opsInput().trim();
+        if (!name) return;
+        setPlayerBusy(true);
+        try {
+            await window.api.serverAddOp(name);
+            setOpsInput('');
+            await refreshPlayers();
+        } catch (err) {
+            console.error('Add op failed:', err);
+        } finally {
+            setPlayerBusy(false);
+        }
+    }
+
+    async function handleRemoveOp(name: string): Promise<void> {
+        setRemovingPlayer(name);
+        try {
+            await window.api.serverRemoveOp(name);
+            await refreshPlayers();
+        } catch (err) {
+            console.error('Remove op failed:', err);
+        } finally {
+            setRemovingPlayer(null);
+        }
+    }
+
     async function handleSetActiveWorld(worldName: string): Promise<void> {
         setWorldBusy(true);
         setWorldError(null);
@@ -284,12 +354,14 @@ export default function ServerPanel() {
     async function handleCreateWorld(): Promise<void> {
         const name = sanitizeWorldName(newWorldName());
         if (!name) return;
+        const seed = newWorldSeed().trim() || undefined;
         setWorldBusy(true);
         setWorldError(null);
         try {
-            await window.api.serverCreateWorld(name);
+            await window.api.serverCreateWorld(name, seed);
             setCreatingWorld(false);
             setNewWorldName('');
+            setNewWorldSeed('');
             await refreshWorlds();
         } catch (err) {
             setWorldError(err instanceof Error ? err.message : 'Failed to create world');
@@ -588,6 +660,15 @@ export default function ServerPanel() {
                     <i class="bi bi-puzzle"></i> Plugins
                 </button>
                 <button
+                    class={`server-tab ${activeSection() === 'players' ? 'active' : ''}`}
+                    onClick={() => {
+                        setActiveSection('players');
+                        void refreshPlayers();
+                    }}
+                >
+                    <i class="bi bi-people"></i> Players
+                </button>
+                <button
                     class={`server-tab ${activeSection() === 'properties' ? 'active' : ''}`}
                     onClick={() => {
                         setActiveSection('properties');
@@ -603,6 +684,26 @@ export default function ServerPanel() {
                 <div class="server-console-section">
                     <div class="server-console-toolbar">
                         <span class="server-console-count">{serverConsole.lines.length} lines</span>
+                        <button
+                            class="terminal-toolbar-btn"
+                            onClick={() => {
+                                const text = serverConsole.lines
+                                    .map((line) => {
+                                        const time = new Date(line.timestamp).toLocaleTimeString([], {
+                                            hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
+                                        });
+                                        return `${time} ${line.text}`;
+                                    })
+                                    .join('\n');
+                                void navigator.clipboard.writeText(text).then(() => {
+                                    setConsoleCopied(true);
+                                    setTimeout(() => setConsoleCopied(false), 1500);
+                                });
+                            }}
+                            title="Copy to Clipboard"
+                        >
+                            <i class={consoleCopied() ? 'bi bi-check-lg' : 'bi bi-clipboard'}></i> {consoleCopied() ? 'Copied!' : 'Copy'}
+                        </button>
                         <button class="terminal-toolbar-btn" onClick={clearServerConsole}>
                             <i class="bi bi-slash-circle"></i> Clear
                         </button>
@@ -654,6 +755,133 @@ export default function ServerPanel() {
             {/* Plugins Section */}
             <Show when={activeSection() === 'plugins'}>
                 <PluginBrowser />
+            </Show>
+
+            {/* Players Section */}
+            <Show when={activeSection() === 'players'}>
+                <div class="server-players-section">
+                    <Show when={serverState() === 'running'}>
+                        <div class="server-hint">Player changes take effect after a server restart.</div>
+                    </Show>
+
+                    {/* Whitelist */}
+                    <div class="server-section-group">
+                        <div class="section-title">
+                            Whitelist
+                            <label class="toggle" style={{ "margin-left": "auto" }}>
+                                <input
+                                    type="checkbox"
+                                    checked={properties()['white-list'] === 'true'}
+                                    onChange={(e) => {
+                                        const value = e.currentTarget.checked ? 'true' : 'false';
+                                        setProperties((prev) => ({ ...prev, 'white-list': value }));
+                                        void window.api.serverSaveProperties({ ...properties(), 'white-list': value });
+                                    }}
+                                />
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <Show when={properties()['white-list'] === 'true'}>
+                            <div class="player-add-row">
+                                <input
+                                    type="text"
+                                    class="player-add-input"
+                                    value={whitelistInput()}
+                                    onInput={(e) => setWhitelistInput(e.currentTarget.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') void handleAddWhitelist(); }}
+                                    placeholder="Player name..."
+                                    disabled={playerBusy()}
+                                />
+                                <button
+                                    class="btn btn-connect player-add-btn"
+                                    onClick={() => void handleAddWhitelist()}
+                                    disabled={playerBusy() || !whitelistInput().trim()}
+                                >
+                                    Add
+                                </button>
+                            </div>
+                            <div class="setting-card-list">
+                                <For each={whitelist()}>
+                                    {(entry) => (
+                                        <div class="setting-card">
+                                            <div class="setting-card-info">
+                                                <div class="setting-card-name">
+                                                    <i class="bi bi-person"></i> {entry.name}
+                                                </div>
+                                            </div>
+                                            <button
+                                                class="server-plugin-remove-btn"
+                                                onClick={() => void handleRemoveWhitelist(entry.name)}
+                                                disabled={removingPlayer() === entry.name}
+                                                title="Remove from whitelist"
+                                            >
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        </div>
+                                    )}
+                                </For>
+                                <Show when={whitelist().length === 0}>
+                                    <div class="plugin-empty">No players whitelisted.</div>
+                                </Show>
+                            </div>
+                        </Show>
+                        <Show when={properties()['white-list'] !== 'true'}>
+                            <div class="plugin-empty">
+                                Whitelist is off — anyone can join. Enable it to restrict access.
+                            </div>
+                        </Show>
+                    </div>
+
+                    {/* Operators */}
+                    <div class="server-section-group">
+                        <div class="section-title">Operators</div>
+                        <div class="player-add-row">
+                            <input
+                                type="text"
+                                class="player-add-input"
+                                value={opsInput()}
+                                onInput={(e) => setOpsInput(e.currentTarget.value)}
+                                onKeyDown={(e) => { if (e.key === 'Enter') void handleAddOp(); }}
+                                placeholder="Player name..."
+                                disabled={playerBusy()}
+                            />
+                            <button
+                                class="btn btn-connect player-add-btn"
+                                onClick={() => void handleAddOp()}
+                                disabled={playerBusy() || !opsInput().trim()}
+                            >
+                                Add
+                            </button>
+                        </div>
+                        <div class="setting-card-list">
+                            <For each={ops()}>
+                                {(entry) => (
+                                    <div class="setting-card">
+                                        <div class="setting-card-info">
+                                            <div class="setting-card-name">
+                                                <i class="bi bi-shield-check"></i> {entry.name}
+                                            </div>
+                                            <div class="setting-card-desc">
+                                                Permission level {entry.level}
+                                            </div>
+                                        </div>
+                                        <button
+                                            class="server-plugin-remove-btn"
+                                            onClick={() => void handleRemoveOp(entry.name)}
+                                            disabled={removingPlayer() === entry.name}
+                                            title="Remove operator"
+                                        >
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                )}
+                            </For>
+                            <Show when={ops().length === 0}>
+                                <div class="plugin-empty">No operators configured.</div>
+                            </Show>
+                        </div>
+                    </div>
+                </div>
             </Show>
 
             {/* Properties Section */}
@@ -936,30 +1164,53 @@ export default function ServerPanel() {
                                     <input
                                         type="text"
                                         class="world-name-input"
-                                        placeholder="Enter world name..."
+                                        placeholder="World name..."
                                         value={newWorldName()}
                                         onInput={(e) => setNewWorldName(e.currentTarget.value)}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') void handleCreateWorld();
-                                            if (e.key === 'Escape') { setCreatingWorld(false); setNewWorldName(''); }
+                                            if (e.key === 'Escape') { setCreatingWorld(false); setNewWorldName(''); setNewWorldSeed(''); }
                                         }}
                                         disabled={worldBusy()}
                                         autofocus
                                     />
-                                    <button
-                                        class="btn btn-connect world-create-confirm"
-                                        onClick={() => void handleCreateWorld()}
-                                        disabled={worldBusy() || !newWorldName().trim()}
-                                    >
-                                        Create
-                                    </button>
-                                    <button
-                                        class="world-action-cancel"
-                                        onClick={() => { setCreatingWorld(false); setNewWorldName(''); }}
-                                        disabled={worldBusy()}
-                                    >
-                                        Cancel
-                                    </button>
+                                    <div class="world-seed-row">
+                                        <input
+                                            type="text"
+                                            class="world-name-input"
+                                            placeholder="Seed (optional)"
+                                            value={newWorldSeed()}
+                                            onInput={(e) => setNewWorldSeed(e.currentTarget.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void handleCreateWorld();
+                                            }}
+                                            disabled={worldBusy()}
+                                        />
+                                        <button
+                                            class="world-seed-random"
+                                            onClick={() => setNewWorldSeed(String(Math.floor(Math.random() * 2_000_000_000) - 1_000_000_000))}
+                                            disabled={worldBusy()}
+                                            title="Generate random seed"
+                                        >
+                                            <i class="bi bi-dice-5"></i>
+                                        </button>
+                                    </div>
+                                    <div class="world-create-actions">
+                                        <button
+                                            class="btn btn-connect world-create-confirm"
+                                            onClick={() => void handleCreateWorld()}
+                                            disabled={worldBusy() || !newWorldName().trim()}
+                                        >
+                                            Create
+                                        </button>
+                                        <button
+                                            class="world-action-cancel"
+                                            onClick={() => { setCreatingWorld(false); setNewWorldName(''); setNewWorldSeed(''); }}
+                                            disabled={worldBusy()}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
                                 </div>
                             }
                         >
