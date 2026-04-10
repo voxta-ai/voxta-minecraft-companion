@@ -290,6 +290,10 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
         },
     );
 
+    ipcMain.handle(IPC_CHANNELS.SERVER_CHECK_PLUGIN_UPDATES, async () => {
+        return serverManager.checkPluginUpdates();
+    });
+
     // Player Management (Whitelist & Ops)
     ipcMain.handle(IPC_CHANNELS.SERVER_GET_WHITELIST, async () => {
         return serverManager.getWhitelist();

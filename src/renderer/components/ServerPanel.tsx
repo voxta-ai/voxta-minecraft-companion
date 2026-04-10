@@ -16,6 +16,7 @@ import {
     addServerConsoleLine,
     clearServerConsole,
 } from '../stores/server-store';
+import { addToast } from '../stores/toast-store';
 import PluginBrowser from './PluginBrowser';
 import type {
     ServerProperties,
@@ -165,7 +166,7 @@ export default function ServerPanel() {
         try {
             await window.api.serverStart();
         } catch (err) {
-            console.error('Start failed:', err);
+            addToast('error', `Failed to start server: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     }
 
@@ -173,7 +174,7 @@ export default function ServerPanel() {
         try {
             await window.api.serverStop();
         } catch (err) {
-            console.error('Stop failed:', err);
+            addToast('error', `Failed to stop server: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     }
 
@@ -194,8 +195,9 @@ export default function ServerPanel() {
         try {
             await window.api.serverSaveProperties(properties());
             setPropsChanged(false);
+            addToast('success', 'Server properties saved');
         } catch (err) {
-            console.error('Save failed:', err);
+            addToast('error', `Failed to save properties: ${err instanceof Error ? err.message : 'Unknown error'}`);
         } finally {
             setSavingProps(false);
         }
@@ -225,8 +227,9 @@ export default function ServerPanel() {
         try {
             await window.api.serverSaveConfig({ memoryMb: memoryMb(), autoStart: autoStart() });
             setConfigChanged(false);
+            addToast('success', 'Server configuration saved');
         } catch (err) {
-            console.error('Save config failed:', err);
+            addToast('error', `Failed to save config: ${err instanceof Error ? err.message : 'Unknown error'}`);
         } finally {
             setSavingConfig(false);
         }
@@ -254,8 +257,9 @@ export default function ServerPanel() {
             await window.api.serverAddWhitelist(name);
             setWhitelistInput('');
             await refreshPlayers();
+            addToast('success', `Added ${name} to whitelist`);
         } catch (err) {
-            console.error('Add to whitelist failed:', err);
+            addToast('error', `Failed to add ${name} to whitelist`);
         } finally {
             setPlayerBusy(false);
         }
@@ -266,8 +270,9 @@ export default function ServerPanel() {
         try {
             await window.api.serverRemoveWhitelist(name);
             await refreshPlayers();
+            addToast('success', `Removed ${name} from whitelist`);
         } catch (err) {
-            console.error('Remove from whitelist failed:', err);
+            addToast('error', `Failed to remove ${name} from whitelist`);
         } finally {
             setRemovingPlayer(null);
         }
@@ -281,8 +286,9 @@ export default function ServerPanel() {
             await window.api.serverAddOp(name);
             setOpsInput('');
             await refreshPlayers();
+            addToast('success', `Added ${name} as operator`);
         } catch (err) {
-            console.error('Add op failed:', err);
+            addToast('error', `Failed to add ${name} as operator`);
         } finally {
             setPlayerBusy(false);
         }
@@ -293,8 +299,9 @@ export default function ServerPanel() {
         try {
             await window.api.serverRemoveOp(name);
             await refreshPlayers();
+            addToast('success', `Removed ${name} from operators`);
         } catch (err) {
-            console.error('Remove op failed:', err);
+            addToast('error', `Failed to remove ${name} from operators`);
         } finally {
             setRemovingPlayer(null);
         }
@@ -306,8 +313,9 @@ export default function ServerPanel() {
         try {
             await window.api.serverSetActiveWorld(worldName);
             await refreshWorlds();
+            addToast('success', `Active world set to ${worldName}`);
         } catch (err) {
-            setWorldError(err instanceof Error ? err.message : 'Failed to set active world');
+            addToast('error', err instanceof Error ? err.message : 'Failed to set active world');
         } finally {
             setWorldBusy(false);
         }
@@ -330,8 +338,9 @@ export default function ServerPanel() {
             await window.api.serverRenameWorld(oldName, newName);
             setRenamingWorld(null);
             await refreshWorlds();
+            addToast('success', `World renamed to ${newName}`);
         } catch (err) {
-            setWorldError(err instanceof Error ? err.message : 'Failed to rename world');
+            addToast('error', err instanceof Error ? err.message : 'Failed to rename world');
         } finally {
             setWorldBusy(false);
         }
@@ -344,8 +353,9 @@ export default function ServerPanel() {
             await window.api.serverDeleteWorld(worldName);
             setDeletingWorld(null);
             await refreshWorlds();
+            addToast('success', `World "${worldName}" deleted`);
         } catch (err) {
-            setWorldError(err instanceof Error ? err.message : 'Failed to delete world');
+            addToast('error', err instanceof Error ? err.message : 'Failed to delete world');
         } finally {
             setWorldBusy(false);
         }
@@ -363,8 +373,9 @@ export default function ServerPanel() {
             setNewWorldName('');
             setNewWorldSeed('');
             await refreshWorlds();
+            addToast('success', `World "${name}" created`);
         } catch (err) {
-            setWorldError(err instanceof Error ? err.message : 'Failed to create world');
+            addToast('error', err instanceof Error ? err.message : 'Failed to create world');
         } finally {
             setWorldBusy(false);
         }
@@ -381,8 +392,9 @@ export default function ServerPanel() {
                 setBackups(list);
             }
             await refreshWorlds();
+            addToast('success', `Backup created for "${worldName}"`);
         } catch (err) {
-            setWorldError(err instanceof Error ? err.message : 'Backup failed');
+            addToast('error', err instanceof Error ? err.message : 'Backup failed');
         } finally {
             setWorldBusy(false);
         }
@@ -406,8 +418,9 @@ export default function ServerPanel() {
             await window.api.serverRestoreBackup(backupId);
             setRestoringBackup(null);
             await refreshWorlds();
+            addToast('success', 'Backup restored successfully');
         } catch (err) {
-            setWorldError(err instanceof Error ? err.message : 'Restore failed');
+            addToast('error', err instanceof Error ? err.message : 'Restore failed');
         } finally {
             setWorldBusy(false);
         }
@@ -425,8 +438,9 @@ export default function ServerPanel() {
                 setExpandedBackups(null);
             }
             await refreshWorlds();
+            addToast('success', 'Backup deleted');
         } catch (err) {
-            setWorldError(err instanceof Error ? err.message : 'Delete backup failed');
+            addToast('error', err instanceof Error ? err.message : 'Delete backup failed');
         } finally {
             setWorldBusy(false);
         }
@@ -906,12 +920,8 @@ export default function ServerPanel() {
                                         type="checkbox"
                                         checked={autoStart()}
                                         onChange={(e) => {
-                                            const checked = e.currentTarget.checked;
-                                            setAutoStart(checked);
-                                            void window.api.serverSaveConfig({
-                                                memoryMb: memoryMb(),
-                                                autoStart: checked,
-                                            });
+                                            setAutoStart(e.currentTarget.checked);
+                                            setConfigChanged(true);
                                         }}
                                     />
                                     <span class="toggle-slider"></span>

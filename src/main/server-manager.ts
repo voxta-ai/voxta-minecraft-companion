@@ -21,6 +21,7 @@ import type {
     HangarSearchResult,
     HangarProjectDetail,
     HangarVersion,
+    PluginUpdateInfo,
 } from '../shared/ipc-types';
 
 // ---- Curated Plugin Catalog ----
@@ -65,6 +66,13 @@ const DEFAULT_OPS = JSON.stringify(
     null,
     2,
 );
+
+interface PluginMeta {
+    fileName: string;
+    hangarOwner: string;
+    hangarSlug: string;
+    installedVersion: string;
+}
 
 export class ServerManager extends EventEmitter {
     private serverDir: string;
@@ -271,24 +279,56 @@ export class ServerManager extends EventEmitter {
             content = '';
         }
 
+        // Detect whitelist toggle change and apply live if server running
+        if (this.isRunning()) {
+            const oldProps = this.parseProperties(content);
+            if (props['white-list'] !== oldProps['white-list']) {
+                this.sendCommand(props['white-list'] === 'true' ? 'whitelist on' : 'whitelist off');
+            }
+        }
+
         const updatedContent = this.updatePropertiesContent(content, props);
         await fs.writeFile(propsPath, updatedContent);
+    }
+
+    private get pluginMetaPath(): string {
+        return path.join(this.serverDir, 'plugins', '.voxta-plugins.json');
+    }
+
+    private async loadPluginMeta(): Promise<PluginMeta[]> {
+        try {
+            const content = await fs.readFile(this.pluginMetaPath, 'utf-8');
+            return JSON.parse(content) as PluginMeta[];
+        } catch {
+            return [];
+        }
+    }
+
+    private async savePluginMeta(meta: PluginMeta[]): Promise<void> {
+        const pluginsDir = path.join(this.serverDir, 'plugins');
+        await fs.mkdir(pluginsDir, { recursive: true });
+        await fs.writeFile(this.pluginMetaPath, JSON.stringify(meta, null, 2));
     }
 
     async getPlugins(): Promise<PluginInfo[]> {
         const pluginsDir = path.join(this.serverDir, 'plugins');
         try {
             const entries = await fs.readdir(pluginsDir, { withFileTypes: true });
+            const meta = await this.loadPluginMeta();
             const plugins: PluginInfo[] = [];
 
             for (const entry of entries) {
                 if (entry.isFile() && entry.name.endsWith('.jar')) {
                     const stat = await fs.stat(path.join(pluginsDir, entry.name));
+                    const tracked = meta.find((m) => m.fileName === entry.name);
                     plugins.push({
                         name: entry.name.replace(/\.jar$/i, '').replace(/[-_]/g, ' '),
                         fileName: entry.name,
                         fileSize: stat.size,
                         installed: true,
+                        hangarOwner: tracked?.hangarOwner,
+                        hangarSlug: tracked?.hangarSlug,
+                        installedVersion: tracked?.installedVersion,
                     });
                 }
             }
@@ -319,6 +359,13 @@ export class ServerManager extends EventEmitter {
         }
         const filePath = path.join(this.serverDir, 'plugins', fileName);
         await fs.unlink(filePath);
+
+        // Clean up metadata
+        const meta = await this.loadPluginMeta();
+        const filtered = meta.filter((m) => m.fileName !== fileName);
+        if (filtered.length !== meta.length) {
+            await this.savePluginMeta(filtered);
+        }
     }
 
     async getWorlds(): Promise<WorldInfo[]> {
@@ -638,6 +685,56 @@ export class ServerManager extends EventEmitter {
         await fs.mkdir(pluginsDir, { recursive: true });
         const dest = path.join(pluginsDir, fileName);
         await this.downloadFile(downloadUrl, dest);
+
+        // Track Hangar origin for update detection
+        const meta = await this.loadPluginMeta();
+        const existing = meta.findIndex((m) => m.hangarOwner === owner && m.hangarSlug === slug);
+        const entry: PluginMeta = { fileName, hangarOwner: owner, hangarSlug: slug, installedVersion: versionName };
+        if (existing >= 0) {
+            // Remove old JAR if filename changed (version upgrade)
+            if (meta[existing].fileName !== fileName) {
+                try { await fs.unlink(path.join(pluginsDir, meta[existing].fileName)); } catch { /* old file may not exist */ }
+            }
+            meta[existing] = entry;
+        } else {
+            meta.push(entry);
+        }
+        await this.savePluginMeta(meta);
+    }
+
+    async checkPluginUpdates(): Promise<PluginUpdateInfo[]> {
+        const meta = await this.loadPluginMeta();
+        if (meta.length === 0) return [];
+
+        const mcVersion = await this.getInstalledVersion();
+        const updates: PluginUpdateInfo[] = [];
+
+        for (const plugin of meta) {
+            try {
+                const versions = await this.hangarGetVersions(plugin.hangarOwner, plugin.hangarSlug);
+                // Find the latest release version (first in the list, sorted newest first by Hangar)
+                const latest = versions[0];
+                if (!latest || latest.name === plugin.installedVersion) continue;
+
+                const paperDeps = latest.platformDependencies['PAPER'] ?? [];
+                const compatible = mcVersion ? paperDeps.some((v) => mcVersion.startsWith(v)) : true;
+
+                updates.push({
+                    fileName: plugin.fileName,
+                    hangarOwner: plugin.hangarOwner,
+                    hangarSlug: plugin.hangarSlug,
+                    installedVersion: plugin.installedVersion,
+                    latestVersion: latest.name,
+                    latestChannel: latest.channel,
+                    compatible,
+                    supportedMcVersions: paperDeps,
+                });
+            } catch (err) {
+                console.error(`[Server] Failed to check updates for ${plugin.hangarSlug}:`, err);
+            }
+        }
+
+        return updates;
     }
 
     isRunning(): boolean {
@@ -662,6 +759,7 @@ export class ServerManager extends EventEmitter {
         const uuid = this.offlineUuid(name);
         list.push({ uuid, name });
         await fs.writeFile(path.join(this.serverDir, 'whitelist.json'), JSON.stringify(list, null, 2));
+        if (this.isRunning()) this.sendCommand(`whitelist add ${name}`);
     }
 
     async removeWhitelist(name: string): Promise<void> {
@@ -669,6 +767,7 @@ export class ServerManager extends EventEmitter {
         const lower = name.toLowerCase();
         const filtered = list.filter((e) => e.name.toLowerCase() !== lower);
         await fs.writeFile(path.join(this.serverDir, 'whitelist.json'), JSON.stringify(filtered, null, 2));
+        if (this.isRunning()) this.sendCommand(`whitelist remove ${name}`);
     }
 
     async getOps(): Promise<OpsEntry[]> {
@@ -687,6 +786,7 @@ export class ServerManager extends EventEmitter {
         const uuid = this.offlineUuid(name);
         list.push({ uuid, name, level: 4, bypassesPlayerLimit: false });
         await fs.writeFile(path.join(this.serverDir, 'ops.json'), JSON.stringify(list, null, 2));
+        if (this.isRunning()) this.sendCommand(`op ${name}`);
     }
 
     async removeOp(name: string): Promise<void> {
@@ -694,6 +794,7 @@ export class ServerManager extends EventEmitter {
         const lower = name.toLowerCase();
         const filtered = list.filter((e) => e.name.toLowerCase() !== lower);
         await fs.writeFile(path.join(this.serverDir, 'ops.json'), JSON.stringify(filtered, null, 2));
+        if (this.isRunning()) this.sendCommand(`deop ${name}`);
     }
 
     /** Generate an offline-mode UUID v3 from a player name */

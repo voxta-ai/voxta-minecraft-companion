@@ -31,6 +31,7 @@ import type {
     WorldBackup,
     WhitelistEntry,
     OpsEntry,
+    PluginUpdateInfo,
 } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
@@ -242,6 +243,9 @@ const api = {
 
     hangarInstallPlugin: (owner: string, slug: string, versionName: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.SERVER_HANGAR_INSTALL, owner, slug, versionName),
+
+    checkPluginUpdates: (): Promise<PluginUpdateInfo[]> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_CHECK_PLUGIN_UPDATES),
 
     // Player Management
     serverGetWhitelist: (): Promise<WhitelistEntry[]> =>

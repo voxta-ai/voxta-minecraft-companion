@@ -247,6 +247,21 @@ export interface PluginInfo {
     fileName: string;
     fileSize: number;
     installed: boolean;
+    /** Hangar origin tracking (only present for plugins installed via Hangar) */
+    hangarOwner?: string;
+    hangarSlug?: string;
+    installedVersion?: string;
+}
+
+export interface PluginUpdateInfo {
+    fileName: string;
+    hangarOwner: string;
+    hangarSlug: string;
+    installedVersion: string;
+    latestVersion: string;
+    latestChannel: { name: string; color: string };
+    compatible: boolean;
+    supportedMcVersions: string[];
 }
 
 export interface CatalogPlugin {
@@ -423,6 +438,7 @@ export const IPC_CHANNELS = {
     SERVER_HANGAR_PROJECT: 'server:hangar-project',
     SERVER_HANGAR_VERSIONS: 'server:hangar-versions',
     SERVER_HANGAR_INSTALL: 'server:hangar-install',
+    SERVER_CHECK_PLUGIN_UPDATES: 'server:check-plugin-updates',
     SERVER_GET_WORLDS: 'server:get-worlds',
     SERVER_SET_ACTIVE_WORLD: 'server:set-active-world',
     SERVER_RENAME_WORLD: 'server:rename-world',
