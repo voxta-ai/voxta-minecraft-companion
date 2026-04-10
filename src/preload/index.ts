@@ -24,6 +24,9 @@ import type {
     PluginInfo,
     CatalogPlugin,
     WorldInfo,
+    HangarSearchResult,
+    HangarProjectDetail,
+    HangarVersion,
 } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
@@ -193,6 +196,19 @@ const api = {
         ipcRenderer.invoke(IPC_CHANNELS.SERVER_REMOVE_PLUGIN, fileName),
 
     serverGetWorlds: (): Promise<WorldInfo[]> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_WORLDS),
+
+    // Hangar Plugin Store
+    hangarSearch: (query: string, offset?: number): Promise<HangarSearchResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_HANGAR_SEARCH, query, offset ?? 0),
+
+    hangarGetProject: (owner: string, slug: string): Promise<HangarProjectDetail> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_HANGAR_PROJECT, owner, slug),
+
+    hangarGetVersions: (owner: string, slug: string): Promise<HangarVersion[]> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_HANGAR_VERSIONS, owner, slug),
+
+    hangarInstallPlugin: (owner: string, slug: string, versionName: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_HANGAR_INSTALL, owner, slug, versionName),
 
     onServerStatusChanged: (callback: (status: ServerStatus) => void): (() => void) => {
         const handler = (_event: Electron.IpcRendererEvent, status: ServerStatus): void => callback(status);

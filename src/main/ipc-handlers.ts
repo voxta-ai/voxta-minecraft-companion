@@ -190,7 +190,7 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
         serverManager.sendCommand(cmd);
     });
 
-    ipcMain.handle(IPC_CHANNELS.SERVER_GET_STATUS, () => {
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_STATUS, async () => {
         return serverManager.getStatus();
     });
 
@@ -221,6 +221,26 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
     ipcMain.handle(IPC_CHANNELS.SERVER_GET_WORLDS, async () => {
         return serverManager.getWorlds();
     });
+
+    // Hangar Plugin Store
+    ipcMain.handle(IPC_CHANNELS.SERVER_HANGAR_SEARCH, async (_event, query: string, offset: number) => {
+        return serverManager.hangarSearch(query, offset);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_HANGAR_PROJECT, async (_event, owner: string, slug: string) => {
+        return serverManager.hangarGetProject(owner, slug);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_HANGAR_VERSIONS, async (_event, owner: string, slug: string) => {
+        return serverManager.hangarGetVersions(owner, slug);
+    });
+
+    ipcMain.handle(
+        IPC_CHANNELS.SERVER_HANGAR_INSTALL,
+        async (_event, owner: string, slug: string, versionName: string) => {
+            await serverManager.hangarInstallPlugin(owner, slug, versionName);
+        },
+    );
 
     return serverManager;
 }

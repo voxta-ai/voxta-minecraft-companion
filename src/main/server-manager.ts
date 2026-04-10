@@ -14,6 +14,9 @@ import type {
     CatalogPlugin,
     WorldInfo,
     ServerProperties,
+    HangarSearchResult,
+    HangarProjectDetail,
+    HangarVersion,
 } from '../shared/ipc-types';
 
 // ---- Curated Plugin Catalog ----
@@ -31,6 +34,7 @@ const PLUGIN_CATALOG: CatalogPlugin[] = [
 ];
 
 const PAPER_API = 'https://api.papermc.io';
+const HANGAR_API = 'https://hangar.papermc.io/api/v1';
 
 // Default server.properties for a fresh Voxta-optimized setup
 const DEFAULT_SERVER_PROPERTIES = `online-mode=false
@@ -229,7 +233,11 @@ export class ServerManager extends EventEmitter {
         this.emitConsoleLine(`> ${cmd}`, 'info');
     }
 
-    getStatus(): ServerStatus {
+    async getStatus(): Promise<ServerStatus> {
+        // Sync the state with reality on first check
+        if (this.state === 'not-installed' && await this.isInstalled()) {
+            this.state = 'idle';
+        }
         return {
             state: this.state,
             port: this.port,
@@ -327,6 +335,56 @@ export class ServerManager extends EventEmitter {
         return worlds;
     }
 
+    // ---- Hangar Plugin Store ----
+
+    async hangarSearch(query: string, offset = 0, limit = 20): Promise<HangarSearchResult> {
+        const params = new URLSearchParams({
+            limit: String(limit),
+            offset: String(offset),
+            platform: 'PAPER',
+            sort: '-downloads',
+        });
+        if (query.trim()) params.set('q', query.trim());
+        const data = await this.fetchJson(`${HANGAR_API}/projects?${params}`);
+        return data as unknown as HangarSearchResult;
+    }
+
+    async hangarGetProject(owner: string, slug: string): Promise<HangarProjectDetail> {
+        const data = await this.fetchJson(`${HANGAR_API}/projects/${owner}/${slug}`);
+        return data as unknown as HangarProjectDetail;
+    }
+
+    async hangarGetVersions(owner: string, slug: string): Promise<HangarVersion[]> {
+        const data = await this.fetchJson(
+            `${HANGAR_API}/projects/${owner}/${slug}/versions?limit=5&platform=PAPER`,
+        );
+        const result = data as unknown as { result: HangarVersion[] };
+        return result.result;
+    }
+
+    async hangarInstallPlugin(
+        owner: string,
+        slug: string,
+        versionName: string,
+    ): Promise<void> {
+        // Fetch the specific version to get download URL
+        const data = await this.fetchJson(
+            `${HANGAR_API}/projects/${owner}/${slug}/versions/${versionName}`,
+        );
+        const version = data as unknown as HangarVersion;
+        const paperDownload = version.downloads['PAPER'];
+        if (!paperDownload) throw new Error('No Paper download available for this version');
+
+        const downloadUrl = paperDownload.downloadUrl ?? paperDownload.externalUrl;
+        if (!downloadUrl) throw new Error('No download URL found');
+
+        const fileName = paperDownload.fileInfo?.name ?? `${slug}-${versionName}.jar`;
+        const pluginsDir = path.join(this.serverDir, 'plugins');
+        await fs.mkdir(pluginsDir, { recursive: true });
+        const dest = path.join(pluginsDir, fileName);
+        await this.downloadFile(downloadUrl, dest);
+    }
+
     // Called when the app is quitting — ensure we clean up the child process
     async cleanup(): Promise<void> {
         if (this.childProcess) {
@@ -356,7 +414,12 @@ export class ServerManager extends EventEmitter {
     private setState(state: ServerState): void {
         this.state = state;
         if (state !== 'error') this.error = undefined;
-        this.emit('server-status-changed', this.getStatus());
+        // Emit plain object directly — getStatus() is async and can't be used here
+        this.emit('server-status-changed', {
+            state: this.state,
+            port: this.port,
+            error: this.error,
+        });
     }
 
     private emitConsoleLine(text: string, level: 'info' | 'warn' | 'error'): void {

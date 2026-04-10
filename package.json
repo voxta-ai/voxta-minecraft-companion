@@ -49,6 +49,7 @@
         "bootstrap-icons": "^1.13.1",
         "extendable-media-recorder": "^9.2.36",
         "extendable-media-recorder-wav-encoder": "^7.0.136",
+        "marked": "^18.0.0",
         "mineflayer": "^4.35.0",
         "mineflayer-pathfinder": "^2.4.5"
     },

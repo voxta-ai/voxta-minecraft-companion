@@ -16,10 +16,9 @@ import {
     addServerConsoleLine,
     clearServerConsole,
 } from '../stores/server-store';
+import PluginBrowser from './PluginBrowser';
 import type {
     ServerProperties,
-    PluginInfo,
-    CatalogPlugin,
     WorldInfo,
     ServerState as ServerStateType,
 } from '../../shared/ipc-types';
@@ -30,12 +29,9 @@ export default function ServerPanel() {
     const [activeSection, setActiveSection] = createSignal<ServerSection>('console');
     const [commandInput, setCommandInput] = createSignal('');
     const [properties, setProperties] = createSignal<ServerProperties>({});
-    const [plugins, setPlugins] = createSignal<PluginInfo[]>([]);
-    const [catalog, setCatalog] = createSignal<CatalogPlugin[]>([]);
     const [worlds, setWorlds] = createSignal<WorldInfo[]>([]);
     const [propsChanged, setPropsChanged] = createSignal(false);
     const [savingProps, setSavingProps] = createSignal(false);
-    const [installingPlugin, setInstallingPlugin] = createSignal<string | null>(null);
     const [availableVersions, setAvailableVersions] = createSignal<string[]>([]);
     const [selectedVersion, setSelectedVersion] = createSignal('');
     const [loadingVersions, setLoadingVersions] = createSignal(false);
@@ -96,15 +92,11 @@ export default function ServerPanel() {
     });
 
     async function loadServerData(): Promise<void> {
-        const [props, pluginList, catalogList, worldList] = await Promise.all([
+        const [props, worldList] = await Promise.all([
             window.api.serverGetProperties(),
-            window.api.serverGetPlugins(),
-            window.api.serverGetCatalog(),
             window.api.serverGetWorlds(),
         ]);
         setProperties(props);
-        setPlugins(pluginList);
-        setCatalog(catalogList);
         setWorlds(worldList);
     }
 
@@ -186,27 +178,6 @@ export default function ServerPanel() {
         }
     }
 
-    async function handleInstallPlugin(pluginId: string): Promise<void> {
-        setInstallingPlugin(pluginId);
-        try {
-            await window.api.serverInstallPlugin(pluginId);
-            setPlugins(await window.api.serverGetPlugins());
-        } catch (err) {
-            console.error('Install failed:', err);
-        } finally {
-            setInstallingPlugin(null);
-        }
-    }
-
-    async function handleRemovePlugin(fileName: string): Promise<void> {
-        try {
-            await window.api.serverRemovePlugin(fileName);
-            setPlugins(await window.api.serverGetPlugins());
-        } catch (err) {
-            console.error('Remove failed:', err);
-        }
-    }
-
     function getStateLabel(state: string): string {
         switch (state) {
             case 'not-installed': return 'Not Installed';
@@ -229,18 +200,8 @@ export default function ServerPanel() {
         }
     }
 
-    function formatFileSize(bytes: number): string {
-        if (bytes < 1024) return `${bytes} B`;
-        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    }
-
-    function isPluginInstalled(catalogPlugin: CatalogPlugin): boolean {
-        return plugins().some((p) => p.fileName === catalogPlugin.fileName);
-    }
-
     return (
-        <div class="server-panel">
+        <div class={`server-panel ${activeSection() === 'plugins' ? 'server-panel-wide' : ''}`}>
         <Show
             when={isInstalled()}
             fallback={
@@ -421,10 +382,7 @@ export default function ServerPanel() {
                 </button>
                 <button
                     class={`server-tab ${activeSection() === 'plugins' ? 'active' : ''}`}
-                    onClick={() => {
-                        setActiveSection('plugins');
-                        void loadServerData();
-                    }}
+                    onClick={() => setActiveSection('plugins')}
                 >
                     <i class="bi bi-puzzle"></i> Plugins
                 </button>
@@ -503,75 +461,7 @@ export default function ServerPanel() {
 
             {/* Plugins Section */}
             <Show when={activeSection() === 'plugins'}>
-                <div class="server-plugins-section">
-                    {/* Plugin Library */}
-                    <div class="server-section-group">
-                        <div class="section-title">Plugin Library</div>
-                        <div class="setting-card-list">
-                            <For each={catalog()}>
-                                {(cp) => (
-                                    <div class="setting-card">
-                                        <div class="setting-card-info">
-                                            <div class="setting-card-name">{cp.name}</div>
-                                            <div class="setting-card-desc">{cp.description}</div>
-                                        </div>
-                                        <Show
-                                            when={isPluginInstalled(cp)}
-                                            fallback={
-                                                <button
-                                                    class="btn btn-connect server-plugin-btn"
-                                                    onClick={() => void handleInstallPlugin(cp.id)}
-                                                    disabled={installingPlugin() === cp.id || serverState() === 'running'}
-                                                >
-                                                    {installingPlugin() === cp.id ? 'Installing...' : 'Install'}
-                                                </button>
-                                            }
-                                        >
-                                            <span class="server-plugin-installed">
-                                                <i class="bi bi-check-circle-fill"></i> Installed
-                                            </span>
-                                        </Show>
-                                    </div>
-                                )}
-                            </For>
-                        </div>
-                    </div>
-
-                    {/* Installed Plugins */}
-                    <div class="server-section-group">
-                        <div class="section-title">Installed Plugins</div>
-                        <Show
-                            when={plugins().length > 0}
-                            fallback={<div class="server-empty-hint">No plugins installed yet.</div>}
-                        >
-                            <div class="setting-card-list">
-                                <For each={plugins()}>
-                                    {(plugin) => (
-                                        <div class="setting-card">
-                                            <div class="setting-card-info">
-                                                <div class="setting-card-name">{plugin.name}</div>
-                                                <div class="setting-card-desc">
-                                                    {plugin.fileName} ({formatFileSize(plugin.fileSize)})
-                                                </div>
-                                            </div>
-                                            <button
-                                                class="server-plugin-remove-btn"
-                                                onClick={() => void handleRemovePlugin(plugin.fileName)}
-                                                disabled={serverState() === 'running'}
-                                                title={serverState() === 'running' ? 'Stop the server first' : 'Remove plugin'}
-                                            >
-                                                <i class="bi bi-trash"></i>
-                                            </button>
-                                        </div>
-                                    )}
-                                </For>
-                            </div>
-                        </Show>
-                        <Show when={serverState() === 'running'}>
-                            <div class="server-hint">Stop the server to install or remove plugins.</div>
-                        </Show>
-                    </div>
-                </div>
+                <PluginBrowser />
             </Show>
 
             {/* Properties Section */}
