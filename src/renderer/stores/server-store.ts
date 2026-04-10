@@ -1,6 +1,6 @@
 import { createSignal } from 'solid-js';
 import { createStore } from 'solid-js/store';
-import type { ServerState, ServerConsoleLine, SetupProgress } from '../../shared/ipc-types';
+import type { ServerState, ServerConsoleLine, SetupProgress, TunnelState } from '../../shared/ipc-types';
 
 const MAX_CONSOLE_LINES = 1000;
 
@@ -11,6 +11,12 @@ const [serverError, setServerError] = createSignal<string | undefined>();
 const [isInstalled, setIsInstalled] = createSignal(false);
 const [setupProgress, setSetupProgress] = createSignal<SetupProgress | null>(null);
 const [isSettingUp, setIsSettingUp] = createSignal(false);
+
+// ---- Tunnel status ----
+const [tunnelState, setTunnelState] = createSignal<TunnelState>('not-installed');
+const [tunnelUrl, setTunnelUrl] = createSignal<string | null>(null);
+const [tunnelClaimUrl, setTunnelClaimUrl] = createSignal<string | null>(null);
+const [tunnelError, setTunnelError] = createSignal<string | undefined>();
 
 // ---- Server console ----
 const [serverConsole, setServerConsole] = createStore<{ lines: ServerConsoleLine[] }>({ lines: [] });
@@ -35,6 +41,22 @@ export function initServerStore(): void {
     // Subscribe to console lines globally (persists when Server panel is closed)
     window.api.onServerConsoleLine((line) => {
         addServerConsoleLine(line);
+    });
+
+    // Fetch initial tunnel status
+    void window.api.tunnelGetStatus().then((status) => {
+        setTunnelState(status.state);
+        setTunnelUrl(status.tunnelUrl);
+        setTunnelClaimUrl(status.claimUrl);
+        setTunnelError(status.error);
+    });
+
+    // Subscribe to tunnel status changes
+    window.api.onTunnelStatusChanged((status) => {
+        setTunnelState(status.state);
+        setTunnelUrl(status.tunnelUrl);
+        setTunnelClaimUrl(status.claimUrl);
+        setTunnelError(status.error);
     });
 }
 
@@ -63,4 +85,8 @@ export {
     isSettingUp,
     setIsSettingUp,
     serverConsole,
+    tunnelState,
+    tunnelUrl,
+    tunnelClaimUrl,
+    tunnelError,
 };

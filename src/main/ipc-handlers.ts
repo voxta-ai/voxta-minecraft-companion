@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron';
 import { BotEngine } from './bot-engine';
 import { ServerManager } from './server-manager';
+import { TunnelManager } from './tunnel-manager';
 import { cycleVisionWindow } from './vision-capture';
 import { IPC_CHANNELS } from '../shared/ipc-types';
 import type {
@@ -20,11 +21,13 @@ import type {
     SetupProgress,
     ServerProperties,
     ServerConfig,
+    TunnelStatus,
 } from '../shared/ipc-types';
 
-export function registerIpcHandlers(win: BrowserWindow): ServerManager {
+export function registerIpcHandlers(win: BrowserWindow): { serverManager: ServerManager; tunnelManager: TunnelManager } {
     const engine = new BotEngine();
     const serverManager = new ServerManager();
+    const tunnelManager = new TunnelManager(serverManager);
 
     // Safe send — skip if window is already destroyed (e.g. during quit)
     function send(channel: string, ...args: unknown[]): void {
@@ -319,5 +322,35 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
         await serverManager.removeOp(name);
     });
 
-    return serverManager;
+    // ---- Tunnel Manager ----
+
+    tunnelManager.on('tunnel-status-changed', (status: TunnelStatus) => {
+        send(IPC_CHANNELS.TUNNEL_STATUS_CHANGED, status);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.TUNNEL_GET_STATUS, () => {
+        return tunnelManager.getStatus();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.TUNNEL_IS_INSTALLED, async () => {
+        return tunnelManager.isInstalled();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.TUNNEL_INSTALL, async () => {
+        await tunnelManager.install();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.TUNNEL_START, async () => {
+        await tunnelManager.start();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.TUNNEL_STOP, () => {
+        tunnelManager.stop();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.TUNNEL_SET_URL, (_event, url: string) => {
+        tunnelManager.setTunnelUrl(url);
+    });
+
+    return { serverManager, tunnelManager };
 }

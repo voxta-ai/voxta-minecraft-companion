@@ -222,6 +222,17 @@ export interface SpatialPosition {
 
 export type ServerState = 'not-installed' | 'idle' | 'starting' | 'running' | 'stopping' | 'error';
 
+// ---- Tunnel Manager ----
+
+export type TunnelState = 'not-installed' | 'installing' | 'idle' | 'starting' | 'claim-needed' | 'running' | 'stopping' | 'error';
+
+export interface TunnelStatus {
+    state: TunnelState;
+    tunnelUrl: string | null;
+    claimUrl: string | null;
+    error?: string;
+}
+
 export interface ServerStatus {
     state: ServerState;
     port: number;
@@ -461,4 +472,15 @@ export const IPC_CHANNELS = {
     SERVER_STATUS_CHANGED: 'server:status-changed',
     SERVER_CONSOLE_LINE: 'server:console-line',
     SERVER_SETUP_PROGRESS: 'server:setup-progress',
+
+    // Tunnel Manager: Renderer → Main
+    TUNNEL_GET_STATUS: 'tunnel:get-status',
+    TUNNEL_IS_INSTALLED: 'tunnel:is-installed',
+    TUNNEL_INSTALL: 'tunnel:install',
+    TUNNEL_START: 'tunnel:start',
+    TUNNEL_STOP: 'tunnel:stop',
+    TUNNEL_SET_URL: 'tunnel:set-url',
+
+    // Tunnel Manager: Main → Renderer
+    TUNNEL_STATUS_CHANGED: 'tunnel:status-changed',
 } as const;
