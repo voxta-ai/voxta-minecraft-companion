@@ -19,6 +19,7 @@ import type {
     ServerConsoleLine,
     SetupProgress,
     ServerProperties,
+    ServerConfig,
 } from '../shared/ipc-types';
 
 export function registerIpcHandlers(win: BrowserWindow): ServerManager {
@@ -236,6 +237,14 @@ export function registerIpcHandlers(win: BrowserWindow): ServerManager {
 
     ipcMain.handle(IPC_CHANNELS.SERVER_CREATE_WORLD, async (_event, worldName: string) => {
         await serverManager.createWorld(worldName);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_GET_CONFIG, async () => {
+        return serverManager.getServerConfig();
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SERVER_SAVE_CONFIG, async (_event, config: ServerConfig) => {
+        await serverManager.saveServerConfig(config);
     });
 
     // Hangar Plugin Store

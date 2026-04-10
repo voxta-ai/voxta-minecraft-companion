@@ -27,6 +27,7 @@ import type {
     HangarSearchResult,
     HangarProjectDetail,
     HangarVersion,
+    ServerConfig,
 } from '../shared/ipc-types';
 
 export type StatusCallback = (status: BotStatus) => void;
@@ -208,6 +209,11 @@ const api = {
 
     serverCreateWorld: (worldName: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.SERVER_CREATE_WORLD, worldName),
+
+    serverGetConfig: (): Promise<ServerConfig> => ipcRenderer.invoke(IPC_CHANNELS.SERVER_GET_CONFIG),
+
+    serverSaveConfig: (config: ServerConfig): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SERVER_SAVE_CONFIG, config),
 
     // Hangar Plugin Store
     hangarSearch: (query: string, offset?: number): Promise<HangarSearchResult> =>

@@ -19,6 +19,7 @@ import {
 import PluginBrowser from './PluginBrowser';
 import type {
     ServerProperties,
+    ServerConfig,
     WorldInfo,
     ServerState as ServerStateType,
 } from '../../shared/ipc-types';
@@ -44,6 +45,11 @@ export default function ServerPanel() {
     const [loadingVersions, setLoadingVersions] = createSignal(false);
     const [installedVersion, setInstalledVersion] = createSignal<string | null>(null);
     const [changingVersion, setChangingVersion] = createSignal(false);
+
+    // Server config state
+    const [memoryMb, setMemoryMb] = createSignal(1024);
+    const [memoryChanged, setMemoryChanged] = createSignal(false);
+    const [savingConfig, setSavingConfig] = createSignal(false);
 
     // World management state
     const [renamingWorld, setRenamingWorld] = createSignal<string | null>(null);
@@ -109,12 +115,14 @@ export default function ServerPanel() {
     });
 
     async function loadServerData(): Promise<void> {
-        const [props, worldList] = await Promise.all([
+        const [props, worldList, config] = await Promise.all([
             window.api.serverGetProperties(),
             window.api.serverGetWorlds(),
+            window.api.serverGetConfig(),
         ]);
         setProperties(props);
         setWorlds(worldList);
+        setMemoryMb(config.memoryMb);
     }
 
     async function fetchVersions(): Promise<void> {
@@ -192,6 +200,36 @@ export default function ServerPanel() {
             console.error('Save failed:', err);
         } finally {
             setSavingProps(false);
+        }
+    }
+
+    function handleResetDefaults(): void {
+        setProperties({
+            'difficulty': 'easy',
+            'gamemode': 'survival',
+            'max-players': '5',
+            'motd': 'Voxta Test Server',
+            'server-port': '25565',
+            'online-mode': 'false',
+            'spawn-monsters': 'true',
+            'spawn-animals': 'true',
+            'allow-flight': 'false',
+            'enable-command-block': 'true',
+        });
+        setMemoryMb(1024);
+        setPropsChanged(true);
+        setMemoryChanged(true);
+    }
+
+    async function handleSaveConfig(): Promise<void> {
+        setSavingConfig(true);
+        try {
+            await window.api.serverSaveConfig({ memoryMb: memoryMb() });
+            setMemoryChanged(false);
+        } catch (err) {
+            console.error('Save config failed:', err);
+        } finally {
+            setSavingConfig(false);
         }
     }
 
@@ -562,6 +600,41 @@ export default function ServerPanel() {
                     </Show>
 
                     <div class="server-section-group">
+                        <div class="section-title">Performance</div>
+                        <div class="setting-card-list">
+                            <div class="setting-card setting-card-column">
+                                <div class="setting-card-info">
+                                    <div class="setting-card-name">Server Memory (RAM)</div>
+                                    <div class="setting-card-desc">
+                                        More memory allows larger worlds and more plugins
+                                    </div>
+                                </div>
+                                <div class="memory-slider-row">
+                                    <input
+                                        type="range"
+                                        class="memory-slider"
+                                        min="512"
+                                        max="8192"
+                                        step="512"
+                                        value={memoryMb()}
+                                        onInput={(e) => {
+                                            setMemoryMb(parseInt(e.currentTarget.value, 10));
+                                            setMemoryChanged(true);
+                                        }}
+                                    />
+                                    <span class="memory-value">
+                                        {memoryMb() >= 1024 ? `${(memoryMb() / 1024).toFixed(memoryMb() % 1024 === 0 ? 0 : 1)} GB` : `${memoryMb()} MB`}
+                                    </span>
+                                </div>
+                                <div class="memory-labels">
+                                    <span>512 MB</span>
+                                    <span>8 GB</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="server-section-group">
                         <div class="section-title">Game</div>
                         <div class="setting-card-list">
                             <div class="setting-card">
@@ -713,18 +786,38 @@ export default function ServerPanel() {
                         </div>
                     </div>
 
-                    <Show when={propsChanged()}>
-                        <div class="server-props-save">
-                            <button
-                                class="btn btn-connect"
-                                onClick={() => void handleSaveProperties()}
-                                disabled={savingProps()}
-                            >
-                                {savingProps() ? 'Saving...' : 'Save Settings'}
-                            </button>
-                            <span class="server-hint">Restart the server for changes to take effect.</span>
+                    <div class="server-section-group">
+                        <div class="setting-card-list">
+                            <div class="setting-card">
+                                <div class="setting-card-info">
+                                    <div class="setting-card-name">Reset to Defaults</div>
+                                    <div class="setting-card-desc">Restore all settings to their original values</div>
+                                </div>
+                                <button
+                                    class="server-reset-btn"
+                                    onClick={handleResetDefaults}
+                                >
+                                    Reset
+                                </button>
+                            </div>
                         </div>
-                    </Show>
+                    </div>
+
+                    <div class="server-props-save">
+                        <button
+                            class="btn btn-connect"
+                            onClick={() => {
+                                if (propsChanged()) void handleSaveProperties();
+                                if (memoryChanged()) void handleSaveConfig();
+                            }}
+                            disabled={savingProps() || savingConfig() || (!propsChanged() && !memoryChanged())}
+                        >
+                            {savingProps() || savingConfig() ? 'Saving...' : 'Save Settings'}
+                        </button>
+                        <Show when={propsChanged() || memoryChanged()}>
+                            <span class="server-hint">Restart the server for changes to take effect.</span>
+                        </Show>
+                    </div>
                 </div>
             </Show>
 
