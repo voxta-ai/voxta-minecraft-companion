@@ -49,7 +49,8 @@ export default function ServerPanel() {
 
     // Server config state
     const [memoryMb, setMemoryMb] = createSignal(1024);
-    const [memoryChanged, setMemoryChanged] = createSignal(false);
+    const [autoStart, setAutoStart] = createSignal(false);
+    const [configChanged, setConfigChanged] = createSignal(false);
     const [savingConfig, setSavingConfig] = createSignal(false);
 
     // World management state
@@ -79,12 +80,6 @@ export default function ServerPanel() {
 
     // Subscribe to IPC events
     onMount(() => {
-        const unsubStatus = window.api.onServerStatusChanged((status) => {
-            setServerState(status.state as ServerStateType);
-            setServerPort(status.port);
-            setServerError(status.error);
-        });
-
         const unsubConsole = window.api.onServerConsoleLine((line) => {
             addServerConsoleLine(line);
         });
@@ -93,27 +88,17 @@ export default function ServerPanel() {
             setSetupProgress(progress);
         });
 
-        // Check initial state — fetch real status from main process, don't assume idle
-        void Promise.all([
-            window.api.serverIsInstalled(),
-            window.api.serverGetStatus(),
-            window.api.serverGetInstalledVersion(),
-        ]).then(([installed, status, version]) => {
-            setIsInstalled(installed);
-            setServerState(status.state as ServerStateType);
-            setServerPort(status.port);
-            setServerError(status.error);
+        // Load panel-specific data (server state is already tracked globally)
+        void window.api.serverGetInstalledVersion().then((version) => {
             setInstalledVersion(version);
-            if (installed) {
-                void loadServerData();
-            } else {
-                // Fetch available versions for the setup screen
-                void fetchVersions();
-            }
         });
+        if (isInstalled()) {
+            void loadServerData();
+        } else {
+            void fetchVersions();
+        }
 
         onCleanup(() => {
-            unsubStatus();
             unsubConsole();
             unsubProgress();
         });
@@ -128,6 +113,7 @@ export default function ServerPanel() {
         setProperties(props);
         setWorlds(worldList);
         setMemoryMb(config.memoryMb);
+        setAutoStart(config.autoStart);
     }
 
     async function fetchVersions(): Promise<void> {
@@ -222,15 +208,16 @@ export default function ServerPanel() {
             'enable-command-block': 'true',
         });
         setMemoryMb(1024);
+        setAutoStart(false);
         setPropsChanged(true);
-        setMemoryChanged(true);
+        setConfigChanged(true);
     }
 
     async function handleSaveConfig(): Promise<void> {
         setSavingConfig(true);
         try {
-            await window.api.serverSaveConfig({ memoryMb: memoryMb() });
-            setMemoryChanged(false);
+            await window.api.serverSaveConfig({ memoryMb: memoryMb(), autoStart: autoStart() });
+            setConfigChanged(false);
         } catch (err) {
             console.error('Save config failed:', err);
         } finally {
@@ -677,6 +664,35 @@ export default function ServerPanel() {
                     </Show>
 
                     <div class="server-section-group">
+                        <div class="section-title">Startup</div>
+                        <div class="setting-card-list">
+                            <div class="setting-card">
+                                <div class="setting-card-info">
+                                    <div class="setting-card-name">Auto-start server</div>
+                                    <div class="setting-card-desc">
+                                        Automatically start the server when connecting to Voxta
+                                    </div>
+                                </div>
+                                <label class="toggle">
+                                    <input
+                                        type="checkbox"
+                                        checked={autoStart()}
+                                        onChange={(e) => {
+                                            const checked = e.currentTarget.checked;
+                                            setAutoStart(checked);
+                                            void window.api.serverSaveConfig({
+                                                memoryMb: memoryMb(),
+                                                autoStart: checked,
+                                            });
+                                        }}
+                                    />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="server-section-group">
                         <div class="section-title">Performance</div>
                         <div class="setting-card-list">
                             <div class="setting-card setting-card-column">
@@ -696,7 +712,7 @@ export default function ServerPanel() {
                                         value={memoryMb()}
                                         onInput={(e) => {
                                             setMemoryMb(parseInt(e.currentTarget.value, 10));
-                                            setMemoryChanged(true);
+                                            setConfigChanged(true);
                                         }}
                                     />
                                     <span class="memory-value">
@@ -885,13 +901,13 @@ export default function ServerPanel() {
                             class="btn btn-connect"
                             onClick={() => {
                                 if (propsChanged()) void handleSaveProperties();
-                                if (memoryChanged()) void handleSaveConfig();
+                                if (configChanged()) void handleSaveConfig();
                             }}
-                            disabled={savingProps() || savingConfig() || (!propsChanged() && !memoryChanged())}
+                            disabled={savingProps() || savingConfig() || (!propsChanged() && !configChanged())}
                         >
                             {savingProps() || savingConfig() ? 'Saving...' : 'Save Settings'}
                         </button>
-                        <Show when={propsChanged() || memoryChanged()}>
+                        <Show when={propsChanged() || configChanged()}>
                             <span class="server-hint">Restart the server for changes to take effect.</span>
                         </Show>
                     </div>
@@ -1049,6 +1065,9 @@ export default function ServerPanel() {
                                                     >
                                                         <div class="world-card-name">
                                                             {world.name}
+                                                            <Show when={world.isActive && serverState() === 'running'}>
+                                                                <span class="world-live-tag">Live</span>
+                                                            </Show>
                                                         </div>
                                                         <div class="world-card-meta">
                                                             <Show

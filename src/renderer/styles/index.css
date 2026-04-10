@@ -414,6 +414,23 @@ body {
     margin-top: 2px;
 }
 
+.advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 0;
+    margin-top: 4px;
+}
+
+.advanced-toggle:hover {
+    color: var(--text-primary);
+}
+
 .character-select {
     flex: 1;
     padding: 8px 12px;
@@ -466,6 +483,15 @@ body {
 .btn-connect:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.btn-connect.btn-waiting {
+    animation: pulse-waiting 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-waiting {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.8; }
 }
 
 .btn-disconnect {
@@ -3025,6 +3051,24 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+.world-live-tag {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent-green);
+    background: rgba(74, 222, 128, 0.12);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    animation: pulse-live 2s ease-in-out infinite;
+}
+
+@keyframes pulse-live {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
 }
 
 .world-active-badge {

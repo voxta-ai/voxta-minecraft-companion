@@ -1,6 +1,7 @@
 import { createSignal, Show, onMount, onCleanup } from 'solid-js';
 import { useStatusListener, useChatListener, status, stopSession } from './stores/app-store';
 import { addLogEntry } from './stores/console-store';
+import { initServerStore } from './stores/server-store';
 import ConnectionPanel from './components/ConnectionPanel';
 import SettingsPanel from './components/SettingsPanel';
 import ChatView from './components/ChatView';
@@ -18,6 +19,7 @@ type Popup = 'connection' | 'actions' | 'settings' | 'server' | null;
 export default function App() {
     useStatusListener();
     useChatListener();
+    initServerStore();
 
     const [activePopup, setActivePopup] = createSignal<Popup>(null);
     const [inspectorOpen, setInspectorOpen] = createSignal(false);

@@ -318,6 +318,7 @@ export type ServerProperties = Record<string, string>;
 
 export interface ServerConfig {
     memoryMb: number;
+    autoStart: boolean;
 }
 
 // ---- Console Log ----
