@@ -25,6 +25,12 @@
         "files": [
             "out/**/*"
         ],
+        "extraResources": [
+            {
+                "from": "plugins/voxta-voice-bridge/build/libs/voxta-voice-bridge-1.0.0.jar",
+                "to": "plugins/voxta-voice-bridge-1.0.0.jar"
+            }
+        ],
         "asarUnpack": [
             "node_modules/mineflayer/**",
             "node_modules/mineflayer-pathfinder/**"
