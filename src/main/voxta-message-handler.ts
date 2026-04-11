@@ -59,6 +59,9 @@ export interface MessageHandlerContext {
     queueEvent(text: string): void;
     emit(event: string, ...args: unknown[]): void;
     mcChatEcho(text: string): void;
+    setPaused(paused: boolean): void;
+    isPaused(): boolean;
+    getVoxtaClient(): VoxtaClient | null;
 
     // Audio pipeline
     audioPipeline: AudioPipeline;
@@ -318,9 +321,26 @@ function handleInterruptSpeech(_message: ServerMessage, ctx: MessageHandlerConte
     ctx.emit('stop-audio');
 }
 
-function handleChatFlow(message: ServerMessage): void {
+function handleChatFlow(message: ServerMessage, ctx: MessageHandlerContext): void {
     const state = (message as { state?: string }).state;
     console.log(`[Server] chatFlow: ${state}`);
+
+    // Turn-based mode: when the server is about to pick the next speaker,
+    // re-pause so only one character replies per user input (no auto-chain)
+    if (state === 'SelectingSpeaker' && ctx.isPaused()) {
+        const voxta = ctx.getVoxtaClient();
+        if (voxta) {
+            console.log('[Server] Re-pausing to maintain turn-based flow');
+            void voxta.pauseChat(true);
+        }
+    }
+}
+
+function handleChatPaused(message: ServerMessage, ctx: MessageHandlerContext): void {
+    const paused = (message as { paused?: boolean }).paused ?? false;
+    console.log(`[Server] chatPaused: ${paused}`);
+    ctx.setPaused(paused);
+    ctx.updateStatus({ paused });
 }
 
 function handleSpeechRecognitionStart(_message: ServerMessage, ctx: MessageHandlerContext): void {
@@ -403,6 +423,7 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
     action: handleAction,
     interruptSpeech: handleInterruptSpeech,
     chatFlow: handleChatFlow,
+    chatPaused: handleChatPaused,
     speechRecognitionStart: handleSpeechRecognitionStart,
     speechRecognitionPartial: handleSpeechRecognitionPartial,
     speechRecognitionEnd: handleSpeechRecognitionEnd,

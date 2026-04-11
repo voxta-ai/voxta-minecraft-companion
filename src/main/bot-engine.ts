@@ -103,6 +103,9 @@ export class BotEngine extends EventEmitter {
     private voxtaApiKey: string | null = null;
     private settings: McSettings = { ...DEFAULT_SETTINGS };
     private isReplying = false;
+    private isPaused = false;
+    /** User's pause intent — survives server's transient chatPaused:false during message processing */
+    private userWantsPause = false;
     private pendingNotes: string[] = [];
     private pendingEvents: string[] = [];
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
@@ -130,6 +133,7 @@ export class BotEngine extends EventEmitter {
         assistantName: null,
         assistantName2: null,
         sessionId: null,
+        paused: false,
     };
 
     constructor() {
@@ -439,9 +443,12 @@ export class BotEngine extends EventEmitter {
                 this.updateStatus({
                     voxta: 'connected',
                     sessionId: null,
+                    paused: false,
                     assistantName: null,
                     currentAction: null,
                 });
+                this.isPaused = false;
+                this.userWantsPause = false;
                 this.addChat('system', 'System', 'Voxta reconnected — start a new chat to continue.');
                 this.toast('warning', 'Reconnected to Voxta — start a new chat to continue.');
             }
@@ -2137,7 +2144,10 @@ export class BotEngine extends EventEmitter {
             assistantName: null,
             assistantName2: null,
             sessionId: null,
+            paused: false,
         });
+        this.isPaused = false;
+        this.userWantsPause = false;
 
         // Stop any playing audio immediately
         this.emit('stop-audio');
@@ -2284,9 +2294,18 @@ export class BotEngine extends EventEmitter {
                     }
                 }
             },
+            setPaused: (paused) => { this.isPaused = paused; },
+            isPaused: () => this.userWantsPause,
+            getVoxtaClient: () => this.voxta,
 
             // Audio pipeline
             audioPipeline: this.audioPipeline,
         });
+    }
+
+    /** Pause or resume multi-character auto-continuation */
+    async pauseChat(pause: boolean): Promise<void> {
+        this.userWantsPause = pause;
+        await this.voxta?.pauseChat(pause);
     }
 }

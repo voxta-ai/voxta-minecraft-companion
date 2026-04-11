@@ -751,15 +751,20 @@ body {
 }
 
 .chat-input-bar .btn-send {
-    padding: 10px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
     background: var(--accent-purple);
     border: none;
     border-radius: var(--radius-sm);
     color: white;
-    font-weight: 600;
-    font-size: 13px;
+    font-size: 16px;
     cursor: pointer;
     transition: background var(--transition);
+    flex-shrink: 0;
 }
 
 .chat-input-bar .btn-send:hover {
@@ -769,6 +774,33 @@ body {
 .chat-input-bar .btn-send:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+}
+
+.chat-input-bar .btn-pause {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+    transition: all var(--transition);
+    flex-shrink: 0;
+}
+
+.chat-input-bar .btn-pause:hover {
+    color: var(--text-primary);
+    border-color: var(--text-primary);
+}
+
+.chat-input-bar .btn-pause.paused {
+    color: #e0c068;
+    border-color: #e0c068;
 }
 
 /* ---- Audio Icons (Mic & Speaker) ---- */

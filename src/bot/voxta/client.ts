@@ -339,6 +339,16 @@ export class VoxtaClient {
         });
     }
 
+    /** Pause or resume automatic multi-character continuation */
+    async pauseChat(pause: boolean): Promise<void> {
+        if (!this._sessionId) return;
+        await this.send({
+            $type: 'pauseChat',
+            sessionId: this._sessionId,
+            pause,
+        });
+    }
+
     /** End the current chat session without closing the SignalR connection */
     async endSession(): Promise<void> {
         if (this._sessionId) {

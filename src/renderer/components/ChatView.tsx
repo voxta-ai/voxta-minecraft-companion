@@ -4,6 +4,8 @@ import { speechPartialText, setSpeechPartialText } from '../stores/audio-store';
 import AudioIcons from './AudioIcons';
 import iconPng from '../icon.png';
 
+const isDualBot = () => !!status.assistantName2;
+
 interface ChatViewProps {
     onConnect: () => void;
 }
@@ -104,9 +106,23 @@ export default function ChatView(props: ChatViewProps) {
                     />
                     <AudioIcons />
                 </div>
-                <button class="btn-send" onClick={handleSend} disabled={!isConnected() || !inputText().trim()}>
-                    Send
+                <button
+                    class="btn-send"
+                    onClick={() => void handleSend()}
+                    disabled={!isConnected() || !inputText().trim()}
+                    title="Send message"
+                >
+                    <i class="bi bi-send-fill"></i>
                 </button>
+                <Show when={isDualBot() && isConnected()}>
+                    <button
+                        class={`btn-pause ${status.paused ? 'paused' : ''}`}
+                        onClick={() => void window.api.pauseChat(!status.paused)}
+                        title={status.paused ? 'Resume auto-conversation' : 'Pause auto-conversation'}
+                    >
+                        <i class={`bi ${status.paused ? 'bi-play-fill' : 'bi-pause-fill'}`}></i>
+                    </button>
+                </Show>
             </div>
         </div>
     );
