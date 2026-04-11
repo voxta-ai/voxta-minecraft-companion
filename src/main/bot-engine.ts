@@ -1,20 +1,10 @@
 import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
-import { readWorldState, buildContextStrings, hasLineOfSight } from '../bot/minecraft/perception';
+import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
-import { executeAction, initHomePosition, resumeFollowPlayer } from '../bot/minecraft/action-dispatcher';
-import { loadCustomBlueprints } from '../bot/minecraft/blueprints/index.js';
-import {
-    isAutoDefending,
-    isActionBusy,
-    getCurrentCombatTarget,
-    getBotMode,
-    getGuardCenter,
-    setAutoDefending,
-} from '../bot/minecraft/actions/action-state';
-import { findPlayerEntity } from '../bot/minecraft/actions/action-helpers';
-import { dismountEntity } from '../bot/minecraft/actions/index';
-import { McEventBridge, isHostileEntity } from '../bot/minecraft/events';
+import { executeAction, initHomePosition } from '../bot/minecraft/action-dispatcher';
+import { loadCustomBlueprints } from '../bot/minecraft/blueprints';
+import { dismountEntity } from '../bot/minecraft/actions';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage } from '../bot/voxta/types';
@@ -36,7 +26,6 @@ import type {
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 import type { CompanionConfig } from '../bot/config';
 import type { MinecraftBot } from '../bot/minecraft/bot';
-import type { Bot as MineflayerBot } from 'mineflayer';
 import type { ScenarioAction } from '../bot/voxta/types';
 import { AudioPipeline } from './audio-pipeline';
 import { dispatchVoxtaMessage } from './voxta-message-handler';
@@ -49,6 +38,24 @@ import {
     sendStopAudio,
     extractPcmFromWav,
 } from './plugin-channel';
+import { McEventBridge } from '../bot/minecraft/events';
+import type { Bot as MineflayerBot } from 'mineflayer';
+
+// Extracted modules
+import {
+    fetchCharacterDetails,
+    loadScenarios as loadScenariosApi,
+    loadChats as loadChatsApi,
+    favoriteChat as favoriteChatApi,
+    deleteChat as deleteChatApi,
+    humanizeError,
+} from './bot-engine-voxta';
+import { createModeScanLoop, createMountedSteeringLoop, createFollowWatchdog } from './bot-engine-movement';
+import type { MovementCallbacks } from './bot-engine-movement';
+import { createPerceptionLoop, createSpatialLoop, createProximityLoop } from './bot-engine-loops';
+import type { LoopCallbacks } from './bot-engine-loops';
+import { createEventBridge } from './bot-engine-events';
+import type { EventBridgeCallbacks } from './bot-engine-events';
 
 // Centralized version constant
 const CLIENT_NAME = 'Voxta.Minecraft';
@@ -148,6 +155,8 @@ export class BotEngine extends EventEmitter {
         return super.emit(event, ...args);
     }
 
+    // ---- Utilities ----
+
     /** Emit a toast notification to the renderer */
     private toast(type: ToastType, message: string, durationMs?: number): void {
         const toast: ToastMessage = {
@@ -159,58 +168,56 @@ export class BotEngine extends EventEmitter {
         this.emit('toast', toast);
     }
 
-    /** Convert raw errors into user-friendly messages */
-    private humanizeError(err: unknown, context: string): string {
-        // Build a comprehensive string to search — AggregateError has an empty message
-        // but stores error codes in .code and a nested .errors[] array
-        let raw: string;
-        if (err instanceof Error) {
-            raw = err.message || '';
-            const errWithCode = err as Error & { code?: string; errors?: Error[] };
-            if (errWithCode.code) raw += ` ${errWithCode.code}`;
-            if (errWithCode.errors) {
-                for (const nested of errWithCode.errors) {
-                    raw += ` ${nested.message}`;
-                    if ((nested as Error & { code?: string }).code) {
-                        raw += ` ${(nested as Error & { code?: string }).code}`;
-                    }
-                }
-            }
-        } else {
-            raw = String(err);
-        }
-
-        // Minecraft connection errors
-        if (raw.includes('ECONNREFUSED')) {
-            return `Cannot connect to Minecraft server — is the server running and the port correct?`;
-        }
-        if (raw.includes('ETIMEDOUT') || raw.includes('EHOSTUNREACH')) {
-            return `Cannot reach Minecraft server — check the host address and make sure the server is accessible.`;
-        }
-        if (raw.includes('ENOTFOUND')) {
-            return `Server address not found — check the host name is correct.`;
-        }
-        // Version mismatch (Mineflayer reports server vs client version)
-        const versionMatch = raw.match(/server is version ([\d.]+)/i);
-        if (versionMatch) {
-            return `Version mismatch — the server runs ${versionMatch[1]}. Set "Game Version" to ${versionMatch[1]} and try again.`;
-        }
-
-        // Voxta connection errors
-        if (raw.includes('Failed to complete negotiation') || raw.includes('Status code')) {
-            return `Cannot connect to Voxta — is the server running at the specified URL?`;
-        }
-        if (raw.includes('authentication') || raw.includes('401') || raw.includes('403')) {
-            return `Voxta authentication failed — check your API key.`;
-        }
-
-        // Generic
-        if (raw.includes('timed out')) {
-            return `${context} timed out — try again.`;
-        }
-
-        return `${context}: ${raw}`;
+    private addChat(type: ChatMessage['type'], sender: string, text: string, badge?: string): void {
+        const msg: ChatMessage = {
+            id: `msg-${++this.messageCounter}`,
+            timestamp: Date.now(),
+            type,
+            sender,
+            text,
+            badge,
+        };
+        this.emit('chat-message', msg);
     }
+
+    private updateStatus(patch: Partial<BotStatus>): void {
+        Object.assign(this.status, patch);
+        this.emit('status-changed', this.getStatus());
+    }
+
+    /** Queue a note — sent immediately if AI is idle, queued if AI is speaking */
+    private queueNote(text: string): void {
+        if (this.isReplying) {
+            console.log(`[Bot >>] note (queued): "${text.substring(0, 80)}"`);
+            this.pendingNotes.push(text);
+        } else {
+            console.log(`[Bot >>] note: "${text.substring(0, 80)}"`);
+            void this.voxta?.sendNote(text);
+        }
+    }
+
+    /** Flush all queued notes after AI finishes speaking */
+    private flushPendingNotes(): void {
+        if (!this.voxta || this.pendingNotes.length === 0) return;
+        console.log(`[Bot >>] flushing ${this.pendingNotes.length} queued note(s)`);
+        for (const note of this.pendingNotes) {
+            console.log(`[Bot >>] note (flushed): "${note.substring(0, 80)}"`);
+            void this.voxta.sendNote(note);
+        }
+        this.pendingNotes = [];
+    }
+
+    /** Flush queued events — triggers voiced AI replies for action results */
+    private flushPendingEvents(): void {
+        if (!this.voxta || this.pendingEvents.length === 0) return;
+        // Only send the most recent event to avoid spamming multiple replies
+        const event = this.pendingEvents[this.pendingEvents.length - 1];
+        console.log(`[Bot >>] event (deferred): "${event.substring(0, 80)}"`);
+        void this.voxta.sendEvent(event);
+        this.pendingEvents = [];
+    }
+
+    // ---- Public API ----
 
     getStatus(): BotStatus {
         return { ...this.status };
@@ -249,11 +256,6 @@ export class BotEngine extends EventEmitter {
             ],
             this.getEnabledActions(),
         );
-    }
-
-    private updateStatus(patch: Partial<BotStatus>): void {
-        Object.assign(this.status, patch);
-        this.emit('status-changed', this.getStatus());
     }
 
     updateSettings(newSettings: McSettings): void {
@@ -322,48 +324,61 @@ export class BotEngine extends EventEmitter {
         }
     }
 
-    /** Queue a note — sent immediately if AI is idle, queued if AI is speaking */
-    private queueNote(text: string): void {
-        if (this.isReplying) {
-            console.log(`[Bot >>] note (queued): "${text.substring(0, 80)}"`);
-            this.pendingNotes.push(text);
-        } else {
-            console.log(`[Bot >>] note: "${text.substring(0, 80)}"`);
-            void this.voxta?.sendNote(text);
-        }
-    }
+    // ---- Callback builders for extracted modules ----
 
-    /** Flush all queued notes after AI finishes speaking */
-    private flushPendingNotes(): void {
-        if (!this.voxta || this.pendingNotes.length === 0) return;
-        console.log(`[Bot >>] flushing ${this.pendingNotes.length} queued note(s)`);
-        for (const note of this.pendingNotes) {
-            console.log(`[Bot >>] note (flushed): "${note.substring(0, 80)}"`);
-            void this.voxta.sendNote(note);
-        }
-        this.pendingNotes = [];
-    }
-
-    /** Flush queued events — triggers voiced AI replies for action results */
-    private flushPendingEvents(): void {
-        if (!this.voxta || this.pendingEvents.length === 0) return;
-        // Only send the most recent event to avoid spamming multiple replies
-        const event = this.pendingEvents[this.pendingEvents.length - 1];
-        console.log(`[Bot >>] event (deferred): "${event.substring(0, 80)}"`);
-        void this.voxta.sendEvent(event);
-        this.pendingEvents = [];
-    }
-
-    private addChat(type: ChatMessage['type'], sender: string, text: string, badge?: string): void {
-        const msg: ChatMessage = {
-            id: `msg-${++this.messageCounter}`,
-            timestamp: Date.now(),
-            type,
-            sender,
-            text,
-            badge,
+    private buildMovementCallbacks(): MovementCallbacks {
+        return {
+            getFollowingPlayer: () => this.followingPlayer,
+            getNames: () => this.names,
+            isAutoDismounting: () => this.autoDismounting,
+            addChat: (type, sender, text) => this.addChat(type, sender, text),
+            queueNote: (text) => this.queueNote(text),
         };
-        this.emit('chat-message', msg);
+    }
+
+    private buildLoopCallbacks(): LoopCallbacks {
+        return {
+            getVoxta: () => this.voxta,
+            getPlayerMcUsername: () => this.playerMcUsername,
+            getFollowingPlayer: () => this.followingPlayer,
+            getNames: () => this.names,
+            getEnabledActions: () => this.getEnabledActions(),
+            isBotInRange: (slot) => slot === 1 ? this.bot1InRange : this.bot2InRange,
+            setBotInRange: (slot, inRange) => {
+                if (slot === 1) this.bot1InRange = inRange;
+                else this.bot2InRange = inRange;
+            },
+            getActiveCharacterIds: () => this.activeCharacterIds,
+            getAssistantName: (slot) => slot === 1 ? this.assistantName : this.assistantName2,
+            getLastSpeakingSlot: () => this.lastSpeakingSlot,
+            getMcBot: (slot) => slot === 1 ? this.mcBot?.bot ?? null : this.mcBot2?.bot ?? null,
+            updateStatus: (patch) => this.updateStatus(patch),
+            addChat: (type, sender, text) => this.addChat(type, sender, text),
+            queueNote: (text) => this.queueNote(text),
+            emit: (event, data) => this.emit(event as BotEngineEvent, data),
+        };
+    }
+
+    private buildEventBridgeCallbacks(): EventBridgeCallbacks {
+        return {
+            getVoxta: () => this.voxta,
+            getSettings: () => this.settings,
+            getFollowingPlayer: () => this.followingPlayer,
+            isReplying: () => this.isReplying,
+            getAssistantName: (slot) => slot === 1 ? this.assistantName : this.assistantName2,
+            getMcBot: (slot) => slot === 1 ? this.mcBot : this.mcBot2,
+            addChat: (type, sender, text) => this.addChat(type, sender, text),
+            queueNote: (text) => this.queueNote(text),
+            audioPipeline: this.audioPipeline,
+            emit: (event, ...args) => this.emit(event as BotEngineEvent, ...args),
+            setIsReplying: (value) => { this.isReplying = value; },
+            setCurrentReply: (text) => { this.currentReply = text; },
+            clearPendingEvents: () => { this.pendingEvents = []; },
+            flushHuntBatch: (slot) => {
+                if (slot === 1) this.flushHuntBatch?.();
+                else this.flushHuntBatch2?.();
+            },
+        };
     }
 
     // ---- Phase 1: Connect to Voxta only ----
@@ -400,38 +415,7 @@ export class BotEngine extends EventEmitter {
 
         this.voxta.onReconnected(() => {
             // Session is gone after server restart — stop sending stale context updates
-            if (this.perceptionLoop) {
-                clearInterval(this.perceptionLoop);
-                this.perceptionLoop = null;
-            }
-            if (this.perceptionLoop2) {
-                clearInterval(this.perceptionLoop2);
-                this.perceptionLoop2 = null;
-            }
-            if (this.followWatchdog) {
-                clearInterval(this.followWatchdog);
-                this.followWatchdog = null;
-            }
-            if (this.mountedSteeringLoop) {
-                clearInterval(this.mountedSteeringLoop);
-                this.mountedSteeringLoop = null;
-            }
-            if (this.modeScanLoop) {
-                clearInterval(this.modeScanLoop);
-                this.modeScanLoop = null;
-            }
-            if (this.modeScanLoop2) {
-                clearInterval(this.modeScanLoop2);
-                this.modeScanLoop2 = null;
-            }
-            if (this.proximityLoop) {
-                clearInterval(this.proximityLoop);
-                this.proximityLoop = null;
-            }
-            if (this.spatialLoop) {
-                clearInterval(this.spatialLoop);
-                this.spatialLoop = null;
-            }
+            this.clearAllLoops();
             this.emit('stop-audio');
 
             // Auto-resume the chat if we had an active session
@@ -456,34 +440,7 @@ export class BotEngine extends EventEmitter {
 
         this.voxta.onClose(() => {
             // Full teardown — server is gone
-            if (this.perceptionLoop) {
-                clearInterval(this.perceptionLoop);
-                this.perceptionLoop = null;
-            }
-            if (this.perceptionLoop2) {
-                clearInterval(this.perceptionLoop2);
-                this.perceptionLoop2 = null;
-            }
-            if (this.followWatchdog) {
-                clearInterval(this.followWatchdog);
-                this.followWatchdog = null;
-            }
-            if (this.mountedSteeringLoop) {
-                clearInterval(this.mountedSteeringLoop);
-                this.mountedSteeringLoop = null;
-            }
-            if (this.modeScanLoop) {
-                clearInterval(this.modeScanLoop);
-                this.modeScanLoop = null;
-            }
-            if (this.modeScanLoop2) {
-                clearInterval(this.modeScanLoop2);
-                this.modeScanLoop2 = null;
-            }
-            if (this.proximityLoop) {
-                clearInterval(this.proximityLoop);
-                this.proximityLoop = null;
-            }
+            this.clearAllLoops();
             this.emit('stop-audio');
             this.updateStatus({
                 voxta: 'disconnected',
@@ -505,87 +462,52 @@ export class BotEngine extends EventEmitter {
 
         try {
             await this.voxta.connect();
-
-            // Wait for auth
-            const authStart = Date.now();
-            while (!this.voxta.authenticated && Date.now() - authStart < 15000) {
-                await new Promise((r) => setTimeout(r, 200));
-            }
-
-            if (!this.voxta.authenticated) {
-                this.updateStatus({ voxta: 'error' });
-                this.addChat('system', 'System', 'Voxta authentication timed out');
-                this.toast('error', 'Voxta authentication timed out — check your API key and try again.');
-                throw new Error('Voxta authentication timed out');
-            }
-
-            this.updateStatus({ voxta: 'connected' });
-            this.addChat('system', 'System', 'Connected to Voxta!');
-            this.toast('success', 'Connected to Voxta!');
-
-            // Register app
-            await this.voxta.registerApp();
-
-            // Fetch characters from REST API (with MC config detection)
-            await this.fetchCharacterDetails();
-
-            const userName = this.voxtaUserName ?? 'Player';
-            this.addChat('system', 'System', `Welcome, ${userName}! ${this.characters.length} character(s) available.`);
-
-            return {
-                userName,
-                characters: this.characters,
-                defaultAssistantId: this.defaultAssistantId,
-            };
         } catch (err) {
-            const message = this.humanizeError(err, 'Voxta connection');
+            const message = humanizeError(err, 'Voxta connection');
             this.updateStatus({ voxta: 'error' });
             this.addChat('system', 'System', `Voxta connection failed: ${message}`);
             this.toast('error', message);
             throw err;
         }
-    }
 
-    // ---- Fetch character list with MC config detection ----
-
-    private async fetchCharacterDetails(): Promise<void> {
-        if (!this.voxtaUrl) return;
-        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
-        const headers: Record<string, string> = {};
-        if (this.voxtaApiKey) {
-            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
+        // Wait for auth
+        const authStart = Date.now();
+        while (!this.voxta.authenticated && Date.now() - authStart < 15000) {
+            await new Promise((r) => setTimeout(r, 200));
         }
-        const res = await fetch(`${baseUrl}/api/characters/?assistant=true`, { headers });
-        if (res.ok) {
-            const data = (await res.json()) as { characters: Array<{ id: string; name: string }> };
 
-            // Parallel-fetch full details to check for Minecraft Companion app config
-            const detailed = await Promise.all(
-                data.characters.map(async (c) => {
-                    try {
-                        const detailRes = await fetch(`${baseUrl}/api/characters/${c.id}`, { headers });
-                        if (detailRes.ok) {
-                            const detail = (await detailRes.json()) as {
-                                appConfiguration?: Record<string, Record<string, string>>;
-                            };
-                            const mcConfig = detail.appConfiguration?.[CLIENT_NAME];
-                            const enabledValue = mcConfig?.['enabled']?.toLowerCase();
-                            const hasMc = enabledValue === 'true' || (mcConfig?.['skin'] != null && mcConfig['skin'] !== '');
-                            return { id: c.id, name: c.name, hasMcConfig: hasMc };
-                        }
-                    } catch {
-                        // Ignore individual fetch failures
-                    }
-                    return { id: c.id, name: c.name, hasMcConfig: false };
-                }),
-            );
-            this.characters = detailed;
+        if (!this.voxta.authenticated) {
+            this.updateStatus({ voxta: 'error' });
+            this.addChat('system', 'System', 'Voxta authentication timed out');
+            this.toast('error', 'Voxta authentication timed out — check your API key and try again.');
+            throw new Error('Voxta authentication timed out');
         }
+
+        this.updateStatus({ voxta: 'connected' });
+        this.addChat('system', 'System', 'Connected to Voxta!');
+        this.toast('success', 'Connected to Voxta!');
+
+        // Register app
+        await this.voxta.registerApp();
+
+        // Fetch characters from REST API (with MC config detection)
+        this.characters = await fetchCharacterDetails(this.voxtaUrl, this.voxtaApiKey);
+
+        const userName = this.voxtaUserName ?? 'Player';
+        this.addChat('system', 'System', `Welcome, ${userName}! ${this.characters.length} character(s) available.`);
+
+        return {
+            userName,
+            characters: this.characters,
+            defaultAssistantId: this.defaultAssistantId,
+        };
     }
 
     /** Re-fetch character details (MC config) without reconnecting */
     async refreshCharacters(): Promise<VoxtaInfo> {
-        await this.fetchCharacterDetails();
+        if (this.voxtaUrl) {
+            this.characters = await fetchCharacterDetails(this.voxtaUrl, this.voxtaApiKey);
+        }
         return {
             userName: this.voxtaUserName ?? 'Player',
             characters: this.characters,
@@ -593,94 +515,24 @@ export class BotEngine extends EventEmitter {
         };
     }
 
-    // ---- Load scenarios ----
-
     async loadScenarios(): Promise<ScenarioInfo[]> {
         if (!this.voxtaUrl) throw new Error('Must connect to Voxta first');
-        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
-        const headers: Record<string, string> = {};
-        if (this.voxtaApiKey) {
-            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
-        }
-        const res = await fetch(`${baseUrl}/api/scenarios`, { headers });
-        if (!res.ok) {
-            console.error(`[Voxta] Failed to load scenarios: ${res.status}`);
-            return [];
-        }
-        const data = (await res.json()) as {
-            scenarios: Array<{ id: string; name: string; client?: string }>;
-        };
-        return data.scenarios.map((s) => ({ id: s.id, name: s.name, client: s.client ?? null }));
+        return loadScenariosApi(this.voxtaUrl, this.voxtaApiKey);
     }
-
-    // ---- Load previous chats for a character ----
 
     async loadChats(characterId: string): Promise<ChatListItem[]> {
         if (!this.voxtaUrl) throw new Error('Must connect to Voxta first');
-        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
-        const headers: Record<string, string> = {};
-        if (this.voxtaApiKey) {
-            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
-        }
-        const res = await fetch(`${baseUrl}/api/chats?characterId=${characterId}`, { headers });
-        if (!res.ok) {
-            console.error(`[Voxta] Failed to load chats: ${res.status}`);
-            return [];
-        }
-        const data = (await res.json()) as {
-            chats: Array<{
-                id: string;
-                title?: string;
-                created: string;
-                lastSession?: string;
-                lastSessionTimestamp?: string;
-                createdTimestamp?: string;
-                favorite?: boolean;
-                scenarioId?: string;
-            }>;
-        };
-        return data.chats.map((c) => ({
-            id: c.id,
-            title: c.title ?? null,
-            created: c.created,
-            lastSession: c.lastSession ?? null,
-            lastSessionTimestamp: c.lastSessionTimestamp ?? c.createdTimestamp ?? null,
-            favorite: c.favorite ?? false,
-            scenarioId: c.scenarioId ?? null,
-        }));
+        return loadChatsApi(this.voxtaUrl, this.voxtaApiKey, characterId);
     }
 
     async favoriteChat(chatId: string, favorite: boolean): Promise<void> {
         if (!this.voxtaUrl) throw new Error('Must connect to Voxta first');
-        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (this.voxtaApiKey) {
-            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
-        }
-        const res = await fetch(`${baseUrl}/api/chats/${chatId}`, {
-            method: 'PATCH',
-            headers,
-            body: JSON.stringify({ favorite }),
-        });
-        if (!res.ok) {
-            console.error(`[Voxta] Failed to toggle favorite: ${res.status}`);
-        }
+        return favoriteChatApi(this.voxtaUrl, this.voxtaApiKey, chatId, favorite);
     }
 
     async deleteChat(chatId: string): Promise<void> {
         if (!this.voxtaUrl) throw new Error('Must connect to Voxta first');
-        const baseUrl = this.voxtaUrl.replace(/\/hub\/?$/, '');
-        const headers: Record<string, string> = {};
-        if (this.voxtaApiKey) {
-            headers['Authorization'] = `Bearer ${this.voxtaApiKey}`;
-        }
-        const res = await fetch(`${baseUrl}/api/chats/${chatId}`, {
-            method: 'DELETE',
-            headers,
-        });
-        if (!res.ok) {
-            console.error(`[Voxta] Failed to delete chat: ${res.status}`);
-        }
+        return deleteChatApi(this.voxtaUrl, this.voxtaApiKey, chatId);
     }
 
     // ---- Phase 2: Launch MC bot + start chat ----
@@ -735,7 +587,7 @@ export class BotEngine extends EventEmitter {
             this.addChat('system', 'System', `Minecraft bot spawned as ${config.mc.username}`);
             this.toast('success', `Bot "${config.mc.username}" joined the Minecraft server!`);
         } catch (err) {
-            const message = this.humanizeError(err, 'Minecraft connection');
+            const message = humanizeError(err, 'Minecraft connection');
             this.updateStatus({ mc: 'error' });
             this.addChat('system', 'System', `MC connection failed: ${message}`);
             this.toast('error', message);
@@ -762,11 +614,11 @@ export class BotEngine extends EventEmitter {
                 this.addChat('system', 'System', `Minecraft bot 2 spawned as ${config2.mc.username}`);
                 this.toast('success', `Bot "${config2.mc.username}" joined the Minecraft server!`);
             } catch (err) {
-                const message = this.humanizeError(err, 'Minecraft connection (bot 2)');
+                const message = humanizeError(err, 'Minecraft connection (bot 2)');
                 this.updateStatus({ mc2: 'error' });
                 this.addChat('system', 'System', `MC bot 2 connection failed: ${message}`);
                 this.toast('error', message);
-                // Continue with single-bot mode — don’t abort the whole session
+                // Continue with single-bot mode — don't abort the whole session
                 this.mcBot2 = null;
             }
         }
@@ -915,465 +767,74 @@ export class BotEngine extends EventEmitter {
             : `Chat started with ${this.assistantName}`;
         this.addChat('system', 'System', sessionMsg);
 
-        // ---- Perception loop — bot 1 ----
-        let lastContextHash = initialContextStrings.join('|');
+        // ---- Start all loops using extracted factories ----
+        const loopCallbacks = this.buildLoopCallbacks();
+        const movementCallbacks = this.buildMovementCallbacks();
 
-        this.perceptionLoop = setInterval(() => {
-            if (!this.voxta?.sessionId) return;
-            try {
-                const state = readWorldState(bot, config.perception.entityRange);
-                const rawStrings = buildContextStrings(state, this.names, assistantName1);
-                const contextStrings = rawStrings.map((s) => `[${assistantName1}] ${s}`);
+        // Perception loop — bot 1
+        this.perceptionLoop = createPerceptionLoop(
+            bot, 1, config.perception.intervalMs, config.perception.entityRange,
+            assistantName1 ?? 'Bot', initialContextStrings, loopCallbacks,
+        );
 
-                const contextHash = contextStrings.join('|');
-
-                // Only update position if it's valid (perception returns 0,0,0 when bot pos is NaN)
-                const posValid = state.position.x !== 0 || state.position.y !== 0 || state.position.z !== 0;
-                this.updateStatus({
-                    ...(posValid
-                        ? {
-                              position: {
-                                  x: Math.round(state.position.x),
-                                  y: Math.round(state.position.y),
-                                  z: Math.round(state.position.z),
-                              },
-                          }
-                        : {}),
-                    health: state.health,
-                    food: state.food,
-                });
-
-                if (contextHash !== lastContextHash) {
-                    lastContextHash = contextHash;
-                    // Send actions only with bot1's context (shared between both bots)
-                    // Skip if bot1 is out of proximity range (removed from session)
-                    if (this.bot1InRange) {
-                        void this.voxta.updateContext(
-                            'minecraft-bot1',
-                            contextStrings.map((text) => ({ text })),
-                            this.getEnabledActions(),
-                        );
-                    }
-                }
-            } catch (err) {
-                // Perception can fail during respawn/chunk loading
-                console.error('[Perception] Context update failed:', err);
-            }
-        }, config.perception.intervalMs);
-
-        // ---- Perception loop — bot 2 (dual-bot mode only) ----
+        // Perception loop — bot 2 (dual-bot mode only)
         if (isDualBot && this.mcBot2) {
-            const bot2 = this.mcBot2.bot;
-            const assistantName2 = this.assistantName2 ?? 'AI2';
-            let lastContextHash2 = '';
-
-            this.perceptionLoop2 = setInterval(() => {
-                if (!this.voxta?.sessionId) return;
-                try {
-                    const state2 = readWorldState(bot2, config.perception.entityRange);
-                    const rawStrings2 = buildContextStrings(state2, this.names, assistantName2);
-                    const contextStrings2 = rawStrings2.map((s) => `[${assistantName2}] ${s}`);
-
-                    this.updateStatus({
-                        position2: state2.position
-                            ? {
-                                  x: Math.round(state2.position.x),
-                                  y: Math.round(state2.position.y),
-                                  z: Math.round(state2.position.z),
-                              }
-                            : null,
-                        health2: state2.health,
-                        food2: state2.food,
-                    });
-
-                    const contextHash2 = contextStrings2.join('|');
-                    if (contextHash2 !== lastContextHash2) {
-                        lastContextHash2 = contextHash2;
-                        // Skip if bot2 is out of proximity range (removed from session)
-                        if (this.bot2InRange) {
-                            // No actions here — actions are sent with bot1's context update
-                            void this.voxta.updateContext(
-                                'minecraft-bot2',
-                                contextStrings2.map((text) => ({ text })),
-                            );
-                        }
-                    }
-                } catch (err) {
-                    console.error('[Perception] Bot 2 context update failed:', err);
-                }
-            }, config.perception.intervalMs);
+            this.perceptionLoop2 = createPerceptionLoop(
+                this.mcBot2.bot, 2, config.perception.intervalMs, config.perception.entityRange,
+                this.assistantName2 ?? 'AI2', [], loopCallbacks,
+            );
         }
 
-        // ---- Spatial audio position loop (fast — 100ms for responsive audio) ----
-        this.spatialLoop = setInterval(() => {
-            if (!this.playerMcUsername) return;
-            try {
-                // Use the currently speaking bot's position — not always bot 1
-                const activeBot = (this.lastSpeakingSlot === 2 && this.mcBot2) ? this.mcBot2.bot : bot;
-                // Use vehicle position when mounted — entity position is stale for passengers
-                const botVehicle = (activeBot as unknown as { vehicle: { position: typeof bot.entity.position } | null }).vehicle;
-                const botPos = botVehicle ? botVehicle.position : activeBot.entity?.position;
-                const playerEntity = activeBot.players[this.playerMcUsername]?.entity;
-                if (botPos && playerEntity) {
-                    const playerVehicle = (playerEntity as unknown as { vehicle: { position: typeof bot.entity.position } | null }).vehicle;
-                    const pPos = playerVehicle ? playerVehicle.position : playerEntity.position;
-                    this.emit('spatial-position', {
-                        botX: botPos.x,
-                        botY: botPos.y,
-                        botZ: botPos.z,
-                        playerX: pPos.x,
-                        playerY: pPos.y,
-                        playerZ: pPos.z,
-                        playerYaw: playerEntity.yaw,
-                    });
-                } else if (botPos) {
-                    // Player out of entity tracking range — signal max distance
-                    this.emit('spatial-position', {
-                        botX: botPos.x,
-                        botY: botPos.y,
-                        botZ: botPos.z,
-                        playerX: botPos.x + 9999,
-                        playerY: botPos.y,
-                        playerZ: botPos.z,
-                        playerYaw: 0,
-                    });
-                }
-            } catch {
-                // Entity may not exist yet
-            }
-        }, 100);
+        // Spatial audio position loop
+        this.spatialLoop = createSpatialLoop(loopCallbacks);
 
-        // ---- Mounted steering + Follow watchdog ----
-        this.mountedSteeringLoop = this.createMountedSteeringLoop(
+        // Mounted steering + Follow watchdog
+        this.mountedSteeringLoop = createMountedSteeringLoop(
             bot, () => !!this.mcBot,
             isDualBot && this.mcBot2 ? this.mcBot2.bot : null,
+            movementCallbacks,
         );
-        this.followWatchdog = this.createFollowWatchdog(bot, () => !!this.mcBot, 'Bot');
+        this.followWatchdog = createFollowWatchdog(bot, () => !!this.mcBot, 'Bot', movementCallbacks);
 
-        // ---- Same loops for bot 2 (dual-bot mode) ----
+        // Same loops for bot 2 (dual-bot mode)
         if (isDualBot && this.mcBot2) {
-            this.mountedSteeringLoop2 = this.createMountedSteeringLoop(
+            this.mountedSteeringLoop2 = createMountedSteeringLoop(
                 this.mcBot2.bot, () => !!this.mcBot2, bot,
+                movementCallbacks,
             );
-            this.followWatchdog2 = this.createFollowWatchdog(this.mcBot2.bot, () => !!this.mcBot2, 'Bot2');
-            const { loop: scanLoop2, flush: flushBatch2 } = this.createModeScanLoop(
+            this.followWatchdog2 = createFollowWatchdog(this.mcBot2.bot, () => !!this.mcBot2, 'Bot2', movementCallbacks);
+            const { loop: scanLoop2, flush: flushBatch2 } = createModeScanLoop(
                 this.mcBot2.bot, () => !!this.mcBot2, 'Bot2', () => this.assistantName2 ?? 'Bot2',
+                movementCallbacks,
             );
             this.modeScanLoop2 = scanLoop2;
             this.flushHuntBatch2 = flushBatch2;
         }
 
-        // ---- Mode scan loop (aggro + hunt + guard/patrol) ----
-        const { loop: scanLoop1, flush: flushBatch1 } = this.createModeScanLoop(
+        // Mode scan loop (aggro + hunt + guard/patrol)
+        const { loop: scanLoop1, flush: flushBatch1 } = createModeScanLoop(
             bot, () => !!this.mcBot, 'Bot', () => this.assistantName ?? 'Bot',
+            movementCallbacks,
         );
         this.modeScanLoop = scanLoop1;
         this.flushHuntBatch = flushBatch1;
 
-        // ---- Proximity loop: silence/activate characters based on distance to player ----
-        // When a bot is farther than PROXIMITY_RANGE blocks from the player, it gets
-        // disabled in Voxta so it doesn't speak about things it can't see or know about.
-        // It re-activates automatically when it comes back in range.
-        const PROXIMITY_RANGE = 40; // blocks
+        // Proximity loop
         this.bot1InRange = true;
         this.bot2InRange = true;
-        let proximityLogTick = 0;
-        this.proximityLoop = setInterval(() => {
-            if (!this.voxta?.sessionId || !this.playerMcUsername) return;
+        this.proximityLoop = createProximityLoop(isDualBot, loopCallbacks);
 
-            const findPlayer = (b: typeof bot) =>
-                Object.values(b.entities).find(
-                    (e) => e.type === 'player' && e.username?.toLowerCase() === this.playerMcUsername!.toLowerCase(),
-                );
+        // ---- 3. Register MC event bridges ----
+        const eventBridgeCallbacks = this.buildEventBridgeCallbacks();
+        const botUsernames = new Set([
+            config.mc.username,
+            ...(isDualBot && uiConfig.secondMcUsername ? [uiConfig.secondMcUsername] : []),
+        ]);
 
-            // Bot 1
-            if (this.mcBot && this.activeCharacterIds[0]) {
-                const playerEntity = findPlayer(this.mcBot.bot);
-                // Player not visible in entities = beyond render distance = definitely out of range
-                const dist1 = playerEntity
-                    ? playerEntity.position.distanceTo(this.mcBot.bot.entity.position)
-                    : Infinity;
-                const inRange = dist1 <= PROXIMITY_RANGE;
-                if (proximityLogTick % 6 === 0) {
-                    console.log(`[Proximity] ${this.assistantName ?? 'Bot1'}: ${dist1 === Infinity ? 'not visible' : `${dist1.toFixed(1)} blocks`} (${inRange ? 'in range' : 'OUT OF RANGE'})`);
-                }
-                if (inRange !== this.bot1InRange) {
-                    this.bot1InRange = inRange;
-                    const name = this.assistantName ?? 'Bot';
-                    if (inRange) {
-                        console.log(`[Proximity] ${name} back in range — rejoining`);
-                        void this.voxta.addChatParticipant(this.activeCharacterIds[0]);
-                        this.addChat('system', 'System', `${name} is back in range.`);
-                        this.queueNote(`${name} rejoined — back within range of the player.`);
-                    } else {
-                        console.log(`[Proximity] ${name} out of range — removing`);
-                        void this.voxta.removeChatParticipant(this.activeCharacterIds[0]);
-                        this.addChat('system', 'System', `${name} is too far away to hear.`);
-                    }
-                }
-            }
+        this.eventBridge = createEventBridge(bot, 1, this.names, botUsernames, eventBridgeCallbacks);
 
-            // Bot 2 (dual-bot only)
-            if (isDualBot && this.mcBot2 && this.activeCharacterIds[1]) {
-                const playerEntity2 = findPlayer(this.mcBot2.bot);
-                const dist2 = playerEntity2
-                    ? playerEntity2.position.distanceTo(this.mcBot2.bot.entity.position)
-                    : Infinity;
-                if (proximityLogTick % 6 === 0) {
-                    console.log(`[Proximity] ${this.assistantName2 ?? 'Bot2'}: ${dist2 === Infinity ? 'not visible' : `${dist2.toFixed(1)} blocks`} (${dist2 <= PROXIMITY_RANGE ? 'in range' : 'OUT OF RANGE'})`);
-                }
-                const inRange2 = dist2 <= PROXIMITY_RANGE;
-                if (inRange2 !== this.bot2InRange) {
-                    this.bot2InRange = inRange2;
-                    const name2 = this.assistantName2 ?? 'Bot2';
-                    if (inRange2) {
-                        console.log(`[Proximity] ${name2} back in range — rejoining`);
-                        void this.voxta.addChatParticipant(this.activeCharacterIds[1]);
-                        this.addChat('system', 'System', `${name2} is back in range.`);
-                        this.queueNote(`${name2} rejoined — back within range of the player.`);
-                    } else {
-                        console.log(`[Proximity] ${name2} out of range — removing`);
-                        void this.voxta.removeChatParticipant(this.activeCharacterIds[1]);
-                        this.addChat('system', 'System', `${name2} is too far away to hear.`);
-                    }
-                }
-            }
-            proximityLogTick++;
-        }, 5000);
-
-        // ---- 3. Register MC event bridge ----
-        this.eventBridge = new McEventBridge(
-            bot,
-            this.names,
-            {
-                onChat: (type, sender, text) => {
-                    if (!this.voxta?.sessionId) return;
-                    this.addChat(type, sender, text);
-                },
-                onNote: (text) => {
-                    if (!this.voxta?.sessionId) return;
-                    this.queueNote(text);
-                },
-                onEvent: (text) => {
-                    if (!this.voxta?.sessionId) return;
-                    this.addChat('event', 'Event', text);
-                    if (this.isReplying) {
-                        this.queueNote(text);
-                    } else {
-                        console.log(`[Bot >>] event: "${text.substring(0, 80)}"`);
-                        void this.voxta.sendEvent(text);
-                    }
-                },
-                onUrgentEvent: (text) => {
-                    if (!this.voxta?.sessionId) return;
-                    this.addChat('event', 'Event', text);
-                    // Interrupt current speech and server reply
-                    this.audioPipeline.interrupt();
-                    this.audioPipeline.fireAckNow();
-                    this.emit('stop-audio');
-                    void this.voxta.interrupt();
-                    this.isReplying = false;
-                    this.currentReply = '';
-                    // Send the urgent event immediately
-                    console.log(`[Bot >>] event (urgent): "${text.substring(0, 80)}"`);
-                    void this.voxta.sendEvent(text);
-                },
-                onPlayerChat: (text) => {
-                    if (!this.voxta?.sessionId) return;
-                    console.log(`[User >>] MC chat: "${text}"`);
-                    resetActionFired();
-                    this.flushHuntBatch?.();
-                    this.flushHuntBatch2?.();
-
-                    if (this.isReplying) {
-                        // Interrupt the current speech first, then send after server settles
-                        console.log('[User >>] MC chat during speech — interrupting first');
-                        this.audioPipeline.interrupt();
-                        this.audioPipeline.fireAckNow();
-                        this.isReplying = false;
-                        this.currentReply = '';
-                        this.pendingEvents = [];
-                        // Give the server time to process the interrupt before sending
-                        setTimeout(() => {
-                            void this.voxta?.sendMessage(text);
-                        }, 300);
-                    } else {
-                        void this.voxta.sendMessage(text);
-                    }
-                },
-                getSettings: () => this.settings,
-                getAssistantName: () => this.assistantName ?? 'Bot',
-                isReplying: () => this.isReplying,
-            },
-            () => this.followingPlayer,
-            async (botInstance, mobName) => {
-                // Skip auto-defense while mounted — can't fight from horseback
-                const vehicleCheck = (botInstance as unknown as { vehicle: { id: number } | null }).vehicle;
-                if (vehicleCheck) {
-                    console.log(`[Bot] Skipping auto-defense against ${mobName} — mounted on vehicle`);
-                    return;
-                }
-                const botName = this.assistantName ?? 'Bot';
-                console.log(`[Bot] Auto-defense started against ${mobName}, followingPlayer=${this.followingPlayer}`);
-                try {
-                    const result = await executeAction(
-                        botInstance,
-                        'mc_attack',
-                        [{ name: 'entity_name', value: mobName }],
-                        this.names,
-                    );
-                    // Don't send redundant notes — "Already fighting" is noise,
-                    // "Stopped fighting" and "Died while fighting" are covered by the death event.
-                    const isNoise = result.startsWith('Already fighting')
-                        || result.startsWith('Stopped fighting')
-                        || result.startsWith('Died while fighting');
-                    if (!result) {
-                        // Empty = creeper explosion — environmental note, no bot attribution
-                        this.addChat('note', 'Note', 'Creeper exploded nearby');
-                        this.queueNote('Creeper exploded nearby');
-                    } else if (!isNoise) {
-                        this.addChat('note', 'Note', `${botName}: ${result}`);
-                        this.queueNote(`${botName}: ${result}`);
-                    }
-                    console.log(`[Bot] Auto-defense attack result: ${result}`);
-                } catch (err) {
-                    console.log(`[Bot] Auto-defense attack failed:`, err);
-                } finally {
-                    // Clear stale attacker so post-combat damage isn't misattributed
-                    this.eventBridge?.clearLastAttacker();
-                    console.log(
-                        `[Bot] Auto-defense finished, followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`,
-                    );
-                    // Don't resume follow if combat is still active — another mc_attack is
-                    // running with GoalFollow(target). Overwriting it with GoalFollow(player)
-                    // would cause the bot to stop fighting and just absorb arrows.
-                    if (getCurrentCombatTarget(bot)) {
-                        console.log(`[Bot] Combat still active (${getCurrentCombatTarget(bot)}), NOT overriding with follow`);
-                    } else if (getBotMode(bot) === 'guard') {
-                        console.log(`[Bot] Guard mode — staying at post, not following`);
-                    } else if (this.followingPlayer && this.mcBot) {
-                        // Small delay: pathfinder.stop() in combat sets an internal
-                        // "stopPathing" flag that takes one tick to clear. Without
-                        // this delay, setGoal(null)+setGoal(follow) races with the
-                        // async path reset and the bot appears stuck.
-                        const playerToFollow = this.followingPlayer;
-                        const mcBotRef = this.mcBot;
-                        setTimeout(() => {
-                            if (this.followingPlayer !== playerToFollow) return; // state changed
-                            const resumeResult = resumeFollowPlayer(mcBotRef.bot, playerToFollow, this.names);
-                            console.log(`[Bot] Resumed following after defense: ${resumeResult}`);
-                        }, 150);
-                    } else {
-                        console.log(
-                            `[Bot] NOT resuming follow — followingPlayer=${this.followingPlayer}, mcBot=${!!this.mcBot}`,
-                        );
-                    }
-                }
-            },
-            // All bot usernames — so the event bridge ignores chat from any of our bots
-            new Set([
-                config.mc.username,
-                ...(isDualBot && uiConfig.secondMcUsername ? [uiConfig.secondMcUsername] : []),
-            ]),
-        );
-
-        // ---- 3b. Register MC event bridge for bot 2 (dual-bot mode) ----
-        // Bot 2 gets its own damage/death/auto-defense/auto-eat listeners,
-        // but chat bridging is skipped (bot 1's bridge handles it for both).
         if (isDualBot && this.mcBot2) {
-            const bot2 = this.mcBot2.bot;
-            this.eventBridge2 = new McEventBridge(
-                bot2,
-                this.names,
-                {
-                    onChat: (type, sender, text) => {
-                        if (!this.voxta?.sessionId) return;
-                        this.addChat(type, sender, text);
-                    },
-                    onNote: (text) => {
-                        if (!this.voxta?.sessionId) return;
-                        this.queueNote(text);
-                    },
-                    onEvent: (text) => {
-                        if (!this.voxta?.sessionId) return;
-                        this.addChat('event', 'Event', text);
-                        if (this.isReplying) {
-                            this.queueNote(text);
-                        } else {
-                            console.log(`[Bot2 >>] event: "${text.substring(0, 80)}"`);
-                            void this.voxta.sendEvent(text);
-                        }
-                    },
-                    onUrgentEvent: (text) => {
-                        if (!this.voxta?.sessionId) return;
-                        this.addChat('event', 'Event', text);
-                        this.audioPipeline.interrupt();
-                        this.audioPipeline.fireAckNow();
-                        this.emit('stop-audio');
-                        void this.voxta.interrupt();
-                        this.isReplying = false;
-                        this.currentReply = '';
-                        console.log(`[Bot2 >>] event (urgent): "${text.substring(0, 80)}"`);
-                        void this.voxta.sendEvent(text);
-                    },
-                    onPlayerChat: () => {
-                        // No-op — bot 1's bridge handles chat bridging
-                    },
-                    getSettings: () => this.settings,
-                    getAssistantName: () => this.assistantName2 ?? 'Bot2',
-                    isReplying: () => this.isReplying,
-                },
-                () => this.followingPlayer,
-                async (botInstance, mobName) => {
-                    const vehicleCheck = (botInstance as unknown as { vehicle: { id: number } | null }).vehicle;
-                    if (vehicleCheck) {
-                        console.log(`[Bot2] Skipping auto-defense against ${mobName} — mounted on vehicle`);
-                        return;
-                    }
-                    const botName = this.assistantName2 ?? 'Bot2';
-                    console.log(`[Bot2] Auto-defense started against ${mobName}`);
-                    try {
-                        const result = await executeAction(
-                            botInstance,
-                            'mc_attack',
-                            [{ name: 'entity_name', value: mobName }],
-                            this.names,
-                        );
-                        const isNoise = result.startsWith('Already fighting')
-                            || result.startsWith('Stopped fighting')
-                            || result.startsWith('Died while fighting');
-                        if (!result) {
-                            this.addChat('note', 'Note', 'Creeper exploded nearby');
-                            this.queueNote('Creeper exploded nearby');
-                        } else if (!isNoise) {
-                            this.addChat('note', 'Note', `${botName}: ${result}`);
-                            this.queueNote(`${botName}: ${result}`);
-                        }
-                        console.log(`[Bot2] Auto-defense attack result: ${result}`);
-                    } catch (err) {
-                        console.log(`[Bot2] Auto-defense attack failed:`, err);
-                    } finally {
-                        this.eventBridge2?.clearLastAttacker();
-                        console.log(`[Bot2] Auto-defense finished`);
-                        if (getCurrentCombatTarget(botInstance)) {
-                            console.log(`[Bot2] Combat still active, NOT overriding with follow`);
-                        } else if (this.followingPlayer && this.mcBot2) {
-                            const playerToFollow = this.followingPlayer;
-                            const mcBot2Ref = this.mcBot2;
-                            setTimeout(() => {
-                                if (this.followingPlayer !== playerToFollow) return;
-                                const resumeResult = resumeFollowPlayer(mcBot2Ref.bot, playerToFollow, this.names);
-                                console.log(`[Bot2] Resumed following after defense: ${resumeResult}`);
-                            }, 150);
-                        }
-                    }
-                },
-                new Set([
-                    config.mc.username,
-                    ...(uiConfig.secondMcUsername ? [uiConfig.secondMcUsername] : []),
-                ]),
-                true, // skipChatBridging — bot 1's bridge handles chat for both
-            );
+            this.eventBridge2 = createEventBridge(this.mcBot2.bot, 2, this.names, botUsernames, eventBridgeCallbacks);
         }
 
         // Auto-follow: companion(s) should follow the player by default on spawn
@@ -1466,38 +927,11 @@ export class BotEngine extends EventEmitter {
             this.toast('success', `Chat resumed with ${this.assistantName}!`);
 
             // Restart perception loop
-            let lastContextHash = initialContextStrings.join('|');
-            this.perceptionLoop = setInterval(() => {
-                if (!this.voxta?.sessionId) return;
-                try {
-                    const state = readWorldState(bot, 32);
-                    const contextStrings = buildContextStrings(state, this.names, this.assistantName);
-                    const contextHash = contextStrings.join('|');
-
-                    this.updateStatus({
-                        position: state.position
-                            ? {
-                                  x: Math.round(state.position.x),
-                                  y: Math.round(state.position.y),
-                                  z: Math.round(state.position.z),
-                              }
-                            : null,
-                        health: state.health,
-                        food: state.food,
-                    });
-
-                    if (contextHash !== lastContextHash) {
-                        lastContextHash = contextHash;
-                        void this.voxta.updateContext(
-                            'minecraft-bot1',
-                            contextStrings.map((text) => ({ text })),
-                            this.getEnabledActions(),
-                        );
-                    }
-                } catch {
-                    // Perception can fail during respawn/chunk loading
-                }
-            }, 3000);
+            const loopCallbacks = this.buildLoopCallbacks();
+            this.perceptionLoop = createPerceptionLoop(
+                bot, 1, 3000, 32,
+                this.assistantName ?? 'Bot', initialContextStrings, loopCallbacks,
+            );
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this.addChat('system', 'System', `Auto-resume failed: ${message}`);
@@ -1505,567 +939,28 @@ export class BotEngine extends EventEmitter {
         }
     }
 
-    /**
-     * Creates the aggro/hunt/guard mode scan loop for a bot.
-     * Extracted so bot 1 and bot 2 can each have their own independent loop with isolated state.
-     */
-    private createModeScanLoop(
-        bot: MineflayerBot,
-        isBotActive: () => boolean,
-        label: string,
-        getAssistantName: () => string,
-    ): { loop: ReturnType<typeof setInterval>; flush: () => void } {
-        let patrolTarget: { x: number; z: number } | null = null;
-        const aggroCooldowns: Record<string, number> = {};
+    // ---- Loop cleanup ----
 
-        // Batch mode kills to save LLM context — instead of sending
-        // "Defeated the slime" x10, send one "Defeated 10 slimes in aggro mode."
-        const modeKillCounts: Record<string, number> = {};
-        let modeBatchTimer: ReturnType<typeof setTimeout> | null = null;
-        let modeBatchLabel = 'aggro'; // Tracks which mode the batch belongs to
-        const flushModeBatch = (): void => {
-            if (modeBatchTimer) { clearTimeout(modeBatchTimer); modeBatchTimer = null; }
-            const entries = Object.entries(modeKillCounts).filter(([, count]) => count > 0);
-            if (entries.length === 0) return;
-            const botName = getAssistantName();
-            const summary = entries.map(([mob, count]) => `${count} ${mob}${count > 1 ? 's' : ''}`).join(', ');
-            const verb = modeBatchLabel === 'hunt' ? 'Hunted' : 'Defeated';
-            this.queueNote(`${botName}: ${verb} ${summary} in ${modeBatchLabel} mode.`);
-            console.log(`[${label}] ${modeBatchLabel} batch note: ${verb} ${summary}`);
-            for (const key of Object.keys(modeKillCounts)) {
-                modeKillCounts[key] = 0;
-            }
-        };
-
-        // Farm animals that the hunt mode will target
-        const HUNTABLE_ANIMALS = ['pig', 'cow', 'mooshroom', 'sheep', 'chicken', 'rabbit'];
-        let huntCooldownUntil = 0; // Post-kill cooldown to let the bot settle
-
-        let patrolPauseUntil = 0;
-        const loop = setInterval(() => {
-            if (!isBotActive()) return;
-            const mode = getBotMode(bot);
-            if (mode === 'passive') return;
-            if (isAutoDefending(bot) || isActionBusy(bot)) return;
-            // Don't seek new fights when critically wounded
-            if (bot.health > 0 && bot.health <= 6) return;
-
-            const pos = bot.entity.position;
-            if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
-
-            // ---- Aggro mode: attack nearest hostile while following player ----
-            if (mode === 'aggro') {
-                const player = this.followingPlayer
-                    ? findPlayerEntity(bot, this.followingPlayer, this.names)
-                    : null;
-
-                // Mobs that split on death (slime → babies, magma_cube → babies).
-                // After killing one we ignore that type for 5s to avoid chasing
-                // tiny split babies that the attack action can't reliably hit.
-                const SPLIT_MOBS = ['slime', 'magma_cube'];
-
-                // Mobs classified as hostile but actually neutral — they only attack
-                // when provoked. Don't auto-target them; the user can still say "attack the enderman".
-                const NEUTRAL_HOSTILE = ['enderman', 'spider', 'cave_spider', 'zombified_piglin'];
-
-                let nearestHostile: (typeof bot.entities)[number] | undefined;
-                let nearestDist = Infinity;
-                for (const e of Object.values(bot.entities)) {
-                    if (e === bot.entity || !isHostileEntity(e)) continue;
-                    const name = e.name ?? '';
-                    if (NEUTRAL_HOSTILE.includes(name)) continue;
-                    // Skip split-mob babies during cooldown
-                    if (SPLIT_MOBS.includes(name) && aggroCooldowns[name] && Date.now() < aggroCooldowns[name]) continue;
-                    const d = e.position.distanceTo(pos);
-                    // Within 16 blocks of bot AND within 20 blocks of player (leash)
-                    if (d < 16 && d < nearestDist) {
-                        if (player && e.position.distanceTo(player.position) > 20) continue;
-                        // Skip mobs behind solid walls (e.g. in adjacent cave systems)
-                        if (!hasLineOfSight(bot, e)) continue;
-                        nearestHostile = e;
-                        nearestDist = d;
-                    }
-                }
-
-                if (nearestHostile && !getCurrentCombatTarget(bot)) {
-                    const mobName = nearestHostile.name ?? 'unknown';
-                    console.log(`[${label}] Aggro mode: attacking ${mobName} (${nearestDist.toFixed(1)} blocks)`);
-                    setAutoDefending(bot, true);
-                    this.addChat('action', 'Action', `${getAssistantName()} fighting ${mobName}!`);
-                    void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], this.names)
-                        .then((result) => {
-                            console.log(`[${label}] Aggro attack result: ${result}`);
-
-                            // Only batch successful kills, send failures immediately
-                            if (result.toLowerCase().includes('defeated')) {
-                                this.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                                modeBatchLabel = 'aggro';
-                                modeKillCounts[mobName] = (modeKillCounts[mobName] ?? 0) + 1;
-                                // Reset batch timer — flush after 5s of no new kills
-                                if (modeBatchTimer) clearTimeout(modeBatchTimer);
-                                modeBatchTimer = setTimeout(flushModeBatch, 5000);
-                            } else if (!result) {
-                                // Empty = creeper explosion — environmental note, no bot attribution
-                                this.addChat('note', 'Note', 'Creeper exploded nearby');
-                                this.queueNote('Creeper exploded nearby');
-                            } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
-                                this.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                                this.queueNote(`${getAssistantName()}: ${result}`);
-                            }
-
-                            // Set cooldown for split mobs
-                            if (SPLIT_MOBS.includes(mobName)) {
-                                aggroCooldowns[mobName] = Date.now() + 5000;
-                                console.log(`[${label}] Aggro: ${mobName} split cooldown set for 5s`);
-                            }
-                        })
-                        .catch((err) => console.log(`[${label}] Aggro attack failed:`, err))
-                        .finally(() => {
-                            setAutoDefending(bot, false);
-                            console.log(`[${label}] Aggro: combat ended, scheduling follow resume in 2s`);
-                            // Wait 2s before resuming follow — if another fight starts
-                            // in that window, the scan will pick it up and this timer
-                            // becomes irrelevant (the new fight sets its own goal).
-                            setTimeout(() => {
-                                const combatTarget = getCurrentCombatTarget(bot);
-                                const defending = isAutoDefending(bot);
-                                console.log(`[${label}] Aggro: follow resume check — following=${this.followingPlayer}, combatTarget=${combatTarget}, defending=${defending}`);
-                                if (this.followingPlayer && !combatTarget && !defending) {
-                                    void executeAction(
-                                        bot,
-                                        'mc_follow_player',
-                                        [{ name: 'player_name', value: this.followingPlayer }],
-                                        this.names,
-                                    ).then((r) => console.log(`[${label}] Aggro: resumed following after kill: ${r}`));
-                                } else {
-                                    console.log(`[${label}] Aggro: skipped follow resume (busy or no player)`);
-                                }
-                            }, 2000);
-                        });
-                }
-                return;
-            }
-
-            // ---- Hunt mode: attack nearest farm animal while following player ----
-            if (mode === 'hunt') {
-                // Post-kill cooldown — let the bot settle, pick up loot, and breathe
-                if (Date.now() < huntCooldownUntil) return;
-
-                const player = this.followingPlayer
-                    ? findPlayerEntity(bot, this.followingPlayer, this.names)
-                    : null;
-
-                let nearestAnimal: (typeof bot.entities)[number] | undefined;
-                let nearestDist = Infinity;
-                for (const e of Object.values(bot.entities)) {
-                    if (e === bot.entity) continue;
-                    const name = e.name ?? '';
-                    if (!HUNTABLE_ANIMALS.includes(name)) continue;
-                    const d = e.position.distanceTo(pos);
-                    // Within 12 blocks of bot AND within 20 blocks of player (leash)
-                    if (d < 12 && d < nearestDist) {
-                        if (player && e.position.distanceTo(player.position) > 20) continue;
-                        // Skip animals behind solid walls
-                        if (!hasLineOfSight(bot, e)) continue;
-                        nearestAnimal = e;
-                        nearestDist = d;
-                    }
-                }
-
-                if (nearestAnimal && !getCurrentCombatTarget(bot)) {
-                    const animalName = nearestAnimal.name ?? 'unknown';
-                    console.log(`[${label}] Hunt mode: targeting ${animalName} (${nearestDist.toFixed(1)} blocks)`);
-                    setAutoDefending(bot, true);
-                    this.addChat('action', 'Action', `${getAssistantName()} hunting ${animalName}!`);
-                    void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: animalName }], this.names)
-                        .then((result) => {
-                            console.log(`[${label}] Hunt attack result: ${result}`);
-
-                            if (result.toLowerCase().includes('defeated')) {
-                                this.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                                modeBatchLabel = 'hunt';
-                                modeKillCounts[animalName] = (modeKillCounts[animalName] ?? 0) + 1;
-                                if (modeBatchTimer) clearTimeout(modeBatchTimer);
-                                modeBatchTimer = setTimeout(flushModeBatch, 5000);
-                            } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
-                                this.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                                this.queueNote(`${getAssistantName()}: ${result}`);
-                            }
-                        })
-                        .catch((err) => console.log(`[${label}] Hunt attack failed:`, err))
-                        .finally(() => {
-                            setAutoDefending(bot, false);
-                            // 1.5-second cooldown before hunting the next animal
-                            huntCooldownUntil = Date.now() + 1500;
-                            console.log(`[${label}] Hunt: kill ended, scheduling follow resume in 2s`);
-                            setTimeout(() => {
-                                const combatTarget = getCurrentCombatTarget(bot);
-                                const defending = isAutoDefending(bot);
-                                console.log(`[${label}] Hunt: follow resume check — following=${this.followingPlayer}, combatTarget=${combatTarget}, defending=${defending}`);
-                                if (this.followingPlayer && !combatTarget && !defending) {
-                                    void executeAction(
-                                        bot,
-                                        'mc_follow_player',
-                                        [{ name: 'player_name', value: this.followingPlayer }],
-                                        this.names,
-                                    ).then((r) => console.log(`[${label}] Hunt: resumed following after kill: ${r}`));
-                                } else {
-                                    console.log(`[${label}] Hunt: skipped follow resume (busy or no player)`);
-                                }
-                            }, 2000);
-                        });
-                }
-                return;
-            }
-
-            // ---- Guard mode: patrol area + attack hostiles ----
-            if (mode === 'guard') {
-                const center = getGuardCenter(bot);
-                if (!center) return;
-
-                // Check for hostiles near guard center (skip neutral mobs like endermen)
-                const GUARD_NEUTRAL = ['enderman', 'spider', 'cave_spider', 'zombified_piglin'];
-                let nearestHostile: (typeof bot.entities)[number] | undefined;
-                let nearestDist = Infinity;
-                for (const e of Object.values(bot.entities)) {
-                    if (e === bot.entity || !isHostileEntity(e)) continue;
-                    const name = e.name ?? '';
-                    if (GUARD_NEUTRAL.includes(name)) continue;
-                    const d = e.position.distanceTo(pos);
-                    if (d < 16 && d < nearestDist) {
-                        // Skip mobs behind solid walls
-                        if (!hasLineOfSight(bot, e)) continue;
-                        nearestHostile = e;
-                        nearestDist = d;
-                    }
-                }
-
-                if (nearestHostile && !getCurrentCombatTarget(bot)) {
-                    const mobName = nearestHostile.name ?? 'unknown';
-                    console.log(`[${label}] Guard mode: engaging ${mobName} (${nearestDist.toFixed(1)} blocks)`);
-                    patrolTarget = null;
-                    setAutoDefending(bot, true);
-                    this.addChat('action', 'Action', `${getAssistantName()} defending area from ${mobName}!`);
-                    void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], this.names)
-                        .then((result) => {
-                            this.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                            this.queueNote(`${getAssistantName()}: ${result}`);
-                            console.log(`[${label}] Guard attack result: ${result}`);
-                        })
-                        .catch((err) => console.log(`[${label}] Guard attack failed:`, err))
-                        .finally(() => setAutoDefending(bot, false));
-                    return;
-                }
-
-                // Patrol: always pick a new random point on each tick after pause
-                if (Date.now() < patrolPauseUntil) return;
-
-                const distToCenter = Math.sqrt(
-                    (pos.x - center.x) ** 2 + (pos.z - center.z) ** 2,
-                );
-
-                // Pick new patrol point within 8 blocks of center
-                const angle = Math.random() * Math.PI * 2;
-                const radius = 3 + Math.random() * 5; // 3-8 blocks
-                patrolTarget = {
-                    x: center.x + Math.cos(angle) * radius,
-                    z: center.z + Math.sin(angle) * radius,
-                };
-                patrolPauseUntil = Date.now() + 3000 + Math.random() * 3000; // 3-6s between moves
-                console.log(`[${label}] Patrol: walking to (${patrolTarget.x.toFixed(0)}, ${patrolTarget.z.toFixed(0)}) — ${distToCenter.toFixed(1)} from center`);
-
-                // Walk to patrol point
-                const { GoalNear } = require('mineflayer-pathfinder').goals;
-                bot.pathfinder.setGoal(new GoalNear(patrolTarget.x, center.y, patrolTarget.z, 1));
-            }
-        }, 2000);
-
-        return { loop, flush: flushModeBatch };
+    /** Clear all interval loops — used during reconnection and session teardown */
+    private clearAllLoops(): void {
+        if (this.perceptionLoop) { clearInterval(this.perceptionLoop); this.perceptionLoop = null; }
+        if (this.perceptionLoop2) { clearInterval(this.perceptionLoop2); this.perceptionLoop2 = null; }
+        if (this.followWatchdog) { clearInterval(this.followWatchdog); this.followWatchdog = null; }
+        if (this.followWatchdog2) { clearInterval(this.followWatchdog2); this.followWatchdog2 = null; }
+        if (this.mountedSteeringLoop) { clearInterval(this.mountedSteeringLoop); this.mountedSteeringLoop = null; }
+        if (this.mountedSteeringLoop2) { clearInterval(this.mountedSteeringLoop2); this.mountedSteeringLoop2 = null; }
+        if (this.modeScanLoop) { clearInterval(this.modeScanLoop); this.modeScanLoop = null; }
+        if (this.modeScanLoop2) { clearInterval(this.modeScanLoop2); this.modeScanLoop2 = null; }
+        if (this.proximityLoop) { clearInterval(this.proximityLoop); this.proximityLoop = null; }
+        if (this.spatialLoop) { clearInterval(this.spatialLoop); this.spatialLoop = null; }
     }
 
-    /**
-     * Creates a mounted steering loop for a bot.
-     * Horse movement is client-side in MC — the client sends vehicle_move packets.
-     * Extracted so bot 1 and bot 2 can each have their own independent steering loop.
-     */
-    private createMountedSteeringLoop(
-        bot: MineflayerBot,
-        isBotActive: () => boolean,
-        companionBot: MineflayerBot | null,
-    ): ReturnType<typeof setInterval> {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mcClient = (bot as any)._client;
-        let lastSteerLog = 0;
-        // Per-bot mounted stop distance — mirrors the on-foot staggered followDistance
-        const mountedStopDist = (bot as unknown as { followDistance?: number }).followDistance === 5 ? 8 : 5;
-        return setInterval(() => {
-            if (!isBotActive() || !this.followingPlayer) return;
-            if (isActionBusy(bot) || this.autoDismounting) return;
-            const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
-            if (!vehicle) return;
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const vehicleEntity = (vehicle as any);
-            const vehicleName: string = (vehicleEntity.displayName ?? vehicleEntity.name ?? '').toLowerCase();
-            if (vehicleName.includes('boat')) return; // Boat steering not yet implemented
-
-            const player = findPlayerEntity(bot, this.followingPlayer, this.names);
-            if (!player) return;
-            const playerVehicle = (player as unknown as { vehicle: { position: typeof bot.entity.position } | null }).vehicle;
-            const targetPos = playerVehicle ? playerVehicle.position : player.position;
-            const vPos = vehicleEntity.position;
-            if (!vPos) return;
-            const dist = vPos.distanceTo(targetPos);
-            if (dist < mountedStopDist) {
-                mcClient.write('player_input', {
-                    inputs: { forward: false, backward: false, left: false, right: false, jump: false, shift: false, sprint: false },
-                });
-                return;
-            }
-
-            let dx = targetPos.x - vPos.x;
-            let dz = targetPos.z - vPos.z;
-
-            // Companion avoidance: if the other bot's horse is nearby, push away
-            if (companionBot) {
-                const compVehicle = (companionBot as unknown as { vehicle: { id: number } | null }).vehicle;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const compPos = compVehicle ? (compVehicle as any).position : companionBot.entity?.position;
-                if (compPos) {
-                    const compDist = vPos.distanceTo(compPos);
-                    if (compDist < 4) {
-                        // Push direction: away from companion
-                        const pushX = vPos.x - compPos.x;
-                        const pushZ = vPos.z - compPos.z;
-                        const pushLen = Math.sqrt(pushX * pushX + pushZ * pushZ) || 1;
-                        // Stronger push the closer they are (weight: 0.5 at 4 blocks, up to 2.0 at 0 blocks)
-                        const pushWeight = Math.max(0.3, (4 - compDist) / 2);
-                        dx += (pushX / pushLen) * pushWeight;
-                        dz += (pushZ / pushLen) * pushWeight;
-                    }
-                }
-            }
-
-            const yaw = -Math.atan2(dx, dz);
-            const yawDeg = yaw * (180 / Math.PI);
-
-            let speedAttr = 0.225;
-            if (vehicleEntity.attributes?.['minecraft:generic.movement_speed']) {
-                speedAttr = vehicleEntity.attributes['minecraft:generic.movement_speed'].value ?? 0.225;
-            } else if (vehicleEntity.attributes?.['generic.movementSpeed']) {
-                speedAttr = vehicleEntity.attributes['generic.movementSpeed'].value ?? 0.225;
-            }
-            const blocksPerSec = speedAttr * 100;
-            const moveStep = Math.min(blocksPerSec * 0.05, 2.0);
-
-            const Vec3 = require('vec3');
-            const isBlocked = (x: number, z: number, baseY: number): boolean => {
-                try {
-                    const floorY = Math.floor(baseY);
-                    let groundLevel = floorY - 1;
-                    for (let y = floorY + 2; y >= floorY - 3; y--) {
-                        const b = bot.blockAt(new Vec3(x, y, z));
-                        if (b && b.boundingBox === 'block') { groundLevel = y; break; }
-                    }
-                    if ((groundLevel + 1) - baseY > 1.5) return true;
-                    const standY = groundLevel + 1;
-                    for (let dy = 0; dy <= 2; dy++) {
-                        const b = bot.blockAt(new Vec3(x, standY + dy, z));
-                        if (b && b.boundingBox === 'block') return true;
-                    }
-                } catch { /* world not loaded */ }
-                return false;
-            };
-
-            let moveYaw = yaw;
-            let moveYawDeg = yawDeg;
-            let foundClear = false;
-            for (const offset of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]) {
-                const tryYaw = yaw + offset;
-                if (!isBlocked(vPos.x + (-Math.sin(tryYaw) * moveStep), vPos.z + (Math.cos(tryYaw) * moveStep), vPos.y)) {
-                    moveYaw = tryYaw;
-                    moveYawDeg = moveYaw * (180 / Math.PI);
-                    foundClear = true;
-                    break;
-                }
-            }
-
-            if (!foundClear) {
-                mcClient.write('look', { yaw: yawDeg, pitch: 0, flags: { onGround: true, hasHorizontalCollision: false } });
-                return;
-            }
-
-            const newX = vPos.x + (-Math.sin(moveYaw) * moveStep);
-            const newZ = vPos.z + (Math.cos(moveYaw) * moveStep);
-            let newY = vPos.y;
-            let shouldJump = false;
-            try {
-                const searchY = Math.floor(vPos.y);
-                for (let y = searchY + 2; y >= searchY - 4; y--) {
-                    const b = bot.blockAt(new Vec3(newX, y, newZ));
-                    if (b && b.boundingBox === 'block') {
-                        const yDiff = (y + 1) - vPos.y;
-                        if (yDiff >= 0.5 && yDiff <= 1.5) { shouldJump = true; newY = y + 1; }
-                        else { newY = vPos.y + Math.max(-0.5, Math.min(0.5, yDiff)); }
-                        break;
-                    }
-                }
-            } catch { /* world not loaded */ }
-
-            mcClient.write('look', { yaw: moveYawDeg, pitch: 0, flags: { onGround: true, hasHorizontalCollision: false } });
-            mcClient.write('player_input', {
-                inputs: { forward: true, backward: false, left: false, right: false, jump: shouldJump, shift: false, sprint: false },
-            });
-            mcClient.write('vehicle_move', { x: newX, y: newY, z: newZ, yaw: moveYawDeg, pitch: 0, onGround: !shouldJump });
-
-            const now = Date.now();
-            if (now - lastSteerLog > 2000) {
-                lastSteerLog = now;
-                console.log(`[MC Steer] Riding: dist=${dist.toFixed(1)}, speed=${blocksPerSec.toFixed(1)}b/s, step=${moveStep.toFixed(2)}, y=${newY.toFixed(1)}, pos=(${newX.toFixed(1)}, ${newZ.toFixed(1)})`);
-            }
-        }, 50);
-    }
-
-    /**
-     * Creates a follow watchdog for a bot.
-     * Detects when pathfinder silently stops and uses escalating recovery strategies.
-     * Extracted so bot 1 and bot 2 can each have their own independent watchdog.
-     */
-    private createFollowWatchdog(
-        bot: MineflayerBot,
-        isBotActive: () => boolean,
-        label: string,
-    ): ReturnType<typeof setInterval> {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mcClient = (bot as any)._client;
-        let lastPos = bot.entity.position.clone();
-        let stuckCount = 0;
-        let playerMountedVehicleId: number | null = null;
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        mcClient.on('set_passengers', (packet: any) => {
-            if (!this.followingPlayer) return;
-            const player = findPlayerEntity(bot, this.followingPlayer, this.names);
-            if (!player) return;
-            const passengerIds: number[] = packet.passengers ?? [];
-            const vehicleEntityId: number = packet.entityId;
-            const vEntity = bot.entities[vehicleEntityId];
-            const vName = vEntity?.displayName ?? vEntity?.name ?? 'unknown';
-            if (passengerIds.includes(player.id)) {
-                if (playerMountedVehicleId !== vehicleEntityId) {
-                    playerMountedVehicleId = vehicleEntityId;
-                    console.log(`[${label}] Player mounted ${vName} (id=${vehicleEntityId})`);
-                    if (!isActionBusy(bot)) resumeFollowPlayer(bot, this.followingPlayer, this.names);
-                }
-            } else if (playerMountedVehicleId === vehicleEntityId) {
-                console.log(`[${label}] Player dismounted ${vName} (id=${vehicleEntityId})`);
-                playerMountedVehicleId = null;
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (player as any).vehicle = null;
-                if (!isActionBusy(bot)) resumeFollowPlayer(bot, this.followingPlayer, this.names);
-            }
-        });
-
-        return setInterval(() => {
-            if (!isBotActive() || !this.followingPlayer) return;
-            if (getBotMode(bot) === 'guard') return;
-            if (isAutoDefending(bot)) { console.log(`[${label}] Watchdog skip: auto-defending`); return; }
-            if (isActionBusy(bot)) { console.log(`[${label}] Watchdog skip: action busy`); return; }
-
-            const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
-            if (vehicle) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const vn = ((vehicle as any).displayName ?? (vehicle as any).name ?? 'vehicle').toLowerCase();
-                console.log(`[${label}] Watchdog skip: bot is mounted (${vn})`);
-                return;
-            }
-
-            const pos = bot.entity.position;
-            if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
-
-            const player = findPlayerEntity(bot, this.followingPlayer, this.names);
-            if (!player) return;
-
-            const playerVehicleEntity = playerMountedVehicleId ? bot.entities[playerMountedVehicleId] : null;
-            const targetPos = playerVehicleEntity ? playerVehicleEntity.position : player.position;
-            const distToPlayer = pos.distanceTo(targetPos);
-            const moved = pos.distanceTo(lastPos);
-            lastPos = pos.clone();
-
-            if (distToPlayer < 5) {
-                stuckCount = 0;
-                bot.setControlState('forward', false);
-                bot.setControlState('sprint', false);
-                return;
-            }
-            if (moved > 0.5) { stuckCount = 0; return; }
-
-            stuckCount++;
-            if (stuckCount <= 1) {
-                console.log(`[${label}] Watchdog: stuck ${distToPlayer.toFixed(1)} blocks from player, moved ${moved.toFixed(2)} — re-setting goal (tier 1)`);
-                resumeFollowPlayer(bot, this.followingPlayer, this.names);
-            } else if (stuckCount === 2) {
-                console.log(`[${label}] Watchdog: still stuck — resetting pathfinder movements (tier 2)`);
-                const freshMovements = new (require('mineflayer-pathfinder').Movements)(bot);
-                freshMovements.canDig = true;
-                freshMovements.allow1by1towers = true;
-                bot.pathfinder.setMovements(freshMovements);
-                resumeFollowPlayer(bot, this.followingPlayer, this.names);
-            } else {
-                console.log(`[${label}] Watchdog: pathfinder failed — manual walking toward player (tier 3, dist=${distToPlayer.toFixed(1)})`);
-                bot.pathfinder.stop();
-                bot.pathfinder.setGoal(null);
-                void bot.lookAt(targetPos.offset(0, 1.6, 0));
-                bot.setControlState('forward', true);
-                bot.setControlState('sprint', true);
-            }
-        }, 5000);
-    }
-
-    /** Stop the current chat session + MC bot, but keep the Voxta connection alive */
+    /** Stop the current chat session and MC bot but keep the Voxta connection alive */
     async stopSession(): Promise<void> {
-        if (this.perceptionLoop) {
-            clearInterval(this.perceptionLoop);
-            this.perceptionLoop = null;
-        }
-        if (this.perceptionLoop2) {
-            clearInterval(this.perceptionLoop2);
-            this.perceptionLoop2 = null;
-        }
-        if (this.followWatchdog) {
-            clearInterval(this.followWatchdog);
-            this.followWatchdog = null;
-        }
-        if (this.followWatchdog2) {
-            clearInterval(this.followWatchdog2);
-            this.followWatchdog2 = null;
-        }
-        if (this.mountedSteeringLoop) {
-            clearInterval(this.mountedSteeringLoop);
-            this.mountedSteeringLoop = null;
-        }
-        if (this.mountedSteeringLoop2) {
-            clearInterval(this.mountedSteeringLoop2);
-            this.mountedSteeringLoop2 = null;
-        }
-        if (this.modeScanLoop) {
-            clearInterval(this.modeScanLoop);
-            this.modeScanLoop = null;
-        }
-        if (this.modeScanLoop2) {
-            clearInterval(this.modeScanLoop2);
-            this.modeScanLoop2 = null;
-        }
-        if (this.proximityLoop) {
-            clearInterval(this.proximityLoop);
-            this.proximityLoop = null;
-        }
+        this.clearAllLoops();
         this.bot1InRange = true;
         this.bot2InRange = true;
-        if (this.spatialLoop) {
-            clearInterval(this.spatialLoop);
-            this.spatialLoop = null;
-        }
+
         if (this.eventBridge) {
             this.eventBridge.destroy();
             this.eventBridge = null;
@@ -2265,10 +1160,6 @@ export class BotEngine extends EventEmitter {
                     this.mcBot?.setSkinUrl(url);
                 }
             },
-            setSkinUrl: (url) => {
-                this.mcBot?.setSkinUrl(url);
-            },
-
             // Actions
             addChat: (type, sender, text, badge) => this.addChat(type, sender, text, badge),
             updateStatus: (patch) => this.updateStatus(patch),
