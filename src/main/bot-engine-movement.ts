@@ -12,6 +12,7 @@ import { findPlayerEntity } from '../bot/minecraft/actions/action-helpers';
 import { executeAction, resumeFollowPlayer } from '../bot/minecraft/action-dispatcher';
 import { hasLineOfSight } from '../bot/minecraft/perception';
 import { isHostileEntity } from '../bot/minecraft/events';
+import { getClient, getFollowDistance, getVehicle, getEntityVehicle, setEntityVehicle } from '../bot/minecraft/mineflayer-types';
 
 /** Callbacks the movement loops use to interact with BotEngine state */
 export interface MovementCallbacks {
@@ -316,25 +317,23 @@ export function createMountedSteeringLoop(
     companionBot: MineflayerBot | null,
     callbacks: MovementCallbacks,
 ): ReturnType<typeof setInterval> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mcClient = (bot as any)._client;
+    const mcClient = getClient(bot);
     let lastSteerLog = 0;
     // Per-bot mounted stop distance — mirrors the on-foot staggered followDistance
-    const mountedStopDist = (bot as unknown as { followDistance?: number }).followDistance === 5 ? 8 : 5;
+    const mountedStopDist = getFollowDistance(bot) === 5 ? 8 : 5;
     return setInterval(() => {
         if (!isBotActive() || !callbacks.getFollowingPlayer()) return;
         if (isActionBusy(bot) || callbacks.isAutoDismounting()) return;
-        const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+        const vehicle = getVehicle(bot);
         if (!vehicle) return;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const vehicleEntity = (vehicle as any);
+        const vehicleEntity = vehicle;
         const vehicleName: string = (vehicleEntity.displayName ?? vehicleEntity.name ?? '').toLowerCase();
         if (vehicleName.includes('boat')) return; // Boat steering not yet implemented
 
         const player = findPlayerEntity(bot, callbacks.getFollowingPlayer()!, callbacks.getNames());
         if (!player) return;
-        const playerVehicle = (player as unknown as { vehicle: { position: typeof bot.entity.position } | null }).vehicle;
+        const playerVehicle = getEntityVehicle(player);
         const targetPos = playerVehicle ? playerVehicle.position : player.position;
         const vPos = vehicleEntity.position;
         if (!vPos) return;
@@ -351,9 +350,8 @@ export function createMountedSteeringLoop(
 
         // Companion avoidance: if the other bot's horse is nearby, push away
         if (companionBot) {
-            const compVehicle = (companionBot as unknown as { vehicle: { id: number } | null }).vehicle;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const compPos = compVehicle ? (compVehicle as any).position : companionBot.entity?.position;
+            const compVehicle = getVehicle(companionBot);
+            const compPos = compVehicle ? compVehicle.position : companionBot.entity?.position;
             if (compPos) {
                 const compDist = vPos.distanceTo(compPos);
                 if (compDist < 4) {
@@ -460,8 +458,7 @@ export function createFollowWatchdog(
     label: string,
     callbacks: MovementCallbacks,
 ): ReturnType<typeof setInterval> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mcClient = (bot as any)._client;
+    const mcClient = getClient(bot);
     let lastPos = bot.entity.position.clone();
     let stuckCount = 0;
     let playerMountedVehicleId: number | null = null;
@@ -485,8 +482,7 @@ export function createFollowWatchdog(
         } else if (playerMountedVehicleId === vehicleEntityId) {
             console.log(`[${label}] Player dismounted ${vName} (id=${vehicleEntityId})`);
             playerMountedVehicleId = null;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (player as any).vehicle = null;
+            setEntityVehicle(player, null);
             if (!isActionBusy(bot)) resumeFollowPlayer(bot, followingPlayer, callbacks.getNames());
         }
     });
@@ -498,10 +494,9 @@ export function createFollowWatchdog(
         if (isAutoDefending(bot)) { console.log(`[${label}] Watchdog skip: auto-defending`); return; }
         if (isActionBusy(bot)) { console.log(`[${label}] Watchdog skip: action busy`); return; }
 
-        const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+        const vehicle = getVehicle(bot);
         if (vehicle) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const vn = ((vehicle as any).displayName ?? (vehicle as any).name ?? 'vehicle').toLowerCase();
+            const vn = (vehicle.displayName ?? vehicle.name ?? 'vehicle').toLowerCase();
             console.log(`[${label}] Watchdog skip: bot is mounted (${vn})`);
             return;
         }

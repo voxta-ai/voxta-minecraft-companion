@@ -8,6 +8,7 @@ import { McEventBridge } from '../bot/minecraft/events';
 import { executeAction, resumeFollowPlayer } from '../bot/minecraft/action-dispatcher';
 import { getCurrentCombatTarget, getBotMode } from '../bot/minecraft/actions';
 import { resetActionFired } from './action-orchestrator';
+import { getVehicle } from '../bot/minecraft/mineflayer-types';
 
 /** Callbacks the event bridge setup uses to interact with BotEngine state */
 export interface EventBridgeCallbacks {
@@ -111,7 +112,7 @@ export function createEventBridge(
         () => callbacks.getFollowingPlayer(),
         async (botInstance, mobName) => {
             // Skip auto-defense while mounted — can't fight from horseback
-            const vehicleCheck = (botInstance as unknown as { vehicle: { id: number } | null }).vehicle;
+            const vehicleCheck = getVehicle(botInstance);
             if (vehicleCheck) {
                 console.log(`[${label}] Skipping auto-defense against ${mobName} — mounted on vehicle`);
                 return;

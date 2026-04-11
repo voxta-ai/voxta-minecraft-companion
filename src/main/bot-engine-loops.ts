@@ -4,6 +4,7 @@ import type { VoxtaClient } from '../bot/voxta/client';
 import type { BotStatus } from '../shared/ipc-types';
 import type { ScenarioAction } from '../bot/voxta/types';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
+import { getVehicle, getEntityVehicle } from '../bot/minecraft/mineflayer-types';
 
 /** Callbacks the perception/proximity/spatial loops use to interact with BotEngine state */
 export interface LoopCallbacks {
@@ -113,11 +114,11 @@ export function createSpatialLoop(
             if (!activeBot) return;
 
             // Use vehicle position when mounted — entity position is stale for passengers
-            const botVehicle = (activeBot as unknown as { vehicle: { position: { x: number; y: number; z: number } } | null }).vehicle;
+            const botVehicle = getVehicle(activeBot);
             const botPos = botVehicle ? botVehicle.position : activeBot.entity?.position;
             const playerEntity = activeBot.players[playerMcUsername]?.entity;
             if (botPos && playerEntity) {
-                const playerVehicle = (playerEntity as unknown as { vehicle: { position: { x: number; y: number; z: number } } | null }).vehicle;
+                const playerVehicle = getEntityVehicle(playerEntity);
                 const pPos = playerVehicle ? playerVehicle.position : playerEntity.position;
                 callbacks.emit('spatial-position', {
                     botX: botPos.x,

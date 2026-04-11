@@ -1,4 +1,5 @@
 import type { Bot as MineflayerBot } from 'mineflayer';
+import { getClient } from '../bot/minecraft/mineflayer-types';
 
 /**
  * Handles communication with the Voxta Voice Bridge Paper plugin
@@ -32,15 +33,6 @@ const CMD_SET_DISTANCE = 0x02;
 const CMD_STOP = 0x03;
 
 let chunkIdCounter = 0;
-
-/** Get the raw protocol client from a mineflayer bot */
-function getClient(bot: MineflayerBot): { write: (name: string, data: Record<string, unknown>) => void } {
-    const client = (bot as unknown as { _client: { write: (name: string, data: Record<string, unknown>) => void } })._client;
-    if (!client) {
-        throw new Error('Bot._client is not available — bot may not be connected');
-    }
-    return client;
-}
 
 /** Register the voxta:audio plugin channel with the server */
 export function registerPluginChannel(bot: MineflayerBot): void {

@@ -8,6 +8,7 @@ import { isAutoDefending, getBotMode, setBotMode } from '../bot/minecraft/action
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { ServerActionMessage } from '../bot/voxta/types';
 import type { McSettings, ChatMessage } from '../shared/ipc-types';
+import { getVehicle } from '../bot/minecraft/mineflayer-types';
 
 export interface ActionOrchestratorCallbacks {
     getAssistantName(): string;
@@ -197,7 +198,7 @@ export function handleActionMessage(
         const followingPlayer = callbacks.getFollowingPlayer();
         // If the bot is currently mounted, the steering loop handles following —
         // calling mc_follow_player would auto-dismount it, which is wrong.
-        const isMounted = !!(bot as unknown as { vehicle: unknown }).vehicle;
+        const isMounted = !!getVehicle(bot);
         const shouldResume =
             followingPlayer &&
             !isMounted &&
