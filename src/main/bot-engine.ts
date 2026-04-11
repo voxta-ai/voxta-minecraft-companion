@@ -58,9 +58,13 @@ import type { LoopCallbacks } from './bot-engine-loops';
 import { createEventBridge } from './bot-engine-events';
 import type { EventBridgeCallbacks } from './bot-engine-events';
 
-// Centralized version constant
+// Centralized constants
 const CLIENT_NAME = 'Voxta.Minecraft';
 const CLIENT_VERSION = '0.2.0';
+const AUTH_TIMEOUT_MS = 15000;   // Max wait for Voxta authentication
+const AUTH_POLL_MS = 200;        // Polling interval during auth wait
+const SESSION_TIMEOUT_MS = 15000; // Max wait for chat session to start
+const SESSION_POLL_MS = 200;     // Polling interval during session wait
 
 type BotEngineEvent =
     | 'status-changed'
@@ -473,8 +477,8 @@ export class BotEngine extends EventEmitter {
 
         // Wait for auth
         const authStart = Date.now();
-        while (!this.voxta.authenticated && Date.now() - authStart < 15000) {
-            await new Promise((r) => setTimeout(r, 200));
+        while (!this.voxta.authenticated && Date.now() - authStart < AUTH_TIMEOUT_MS) {
+            await new Promise((r) => setTimeout(r, AUTH_POLL_MS));
         }
 
         if (!this.voxta.authenticated) {
@@ -753,8 +757,8 @@ export class BotEngine extends EventEmitter {
         );
 
         const chatStart = Date.now();
-        while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
-            await new Promise((r) => setTimeout(r, 200));
+        while (!this.voxta.sessionId && Date.now() - chatStart < SESSION_TIMEOUT_MS) {
+            await new Promise((r) => setTimeout(r, SESSION_POLL_MS));
         }
 
         this.updateStatus({
@@ -914,8 +918,8 @@ export class BotEngine extends EventEmitter {
 
             // Wait for session
             const chatStart = Date.now();
-            while (!this.voxta.sessionId && Date.now() - chatStart < 15000) {
-                await new Promise((r) => setTimeout(r, 200));
+            while (!this.voxta.sessionId && Date.now() - chatStart < SESSION_TIMEOUT_MS) {
+                await new Promise((r) => setTimeout(r, SESSION_POLL_MS));
             }
 
             this.updateStatus({

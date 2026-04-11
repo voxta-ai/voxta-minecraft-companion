@@ -8,6 +8,8 @@ import { ENTITY_ALIASES, LOW_HEALTH_THRESHOLD, RANGED_MOBS } from '../game-data'
 import { ensureDismounted } from './movement.js';
 import { getClient } from '../mineflayer-types';
 
+const MELEE_RANGE = 3.5;          // Blocks — max distance for a melee hit
+const TARGET_HEIGHT_FALLBACK = 1.8; // Default entity height when unknown (player height)
 
 export async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {
     if (!entityName) return 'No entity name provided';
@@ -307,7 +309,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                         }
                     } else {
                         // ENGAGE: approach and attack
-                        if (distToMob < 3.5) {
+                        if (distToMob < MELEE_RANGE) {
                             // In melee range — HIT then immediately RETREAT
                             bot.attack(target);
                             phase = 'retreating';
@@ -410,7 +412,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                         await bot.equip(bow.item as number, 'hand');
 
                         // Aim at target with gravity compensation for arrow arc
-                        const targetHeight = (target.height ?? 1.8) * 0.5;
+                        const targetHeight = (target.height ?? TARGET_HEIGHT_FALLBACK) * 0.5;
                         const gravityComp = dist * dist * 0.006;
                         await bot.lookAt(target.position.offset(0, targetHeight + gravityComp, 0));
 
@@ -422,7 +424,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                     }
                 } else {
                     // Bow is being drawn — keep tracking the target
-                    const targetHeight = (target.height ?? 1.8) * 0.5;
+                    const targetHeight = (target.height ?? TARGET_HEIGHT_FALLBACK) * 0.5;
                     const gravityComp = dist * dist * 0.006;
                     await bot.lookAt(target.position.offset(0, targetHeight + gravityComp, 0));
 
@@ -448,7 +450,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 // If we were drawing the bow, cancel and switch to melee weapon
                 await cancelBowDraw();
 
-                if (dist < 3.5) {
+                if (dist < MELEE_RANGE) {
                     // Lower shield briefly to attack
                     if (hasShield) bot.deactivateItem();
                     bot.attack(target);
