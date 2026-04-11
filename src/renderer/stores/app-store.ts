@@ -28,6 +28,7 @@ const [status, setStatus] = createStore<BotStatus>({
     assistantName: null,
     assistantName2: null,
     sessionId: null,
+    paused: false,
 });
 
 export { status };
@@ -62,6 +63,8 @@ export async function connectVoxta(config: VoxtaConnectConfig): Promise<VoxtaInf
         characters: info.characters,
         defaultAssistantId: info.defaultAssistantId,
     });
+    // Auto-refresh to fetch full character details (hasMcConfig) in the background
+    void refreshCharacters();
     return info;
 }
 
