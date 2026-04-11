@@ -11,6 +11,7 @@ import {
     setIsSettingUp,
 } from '../stores/server-store';
 import { addToast } from '../stores/toast-store';
+import { loadPropertiesAndConfig } from '../stores/server-properties-store';
 import PluginBrowser from './PluginBrowser';
 import ServerSetup from './server/ServerSetup';
 import TunnelSection from './server/TunnelSection';
@@ -18,7 +19,7 @@ import ConsoleSection from './server/ConsoleSection';
 import PlayersSection from './server/PlayersSection';
 import PropertiesSection from './server/PropertiesSection';
 import WorldsSection from './server/WorldsSection';
-import type { ServerProperties, WorldInfo } from '../../shared/ipc-types';
+import type { WorldInfo } from '../../shared/ipc-types';
 
 type ServerSection = 'console' | 'properties' | 'plugins' | 'worlds' | 'players';
 
@@ -46,21 +47,12 @@ function getStateDotClass(state: string): string {
 
 export default function ServerPanel() {
     const [activeSection, setActiveSection] = createSignal<ServerSection>('worlds');
-    const [properties, setProperties] = createSignal<ServerProperties>({});
     const [worlds, setWorlds] = createSignal<WorldInfo[]>([]);
-    const [propsChanged, setPropsChanged] = createSignal(false);
-    const [savingProps, setSavingProps] = createSignal(false);
     const [availableVersions, setAvailableVersions] = createSignal<string[]>([]);
     const [selectedVersion, setSelectedVersion] = createSignal('');
     const [loadingVersions, setLoadingVersions] = createSignal(false);
     const [installedVersion, setInstalledVersion] = createSignal<string | null>(null);
     const [changingVersion, setChangingVersion] = createSignal(false);
-
-    // Server config state
-    const [memoryMb, setMemoryMb] = createSignal(1024);
-    const [autoStart, setAutoStart] = createSignal(false);
-    const [configChanged, setConfigChanged] = createSignal(false);
-    const [savingConfig, setSavingConfig] = createSignal(false);
 
     // Subscribe to IPC events
     onMount(() => {
@@ -83,15 +75,11 @@ export default function ServerPanel() {
     });
 
     async function loadServerData(): Promise<void> {
-        const [props, worldList, config] = await Promise.all([
-            window.api.serverGetProperties(),
+        const [, worldList] = await Promise.all([
+            loadPropertiesAndConfig(),
             window.api.serverGetWorlds(),
-            window.api.serverGetConfig(),
         ]);
-        setProperties(props);
         setWorlds(worldList);
-        setMemoryMb(config.memoryMb);
-        setAutoStart(config.autoStart);
     }
 
     async function fetchVersions(): Promise<void> {
@@ -140,56 +128,6 @@ export default function ServerPanel() {
             await window.api.serverStop();
         } catch (err) {
             addToast('error', `Failed to stop server: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        }
-    }
-
-    function updateProperty(key: string, value: string): void {
-        setProperties((prev) => ({ ...prev, [key]: value }));
-        setPropsChanged(true);
-    }
-
-    async function handleSaveProperties(): Promise<void> {
-        setSavingProps(true);
-        try {
-            await window.api.serverSaveProperties(properties());
-            setPropsChanged(false);
-            addToast('success', 'Server properties saved');
-        } catch (err) {
-            addToast('error', `Failed to save properties: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        } finally {
-            setSavingProps(false);
-        }
-    }
-
-    function handleResetDefaults(): void {
-        setProperties({
-            'difficulty': 'easy',
-            'gamemode': 'survival',
-            'max-players': '5',
-            'motd': 'Voxta Test Server',
-            'server-port': '25565',
-            'online-mode': 'false',
-            'spawn-monsters': 'true',
-            'spawn-animals': 'true',
-            'allow-flight': 'false',
-            'enable-command-block': 'true',
-        });
-        setMemoryMb(1024);
-        setAutoStart(false);
-        setPropsChanged(true);
-        setConfigChanged(true);
-    }
-
-    async function handleSaveConfig(): Promise<void> {
-        setSavingConfig(true);
-        try {
-            await window.api.serverSaveConfig({ memoryMb: memoryMb(), autoStart: autoStart() });
-            setConfigChanged(false);
-            addToast('success', 'Server configuration saved');
-        } catch (err) {
-            addToast('error', `Failed to save config: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        } finally {
-            setSavingConfig(false);
         }
     }
 
@@ -351,7 +289,7 @@ export default function ServerPanel() {
                     class={`server-tab ${activeSection() === 'properties' ? 'active' : ''}`}
                     onClick={() => {
                         setActiveSection('properties');
-                        void window.api.serverGetProperties().then(setProperties);
+                        void loadPropertiesAndConfig();
                     }}
                 >
                     <i class="bi bi-sliders"></i> Settings
@@ -368,29 +306,11 @@ export default function ServerPanel() {
             </Show>
 
             <Show when={activeSection() === 'players'}>
-                <PlayersSection
-                    properties={properties}
-                    setProperties={setProperties}
-                />
+                <PlayersSection />
             </Show>
 
             <Show when={activeSection() === 'properties'}>
-                <PropertiesSection
-                    properties={properties}
-                    updateProperty={updateProperty}
-                    propsChanged={propsChanged}
-                    savingProps={savingProps}
-                    onSaveProperties={() => void handleSaveProperties()}
-                    onResetDefaults={handleResetDefaults}
-                    memoryMb={memoryMb}
-                    setMemoryMb={setMemoryMb}
-                    autoStart={autoStart}
-                    setAutoStart={setAutoStart}
-                    configChanged={configChanged}
-                    setConfigChanged={setConfigChanged}
-                    savingConfig={savingConfig}
-                    onSaveConfig={() => void handleSaveConfig()}
-                />
+                <PropertiesSection />
             </Show>
 
             <Show when={activeSection() === 'worlds'}>
