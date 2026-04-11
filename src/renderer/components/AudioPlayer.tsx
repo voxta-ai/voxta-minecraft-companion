@@ -9,7 +9,7 @@ import {
     speakerMuted,
     setSpeechPartialText,
 } from '../stores/audio-store';
-import { settings } from '../stores/app-store';
+import { settings } from '../stores/settings-store';
 
 /**
  * Invisible component that manages audio playback and mic streaming.

@@ -1,5 +1,6 @@
 import { createSignal, Show, onMount, onCleanup } from 'solid-js';
-import { useStatusListener, useChatListener, status, stopSession } from './stores/app-store';
+import { useStatusListener, status, stopSession } from './stores/connection-store';
+import { useChatListener } from './stores/chat-store';
 import { addLogEntry } from './stores/console-store';
 import { initServerStore } from './stores/server-store';
 import { initToastStore } from './stores/toast-store';

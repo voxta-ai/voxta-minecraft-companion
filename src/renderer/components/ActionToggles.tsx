@@ -1,5 +1,5 @@
 import { For, onMount, createMemo } from 'solid-js';
-import { actions, loadActions, toggleAction } from '../stores/app-store';
+import { actions, loadActions, toggleAction } from '../stores/action-store';
 import { SettingCard } from './SettingCard';
 
 /** Short human-friendly descriptions for each action (keyed by action name) */

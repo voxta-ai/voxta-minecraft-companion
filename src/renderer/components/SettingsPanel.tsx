@@ -1,6 +1,6 @@
 import { createSignal, For, Show } from 'solid-js';
 import type { McSettings, VisionMode, ActionInferenceTiming } from '../../shared/ipc-types';
-import { settings, updateSetting } from '../stores/app-store';
+import { settings, updateSetting } from '../stores/settings-store';
 import { SettingCard } from './SettingCard';
 
 interface ToggleItem {

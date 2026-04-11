@@ -1,5 +1,5 @@
 import { For, Show, createMemo, createSignal } from 'solid-js';
-import { inspectorData, useInspectorListener } from '../stores/app-store';
+import { inspectorData, useInspectorListener } from '../stores/inspector-store';
 import type { InspectorContext, InspectorAction } from '../../shared/ipc-types';
 
 interface InspectorDrawerProps {

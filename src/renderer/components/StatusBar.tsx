@@ -1,5 +1,5 @@
 import { Show } from 'solid-js';
-import { status } from '../stores/app-store';
+import { status } from '../stores/connection-store';
 import { serverState } from '../stores/server-store';
 
 export default function StatusBar() {
