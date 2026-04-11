@@ -8,7 +8,7 @@ export default function ConsoleSection() {
 
     // Auto-scroll console to bottom
     createEffect(() => {
-        serverConsole.lines.length; // reactive dependency — triggers scroll on new lines
+        void serverConsole.lines.length; // reactive dependency — triggers scroll on new lines
         if (consoleRef) {
             requestAnimationFrame(() => {
                 if (consoleRef) consoleRef.scrollTop = consoleRef.scrollHeight;
