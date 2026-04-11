@@ -1,25 +1,14 @@
 import type { Bot } from 'mineflayer';
-import type { Block } from 'prismarine-block';
-import pkg from 'mineflayer-pathfinder';
-const { goals } = pkg;
+import { findAndReachBlock } from './action-helpers.js';
 
 /** Find a nearby chest/barrel and walk to it. Returns the block or an error message. */
-async function findAndReachChest(bot: Bot): Promise<{ block: Block } | { error: string }> {
-    const chestBlock = bot.findBlock({
-        matching: (block) => block.name === 'chest' || block.name === 'trapped_chest' || block.name === 'barrel',
-        maxDistance: 32,
-    });
-    if (!chestBlock) return { error: 'Looked around but there is no chest or container nearby' };
-
-    try {
-        await bot.pathfinder.goto(
-            new goals.GoalNear(chestBlock.position.x, chestBlock.position.y, chestBlock.position.z, 2),
-        );
-    } catch {
-        return { error: 'Cannot reach the chest' };
-    }
-
-    return { block: chestBlock };
+function findAndReachChest(bot: Bot) {
+    return findAndReachBlock(
+        bot,
+        (block) => block.name === 'chest' || block.name === 'trapped_chest' || block.name === 'barrel',
+        'Looked around but there is no chest or container nearby',
+        'Cannot reach the chest',
+    );
 }
 
 export async function storeItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
@@ -144,18 +133,14 @@ export async function inspectContainer(bot: Bot, target: string | undefined): Pr
 }
 
 async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: string): Promise<string> {
-    const block = bot.findBlock({
-        matching: (b) => matcher(b.name),
-        maxDistance: 32,
-    });
-    if (!block) return `No ${label} found nearby`;
-
-    // Walk to it
-    try {
-        await bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2));
-    } catch {
-        return `Cannot reach the ${label}`;
-    }
+    const result = await findAndReachBlock(
+        bot,
+        (b) => matcher(b.name),
+        `No ${label} found nearby`,
+        `Cannot reach the ${label}`,
+    );
+    if ('error' in result) return result.error;
+    const block = result.block;
 
     // Furnace has special slots
     if (block.name === 'furnace' || block.name === 'smoker' || block.name === 'blast_furnace') {

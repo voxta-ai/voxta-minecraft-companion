@@ -5,18 +5,14 @@ import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity, getBestWeapon, getBestBow, getArrowCount } from './action-helpers.js';
 import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget, setCurrentActivity } from './action-state.js';
 import { ENTITY_ALIASES, LOW_HEALTH_THRESHOLD, RANGED_MOBS } from '../game-data';
-import { dismountEntity } from './movement.js';
-import { getVehicle, getClient } from '../mineflayer-types';
+import { ensureDismounted } from './movement.js';
+import { getClient } from '../mineflayer-types';
 
 
 export async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {
     if (!entityName) return 'No entity name provided';
 
-    // Auto-dismount — pathfinder can't work while mounted
-    if (getVehicle(bot)) {
-        console.log('[MC Action] Auto-dismounting before combat');
-        await dismountEntity(bot);
-    }
+    await ensureDismounted(bot);
 
     // Resolve: alias → name registry → normalized
     const normalized = entityName.toLowerCase().replace(/ /g, '_');

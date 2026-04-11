@@ -13,11 +13,7 @@ import { RIDEABLE_ENTITIES } from '../game-data';
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
-    // Auto-dismount — pathfinder can't work while mounted
-    if (getVehicle(bot)) {
-        console.log('[MC Action] Auto-dismounting before following');
-        await dismountEntity(bot);
-    }
+    await ensureDismounted(bot);
 
     // Guard: bot position can be NaN after combat/respawn
     const pos = bot.entity.position;
@@ -206,11 +202,7 @@ export async function collectItems(bot: Bot): Promise<string> {
 export async function goToEntity(bot: Bot, entityName: string | undefined): Promise<string> {
     if (!entityName) return 'No entity name provided';
 
-    // Auto-dismount — pathfinder can't work while mounted
-    if (getVehicle(bot)) {
-        console.log('[MC Action] Auto-dismounting before going to entity');
-        await dismountEntity(bot);
-    }
+    await ensureDismounted(bot);
 
     const nameLower = entityName.toLowerCase().replace(/_/g, ' ');
 
@@ -314,6 +306,14 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
 }
 
 // ---- Rideable entities ----
+
+/** Auto-dismount if mounted — pathfinder can't work while riding */
+export async function ensureDismounted(bot: Bot): Promise<void> {
+    if (getVehicle(bot)) {
+        console.log('[MC Action] Auto-dismounting before action');
+        await dismountEntity(bot);
+    }
+}
 
 export async function mountEntity(bot: Bot, entityName: string | undefined): Promise<string> {
     // Already riding something?

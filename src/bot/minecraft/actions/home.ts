@@ -1,24 +1,21 @@
 import type { Bot } from 'mineflayer';
-import pkg from 'mineflayer-pathfinder';
-const { goals } = pkg;
 import { BED_BLOCKS } from '../game-data';
+import { findAndReachBlock } from './action-helpers.js';
 import { saveHome } from './action-state.js';
 
+function findAndReachBed(bot: Bot) {
+    return findAndReachBlock(
+        bot,
+        (block) => BED_BLOCKS.includes(block.name),
+        'Looked around but there is no bed nearby',
+        'Cannot reach the bed from here',
+    );
+}
+
 export async function sleepInBed(bot: Bot): Promise<string> {
-    // Find the nearest bed
-    const bedBlock = bot.findBlock({
-        matching: (block) => BED_BLOCKS.includes(block.name),
-        maxDistance: 32,
-    });
-
-    if (!bedBlock) return 'Looked around but there is no bed nearby';
-
-    // Walk to the bed
-    try {
-        await bot.pathfinder.goto(new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2));
-    } catch {
-        return 'Cannot reach the bed from here';
-    }
+    const result = await findAndReachBed(bot);
+    if ('error' in result) return result.error;
+    const bedBlock = result.block;
 
     // Try to sleep
     try {
@@ -46,20 +43,9 @@ export async function sleepInBed(bot: Bot): Promise<string> {
 }
 
 export async function setHomeBed(bot: Bot): Promise<string> {
-    // Find the nearest bed
-    const bedBlock = bot.findBlock({
-        matching: (block) => BED_BLOCKS.includes(block.name),
-        maxDistance: 32,
-    });
-
-    if (!bedBlock) return 'Looked around but there is no bed nearby to set as home';
-
-    // Walk to the bed
-    try {
-        await bot.pathfinder.goto(new goals.GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2));
-    } catch {
-        return 'Cannot reach the bed from here';
-    }
+    const result = await findAndReachBed(bot);
+    if ('error' in result) return result.error;
+    const bedBlock = result.block;
 
     // Tap the bed to set spawn point (works any time of day)
     try {
