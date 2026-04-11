@@ -100,6 +100,17 @@ export class McEventBridge {
         this.lastKnownAttacker = null;
     }
 
+    /** Start an auto-defense fight and clean up state when it ends */
+    private startAutoDefense(mobName: string): void {
+        this.isAutoDefending = true;
+        setAutoDefending(this.bot, true);
+        void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
+            this.isAutoDefending = false;
+            setAutoDefending(this.bot, false);
+            this.clearLastAttacker();
+        });
+    }
+
     private registerListeners(): void {
         const eventCooldowns = new Map<string, number>();
         const EVENT_COOLDOWN_MS = 8_000;
@@ -286,15 +297,9 @@ export class McEventBridge {
                     targetName = null;
                 }
                 if (targetName) {
-                    this.isAutoDefending = true;
-                    setAutoDefending(this.bot, true);
                     const botName = this.callbacks.getAssistantName();
                     this.callbacks.onChat('action', 'Action', `${botName} auto-defending against ${targetName}!`);
-                    void this.onAutoDefenseAction(this.bot, targetName).finally(() => {
-                        this.isAutoDefending = false;
-                        setAutoDefending(this.bot, false);
-                        this.clearLastAttacker();
-                    });
+                    this.startAutoDefense(targetName);
                 }
             }
         }) as (...args: never[]) => void);
@@ -331,8 +336,6 @@ export class McEventBridge {
             lastProtectTime = now;
             const mobName = attacker.name ?? 'unknown';
             const playerName = entity.username ?? entity.displayName ?? 'player';
-            this.isAutoDefending = true;
-            setAutoDefending(this.bot, true);
             const botName = this.callbacks.getAssistantName();
             const voxtaName = this.names.resolveToVoxta(playerName);
             const msg = `[URGENT] ${voxtaName} is being attacked by a ${mobName}! ${botName} is rushing to protect them.`;
@@ -343,11 +346,7 @@ export class McEventBridge {
             } else {
                 this.callbacks.onNote(msg);
             }
-            void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
-                this.isAutoDefending = false;
-                setAutoDefending(this.bot, false);
-                this.clearLastAttacker();
-            });
+            this.startAutoDefense(mobName);
         }) as (...args: never[]) => void);
 
         // Companion assist: help player fight when they attack something
@@ -392,14 +391,7 @@ export class McEventBridge {
             const botName = this.callbacks.getAssistantName();
             console.log(`[Bot] Companion assist: ${followingPlayer} is fighting ${mobName}, joining!`);
             this.callbacks.onChat('action', 'Action', `${botName} is joining the fight against ${mobName}!`);
-
-            this.isAutoDefending = true;
-            setAutoDefending(this.bot, true);
-            void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
-                this.isAutoDefending = false;
-                setAutoDefending(this.bot, false);
-                this.clearLastAttacker();
-            });
+            this.startAutoDefense(mobName);
         }) as (...args: never[]) => void);
 
         // Proximity self-defense: attack hostile mobs within melee range
@@ -426,13 +418,7 @@ export class McEventBridge {
 
             const mobName = threat.name ?? 'unknown';
             console.log(`[Bot] Proximity defense: ${mobName} is right next to us, attacking!`);
-            this.isAutoDefending = true;
-            setAutoDefending(this.bot, true);
-            void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
-                this.isAutoDefending = false;
-                setAutoDefending(this.bot, false);
-                this.clearLastAttacker();
-            });
+            this.startAutoDefense(mobName);
         }, 1000);
     }
 
