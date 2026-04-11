@@ -1,0 +1,285 @@
+/* ---- Connection Panel (inside modal) ---- */
+
+.connection-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.field.full-width {
+    grid-column: 1 / -1;
+}
+
+.field label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+}
+.field-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.field-label-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.char-refresh-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: all var(--transition);
+}
+
+.char-refresh-btn:hover {
+    border-color: var(--accent-green);
+    background: var(--bg-hover);
+}
+
+.char-refresh-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.mc-only-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    text-transform: none;
+}
+
+.mc-only-toggle input[type='checkbox'] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent-green);
+    cursor: pointer;
+}
+
+.mc-only-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.field input {
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font), sans-serif;
+    font-size: 13px;
+    transition: border-color var(--transition);
+    outline: none;
+}
+
+.field input:focus {
+    border-color: var(--accent-green);
+}
+
+.field input::placeholder {
+    color: var(--text-muted);
+}
+
+.connection-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    position: sticky;
+    bottom: -16px;
+    padding: 12px 0;
+    margin: 0 -20px;
+    padding-left: 20px;
+    padding-right: 20px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    z-index: 10;
+}
+
+.connection-compat-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    background: var(--bg-surface);
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    margin-bottom: 12px;
+}
+
+.connection-section {
+    margin-bottom: 16px;
+}
+
+.section-title {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.field-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.advanced-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 0;
+    margin-top: 4px;
+}
+
+.advanced-toggle:hover {
+    color: var(--text-primary);
+}
+
+.character-select {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-family: var(--font), sans-serif;
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color var(--transition);
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239898b4' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 30px;
+}
+
+.character-select:focus {
+    border-color: var(--accent-green);
+}
+
+.character-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.btn {
+    padding: 8px 20px;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font), sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition);
+    outline: none;
+}
+
+.btn-connect {
+    background: var(--accent-green);
+    color: #0f0f1a;
+}
+
+.btn-connect:hover {
+    background: #6ee7a0;
+}
+
+.btn-connect:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.btn-connect.btn-waiting {
+    animation: pulse-waiting 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-waiting {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 0.8; }
+}
+
+.btn-disconnect {
+    background: #ef4444;
+    color: white;
+}
+
+.btn-disconnect:hover {
+    background: #dc2626;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.status-dot.disconnected {
+    background: var(--accent-red);
+}
+
+.status-dot.connecting {
+    background: var(--accent-amber);
+    animation: pulse 1s infinite;
+}
+
+.status-dot.connected {
+    background: var(--accent-green);
+}
+
+.status-dot.error {
+    background: var(--accent-red);
+}
+
+@keyframes pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+}
+
+.status-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-left: 4px;
+}

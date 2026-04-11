@@ -47,8 +47,6 @@ export interface MessageHandlerContext {
     setIsReplying(value: boolean): void;
     setFollowingPlayer(player: string | null): void;
     setSkinUrlForSlot(url: string | null, slot: 1 | 2): void;
-    /** @deprecated Use setSkinUrlForSlot(url, 1) — kept for single-bot compat */
-    setSkinUrl(url: string | null): void;
 
     // Actions
     addChat(type: ChatMessage['type'], sender: string, text: string, badge?: string): void;
