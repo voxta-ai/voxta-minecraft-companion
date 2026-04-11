@@ -1,5 +1,8 @@
 import type { Bot } from 'mineflayer';
+import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
+import pkg from 'mineflayer-pathfinder';
+const { goals } = pkg;
 import type { ActionInvocationArgument } from '../../voxta/types.js';
 import type { NameRegistry } from '../../name-registry';
 import type { ToolCategory } from '../game-data';
@@ -122,4 +125,29 @@ export function getEquipSlot(itemName: string): 'head' | 'torso' | 'legs' | 'fee
     if (itemName.includes('leggings') || itemName.includes('pants')) return 'legs';
     if (itemName.includes('boots')) return 'feet';
     return 'hand';
+}
+
+// ---- Block interaction helpers ----
+
+/** Find a nearby block matching the predicate and navigate to it.
+ *  Returns the block on success, or an error string on failure. */
+export async function findAndReachBlock(
+    bot: Bot,
+    matcher: (block: Block) => boolean,
+    notFoundMsg: string,
+    cantReachMsg: string,
+    maxDistance = 32,
+): Promise<{ block: Block } | { error: string }> {
+    const block = bot.findBlock({ matching: matcher, maxDistance });
+    if (!block) return { error: notFoundMsg };
+
+    try {
+        await bot.pathfinder.goto(
+            new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2),
+        );
+    } catch {
+        return { error: cantReachMsg };
+    }
+
+    return { block };
 }

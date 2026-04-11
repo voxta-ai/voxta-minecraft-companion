@@ -1,5 +1,6 @@
 import { For, Show, createSignal, createEffect, createMemo } from 'solid-js';
-import { chatMessages, sendMessage, status } from '../stores/app-store';
+import { chatMessages, sendMessage } from '../stores/chat-store';
+import { status } from '../stores/connection-store';
 import { speechPartialText, setSpeechPartialText } from '../stores/audio-store';
 import AudioIcons from './AudioIcons';
 import iconPng from '../icon.png';

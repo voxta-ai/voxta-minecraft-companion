@@ -1,5 +1,5 @@
 import { createSignal, createMemo, Show, For, createEffect } from 'solid-js';
-import { status, connectVoxta, launchBot, disconnect, voxtaInfo, refreshCharacters } from '../stores/app-store';
+import { status, connectVoxta, launchBot, disconnect, voxtaInfo, refreshCharacters } from '../stores/connection-store';
 import { serverState, serverPort as managedServerPort } from '../stores/server-store';
 import type { BotConfig, CharacterInfo, ChatListItem, ScenarioInfo, VoxtaConnectConfig } from '../../shared/ipc-types';
 import CustomDropdown from './CustomDropdown';

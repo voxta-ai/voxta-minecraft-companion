@@ -1,7 +1,6 @@
 import type { Bot } from 'mineflayer';
-import pkg from 'mineflayer-pathfinder';
-const { goals } = pkg;
 import { COOKABLE_ITEMS, FUEL_ITEMS } from '../game-data';
+import { findAndReachBlock } from './action-helpers.js';
 
 export async function cookFood(bot: Bot, itemName: string | undefined): Promise<string> {
     const items = bot.inventory.items();
@@ -29,21 +28,15 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
     const fuelItem = items.find((i) => FUEL_ITEMS.includes(i.name));
     if (!fuelItem) return 'Cannot cook without fuel — need coal, wood, or planks';
 
-    // Find a nearby furnace
-    const furnaceBlock = bot.findBlock({
-        matching: (block) => block.name === 'furnace' || block.name === 'smoker' || block.name === 'blast_furnace',
-        maxDistance: 32,
-    });
-    if (!furnaceBlock) return 'Looked around but there is no furnace nearby';
-
-    // Walk to the furnace
-    try {
-        await bot.pathfinder.goto(
-            new goals.GoalNear(furnaceBlock.position.x, furnaceBlock.position.y, furnaceBlock.position.z, 2),
-        );
-    } catch {
-        return 'Cannot reach the furnace from here';
-    }
+    // Find and walk to a nearby furnace
+    const result = await findAndReachBlock(
+        bot,
+        (block) => block.name === 'furnace' || block.name === 'smoker' || block.name === 'blast_furnace',
+        'Looked around but there is no furnace nearby',
+        'Cannot reach the furnace from here',
+    );
+    if ('error' in result) return result.error;
+    const furnaceBlock = result.block;
 
     // Open furnace and cook
     try {

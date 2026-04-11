@@ -1,5 +1,6 @@
 import { For, onMount, createMemo } from 'solid-js';
-import { actions, loadActions, toggleAction } from '../stores/app-store';
+import { actions, loadActions, toggleAction } from '../stores/action-store';
+import { SettingCard } from './SettingCard';
 
 /** Short human-friendly descriptions for each action (keyed by action name) */
 const ACTION_DESCRIPTIONS: Record<string, string> = {
@@ -70,13 +71,10 @@ export default function ActionToggles() {
                         <div class="setting-card-list">
                             <For each={items}>
                                 {(action) => (
-                                    <div class="setting-card">
-                                        <div class="setting-card-info">
-                                            <div class="setting-card-name">{formatActionName(action.name)}</div>
-                                            <div class="setting-card-desc">
-                                                {ACTION_DESCRIPTIONS[action.name] ?? ''}
-                                            </div>
-                                        </div>
+                                    <SettingCard
+                                        name={formatActionName(action.name)}
+                                        description={ACTION_DESCRIPTIONS[action.name] ?? ''}
+                                    >
                                         <label class="toggle">
                                             <input
                                                 type="checkbox"
@@ -87,7 +85,7 @@ export default function ActionToggles() {
                                             />
                                             <span class="toggle-slider" />
                                         </label>
-                                    </div>
+                                    </SettingCard>
                                 )}
                             </For>
                         </div>

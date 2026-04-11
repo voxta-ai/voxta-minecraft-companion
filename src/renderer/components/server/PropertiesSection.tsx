@@ -2,6 +2,7 @@ import { Show } from 'solid-js';
 import type { Accessor } from 'solid-js';
 import { serverState } from '../../stores/server-store';
 import type { ServerProperties } from '../../../shared/ipc-types';
+import { SettingCard } from '../SettingCard';
 
 interface PropertiesSectionProps {
     properties: Accessor<ServerProperties>;
@@ -31,13 +32,7 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
             <div class="server-section-group">
                 <div class="section-title">Startup</div>
                 <div class="setting-card-list">
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Auto-start server</div>
-                            <div class="setting-card-desc">
-                                Automatically start the server when connecting to Voxta
-                            </div>
-                        </div>
+                    <SettingCard name="Auto-start server" description="Automatically start the server when connecting to Voxta">
                         <label class="toggle">
                             <input
                                 type="checkbox"
@@ -49,7 +44,7 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             />
                             <span class="toggle-slider"></span>
                         </label>
-                    </div>
+                    </SettingCard>
                 </div>
             </div>
 
@@ -91,10 +86,7 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
             <div class="server-section-group">
                 <div class="section-title">Game</div>
                 <div class="setting-card-list">
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Difficulty</div>
-                        </div>
+                    <SettingCard name="Difficulty">
                         <select
                             class="vision-select"
                             value={props.properties()['difficulty'] ?? 'easy'}
@@ -105,11 +97,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             <option value="normal">Normal</option>
                             <option value="hard">Hard</option>
                         </select>
-                    </div>
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Game Mode</div>
-                        </div>
+                    </SettingCard>
+                    <SettingCard name="Game Mode">
                         <select
                             class="vision-select"
                             value={props.properties()['gamemode'] ?? 'survival'}
@@ -120,11 +109,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             <option value="adventure">Adventure</option>
                             <option value="spectator">Spectator</option>
                         </select>
-                    </div>
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Max Players</div>
-                        </div>
+                    </SettingCard>
+                    <SettingCard name="Max Players">
                         <input
                             type="number"
                             class="server-prop-number"
@@ -133,29 +119,22 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             max="100"
                             onChange={(e) => props.updateProperty('max-players', e.currentTarget.value)}
                         />
-                    </div>
+                    </SettingCard>
                 </div>
             </div>
 
             <div class="server-section-group">
                 <div class="section-title">Server</div>
                 <div class="setting-card-list">
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">MOTD</div>
-                            <div class="setting-card-desc">Message shown in the server browser</div>
-                        </div>
+                    <SettingCard name="MOTD" description="Message shown in the server browser">
                         <input
                             type="text"
                             class="server-prop-text"
                             value={props.properties()['motd'] ?? 'Voxta Test Server'}
                             onChange={(e) => props.updateProperty('motd', e.currentTarget.value)}
                         />
-                    </div>
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Server Port</div>
-                        </div>
+                    </SettingCard>
+                    <SettingCard name="Server Port">
                         <input
                             type="number"
                             class="server-prop-number"
@@ -164,12 +143,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             max="65535"
                             onChange={(e) => props.updateProperty('server-port', e.currentTarget.value)}
                         />
-                    </div>
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Verify Mojang Accounts</div>
-                            <div class="setting-card-desc">When off, anyone can join without a paid account (required for bots)</div>
-                        </div>
+                    </SettingCard>
+                    <SettingCard name="Verify Mojang Accounts" description="When off, anyone can join without a paid account (required for bots)">
                         <label class="toggle">
                             <input
                                 type="checkbox"
@@ -178,17 +153,14 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             />
                             <span class="toggle-slider" />
                         </label>
-                    </div>
+                    </SettingCard>
                 </div>
             </div>
 
             <div class="server-section-group">
                 <div class="section-title">World</div>
                 <div class="setting-card-list">
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Spawn Monsters</div>
-                        </div>
+                    <SettingCard name="Spawn Monsters">
                         <label class="toggle">
                             <input
                                 type="checkbox"
@@ -197,11 +169,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             />
                             <span class="toggle-slider" />
                         </label>
-                    </div>
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Spawn Animals</div>
-                        </div>
+                    </SettingCard>
+                    <SettingCard name="Spawn Animals">
                         <label class="toggle">
                             <input
                                 type="checkbox"
@@ -210,11 +179,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             />
                             <span class="toggle-slider" />
                         </label>
-                    </div>
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Allow Flight</div>
-                        </div>
+                    </SettingCard>
+                    <SettingCard name="Allow Flight">
                         <label class="toggle">
                             <input
                                 type="checkbox"
@@ -223,11 +189,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             />
                             <span class="toggle-slider" />
                         </label>
-                    </div>
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Command Blocks</div>
-                        </div>
+                    </SettingCard>
+                    <SettingCard name="Command Blocks">
                         <label class="toggle">
                             <input
                                 type="checkbox"
@@ -236,24 +199,20 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                             />
                             <span class="toggle-slider" />
                         </label>
-                    </div>
+                    </SettingCard>
                 </div>
             </div>
 
             <div class="server-section-group">
                 <div class="setting-card-list">
-                    <div class="setting-card">
-                        <div class="setting-card-info">
-                            <div class="setting-card-name">Reset to Defaults</div>
-                            <div class="setting-card-desc">Restore all settings to their original values</div>
-                        </div>
+                    <SettingCard name="Reset to Defaults" description="Restore all settings to their original values">
                         <button
                             class="server-reset-btn"
                             onClick={props.onResetDefaults}
                         >
                             Reset
                         </button>
-                    </div>
+                    </SettingCard>
                 </div>
             </div>
 

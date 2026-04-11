@@ -1,5 +1,6 @@
 import { createSignal, Show, onMount, onCleanup } from 'solid-js';
-import { useStatusListener, useChatListener, status, stopSession } from './stores/app-store';
+import { useStatusListener, status, stopSession } from './stores/connection-store';
+import { useChatListener } from './stores/chat-store';
 import { addLogEntry } from './stores/console-store';
 import { initServerStore } from './stores/server-store';
 import { initToastStore } from './stores/toast-store';
@@ -106,7 +107,7 @@ export default function App() {
                         onClick={() => togglePopup('server')}
                         title="Server Manager"
                     >
-                        <span class="header-btn-icon" style={{ color: 'var(--text-secondary)' }}><i class="bi bi-hdd-rack"></i></span>
+                        <span class="header-btn-icon"><i class="bi bi-hdd-rack"></i></span>
                         <span class="header-btn-label">Server</span>
                     </button>
                     <button
@@ -114,7 +115,7 @@ export default function App() {
                         onClick={() => setTerminalOpen(!terminalOpen())}
                         title="Terminal (F2)"
                     >
-                        <span class="header-btn-icon" style={{ color: 'var(--text-secondary)' }}><i class="bi bi-terminal-fill"></i></span>
+                        <span class="header-btn-icon"><i class="bi bi-terminal-fill"></i></span>
                         <span class="header-btn-label">Terminal</span>
                     </button>
                     <button

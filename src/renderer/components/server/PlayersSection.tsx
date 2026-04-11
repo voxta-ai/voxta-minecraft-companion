@@ -3,6 +3,7 @@ import type { Accessor } from 'solid-js';
 import { serverState } from '../../stores/server-store';
 import { addToast } from '../../stores/toast-store';
 import type { WhitelistEntry, OpsEntry, ServerProperties } from '../../../shared/ipc-types';
+import { SettingCard } from '../SettingCard';
 
 interface PlayersSectionProps {
     properties: Accessor<ServerProperties>;
@@ -133,12 +134,7 @@ export default function PlayersSection(props: PlayersSectionProps) {
                     <div class="setting-card-list">
                         <For each={whitelist()}>
                             {(entry) => (
-                                <div class="setting-card">
-                                    <div class="setting-card-info">
-                                        <div class="setting-card-name">
-                                            <i class="bi bi-person"></i> {entry.name}
-                                        </div>
-                                    </div>
+                                <SettingCard name={<><i class="bi bi-person"></i> {entry.name}</>}>
                                     <button
                                         class="server-plugin-remove-btn"
                                         onClick={() => void handleRemoveWhitelist(entry.name)}
@@ -147,7 +143,7 @@ export default function PlayersSection(props: PlayersSectionProps) {
                                     >
                                         <i class="bi bi-x-lg"></i>
                                     </button>
-                                </div>
+                                </SettingCard>
                             )}
                         </For>
                         <Show when={whitelist().length === 0}>
@@ -186,15 +182,10 @@ export default function PlayersSection(props: PlayersSectionProps) {
                 <div class="setting-card-list">
                     <For each={ops()}>
                         {(entry) => (
-                            <div class="setting-card">
-                                <div class="setting-card-info">
-                                    <div class="setting-card-name">
-                                        <i class="bi bi-shield-check"></i> {entry.name}
-                                    </div>
-                                    <div class="setting-card-desc">
-                                        Permission level {entry.level}
-                                    </div>
-                                </div>
+                            <SettingCard
+                                name={<><i class="bi bi-shield-check"></i> {entry.name}</>}
+                                description={`Permission level ${entry.level}`}
+                            >
                                 <button
                                     class="server-plugin-remove-btn"
                                     onClick={() => void handleRemoveOp(entry.name)}
@@ -203,7 +194,7 @@ export default function PlayersSection(props: PlayersSectionProps) {
                                 >
                                     <i class="bi bi-x-lg"></i>
                                 </button>
-                            </div>
+                            </SettingCard>
                         )}
                     </For>
                     <Show when={ops().length === 0}>
