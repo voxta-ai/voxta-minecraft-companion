@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, exec, ChildProcess } from 'child_process';
 import { app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -243,7 +243,7 @@ export class ServerManager extends EventEmitter {
         this.stopTimeout = setTimeout(() => {
             if (this.childProcess) {
                 this.emitConsoleLine('Server did not stop gracefully, force killing...', 'warn');
-                this.childProcess.kill('SIGKILL');
+                this.forceKillTree();
             }
         }, 15000);
     }
@@ -818,10 +818,10 @@ export class ServerManager extends EventEmitter {
     async cleanup(): Promise<void> {
         if (this.childProcess) {
             try { this.childProcess.stdin?.write('stop\n'); } catch { /* pipe may be broken */ }
-            // Give it a few seconds to stop gracefully
+            // Give it a few seconds to stop gracefully, then force kill the entire process tree
             await new Promise<void>((resolve) => {
                 const timeout = setTimeout(() => {
-                    if (this.childProcess) this.childProcess.kill('SIGKILL');
+                    this.forceKillTree();
                     resolve();
                 }, 5000);
 
@@ -835,6 +835,21 @@ export class ServerManager extends EventEmitter {
                     resolve();
                 }
             });
+        }
+    }
+
+    /** Force kill the server process and its entire child process tree.
+     *  On Windows, SIGKILL only kills the spawner — the Java process survives.
+     *  taskkill /T kills the entire tree so no orphaned Java processes remain. */
+    private forceKillTree(): void {
+        if (!this.childProcess) return;
+        const pid = this.childProcess.pid;
+        if (pid && process.platform === 'win32') {
+            exec(`taskkill /F /T /PID ${pid}`, (err) => {
+                if (err) console.warn(`[Server] taskkill failed: ${err.message}`);
+            });
+        } else {
+            this.childProcess.kill('SIGKILL');
         }
     }
 
