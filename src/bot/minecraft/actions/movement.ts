@@ -8,6 +8,7 @@ import {
     getVehicle, setVehicle, getClient, getFollowDistance,
     getEntityVehicle, getPassengers, getRegistry,
 } from '../mineflayer-types';
+import { RIDEABLE_ENTITIES } from '../game-data';
 
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
@@ -313,15 +314,6 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
 }
 
 // ---- Rideable entities ----
-
-/** Entity names that can be mounted/ridden in Minecraft */
-const RIDEABLE_ENTITIES = new Set([
-    'horse', 'donkey', 'mule', 'skeleton_horse', 'zombie_horse',
-    'pig', 'strider', 'camel', 'llama', 'trader_llama',
-    'boat', 'oak_boat', 'spruce_boat', 'birch_boat', 'jungle_boat',
-    'acacia_boat', 'dark_oak_boat', 'mangrove_boat', 'cherry_boat', 'bamboo_raft',
-    'minecart',
-]);
 
 export async function mountEntity(bot: Bot, entityName: string | undefined): Promise<string> {
     // Already riding something?

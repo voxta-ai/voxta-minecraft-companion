@@ -13,6 +13,7 @@ import { executeAction, resumeFollowPlayer } from '../bot/minecraft/action-dispa
 import { hasLineOfSight } from '../bot/minecraft/perception';
 import { isHostileEntity } from '../bot/minecraft/events';
 import { getClient, getFollowDistance, getVehicle, getEntityVehicle, setEntityVehicle } from '../bot/minecraft/mineflayer-types';
+import { AGGRO_SKIP_MOBS, HUNTABLE_ANIMALS, SPLIT_MOBS, LOW_HEALTH_THRESHOLD } from '../bot/minecraft/game-data';
 
 /** Callbacks the movement loops use to interact with BotEngine state */
 export interface MovementCallbacks {
@@ -56,8 +57,6 @@ export function createModeScanLoop(
         }
     };
 
-    // Farm animals that the hunt mode will target
-    const HUNTABLE_ANIMALS = ['pig', 'cow', 'mooshroom', 'sheep', 'chicken', 'rabbit'];
     let huntCooldownUntil = 0; // Post-kill cooldown to let the bot settle
 
     let patrolPauseUntil = 0;
@@ -67,7 +66,7 @@ export function createModeScanLoop(
         if (mode === 'passive') return;
         if (isAutoDefending(bot) || isActionBusy(bot)) return;
         // Don't seek new fights when critically wounded
-        if (bot.health > 0 && bot.health <= 6) return;
+        if (bot.health > 0 && bot.health <= LOW_HEALTH_THRESHOLD) return;
 
         const pos = bot.entity.position;
         if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
@@ -79,21 +78,13 @@ export function createModeScanLoop(
                 ? findPlayerEntity(bot, followingPlayer, callbacks.getNames())
                 : null;
 
-            // Mobs that split on death (slime → babies, magma_cube → babies).
-            // After killing one we ignore that type for 5s to avoid chasing
-            // tiny split babies that the attack action can't reliably hit.
-            const SPLIT_MOBS = ['slime', 'magma_cube'];
-
-            // Mobs classified as hostile but actually neutral — they only attack
-            // when provoked. Don't auto-target them; the user can still say "attack the enderman".
-            const NEUTRAL_HOSTILE = ['enderman', 'spider', 'cave_spider', 'zombified_piglin'];
 
             let nearestHostile: (typeof bot.entities)[number] | undefined;
             let nearestDist = Infinity;
             for (const e of Object.values(bot.entities)) {
                 if (e === bot.entity || !isHostileEntity(e)) continue;
                 const name = e.name ?? '';
-                if (NEUTRAL_HOSTILE.includes(name)) continue;
+                if (AGGRO_SKIP_MOBS.includes(name)) continue;
                 // Skip split-mob babies during cooldown
                 if (SPLIT_MOBS.includes(name) && aggroCooldowns[name] && Date.now() < aggroCooldowns[name]) continue;
                 const d = e.position.distanceTo(pos);
@@ -247,13 +238,12 @@ export function createModeScanLoop(
             if (!center) return;
 
             // Check for hostiles near guard center (skip neutral mobs like endermen)
-            const GUARD_NEUTRAL = ['enderman', 'spider', 'cave_spider', 'zombified_piglin'];
             let nearestHostile: (typeof bot.entities)[number] | undefined;
             let nearestDist = Infinity;
             for (const e of Object.values(bot.entities)) {
                 if (e === bot.entity || !isHostileEntity(e)) continue;
                 const name = e.name ?? '';
-                if (GUARD_NEUTRAL.includes(name)) continue;
+                if (AGGRO_SKIP_MOBS.includes(name)) continue;
                 const d = e.position.distanceTo(pos);
                 if (d < 16 && d < nearestDist) {
                     // Skip mobs behind solid walls

@@ -243,6 +243,63 @@ export const ITEM_ALIASES: Record<string, string> = {
     wood: 'oak_log',
 };
 
+// ---- Combat & health ----
+
+/** Below this HP threshold (3 hearts = 6 HP), the bot kites instead of fighting */
+export const LOW_HEALTH_THRESHOLD = 6;
+
+/** Ranged mobs that shoot projectiles — used for kiting/zigzag approach */
+export const RANGED_MOBS = new Set([
+    'witch', 'skeleton', 'stray', 'pillager', 'blaze',
+    'ghast', 'shulker', 'drowned', 'evoker', 'illusioner',
+]);
+
+// ---- Entity classifications ----
+
+/** Door block names for pathfinder passthrough */
+export const DOOR_BLOCKS = [
+    'oak_door', 'spruce_door', 'birch_door', 'jungle_door',
+    'acacia_door', 'dark_oak_door', 'mangrove_door', 'cherry_door',
+    'crimson_door', 'warped_door',
+];
+
+/** Entity names that can be mounted/ridden */
+export const RIDEABLE_ENTITIES = new Set([
+    'horse', 'donkey', 'mule', 'skeleton_horse', 'zombie_horse',
+    'pig', 'strider', 'camel', 'llama', 'trader_llama',
+    'boat', 'oak_boat', 'spruce_boat', 'birch_boat', 'jungle_boat',
+    'acacia_boat', 'dark_oak_boat', 'mangrove_boat', 'cherry_boat', 'bamboo_raft',
+    'minecart',
+]);
+
+/**
+ * Mobs classified as hostile but only attack when provoked.
+ * Full set — used for proximity defense exclusion in events.ts.
+ */
+export const NEUTRAL_HOSTILE_MOBS = new Set([
+    'enderman', 'piglin', 'zombified_piglin', 'spider', 'cave_spider',
+    'iron_golem', 'wolf', 'bee', 'llama', 'polar_bear', 'dolphin',
+    'panda', 'goat', 'trader_llama',
+]);
+
+/**
+ * Subset of neutral-hostile mobs to skip in aggro/guard mode scanning.
+ * These mobs are technically hostile but only attack under certain conditions
+ * (night, provocation) — auto-targeting them starts unnecessary fights.
+ */
+export const AGGRO_SKIP_MOBS = ['enderman', 'spider', 'cave_spider', 'zombified_piglin'];
+
+/** Farm animals targeted by hunt mode */
+export const HUNTABLE_ANIMALS = ['pig', 'cow', 'mooshroom', 'sheep', 'chicken', 'rabbit'];
+
+/**
+ * Mobs that split into smaller versions on death (slime → babies, magma_cube → babies).
+ * Used for post-kill cooldowns to avoid chasing tiny split babies.
+ */
+export const SPLIT_MOBS = ['slime', 'magma_cube'];
+
+// ---- Entity name aliases ----
+
 /** Common AI-inferred entity names mapped to Minecraft internal names */
 export const ENTITY_ALIASES: Record<string, string> = {
     bull: 'cow',

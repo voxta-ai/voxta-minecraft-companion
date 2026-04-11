@@ -4,12 +4,10 @@ const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity, getBestWeapon, getBestBow, getArrowCount } from './action-helpers.js';
 import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget, setCurrentActivity } from './action-state.js';
-import { ENTITY_ALIASES } from '../game-data';
+import { ENTITY_ALIASES, LOW_HEALTH_THRESHOLD, RANGED_MOBS } from '../game-data';
 import { dismountEntity } from './movement.js';
 import { getVehicle, getClient } from '../mineflayer-types';
 
-// Below this HP threshold (3 hearts = 6 HP), the bot kites instead of fighting
-const LOW_HEALTH_THRESHOLD = 6;
 
 export async function attackEntity(bot: Bot, entityName: string | undefined, names: NameRegistry): Promise<string> {
     if (!entityName) return 'No entity name provided';
@@ -180,10 +178,6 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 console.log(`[MC Action] Health critical (${Math.round(bot.health)}/20) — kiting away from ${displayName}`);
 
                 // Ranged mobs need zigzag approach; melee mobs get direct charge
-                const RANGED_MOBS = new Set([
-                    'witch', 'skeleton', 'stray', 'pillager', 'blaze',
-                    'ghast', 'shulker', 'drowned', 'evoker', 'illusioner',
-                ]);
                 const isRangedMob = RANGED_MOBS.has(normalizedTarget);
 
                 // Anchor = bot's current position. Kite around this spot.

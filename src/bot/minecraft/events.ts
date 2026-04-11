@@ -6,7 +6,7 @@ import type { ChatMessage } from '../../shared/ipc-types';
 import { isActionBusy, getCurrentActivity } from './actions';
 import { isPickupSuppressed, setAutoDefending, isAutoDefending, getBotMode, getCurrentCombatTarget } from './actions/action-state.js';
 import { hasLineOfSight } from './perception';
-import { FOOD_ITEMS } from './game-data';
+import { FOOD_ITEMS, NEUTRAL_HOSTILE_MOBS, LOW_HEALTH_THRESHOLD } from './game-data';
 import { getEntityKind, isInWater, isInLava } from './mineflayer-types';
 
 // ---- Callback interface ----
@@ -381,20 +381,12 @@ export class McEventBridge {
         }) as (...args: never[]) => void);
 
         // ---- Proximity self-defense: attack hostile mobs within melee range ----
-        // Neutral-hostile mobs: classified as hostile but only attack when provoked.
-        // Auto-attacking them starts a fight the bot didn't need to have.
-        const NEUTRAL_HOSTILE_MOBS = new Set([
-            'enderman', 'piglin', 'zombified_piglin', 'spider', 'cave_spider',
-            'iron_golem', 'wolf', 'bee', 'llama', 'polar_bear', 'dolphin',
-            'panda', 'goat', 'trader_llama',
-        ]);
-
         this.proximityScanTimer = setInterval(() => {
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoDefense) return;
             if (this.isAutoDefending || isAutoDefending(this.bot) || getCurrentCombatTarget(this.bot)) return;
             if (getBotMode(this.bot) !== 'passive') return; // aggro/hunt/guard handle their own scanning
-            if (this.bot.health <= 6) return; // don't attack at critical health — kite instead
+            if (this.bot.health <= LOW_HEALTH_THRESHOLD) return; // don't attack at critical health — kite instead
 
             const pos = this.bot.entity.position;
             if (!Number.isFinite(pos.x)) return;

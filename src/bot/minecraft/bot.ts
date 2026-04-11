@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import type { CompanionConfig } from '../config.js';
 import { isInWater } from './mineflayer-types';
+import { DOOR_BLOCKS } from './game-data';
 
 export interface MinecraftBot {
     bot: mineflayer.Bot;
@@ -66,18 +67,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         }
 
         // Collect door block IDs
-        const doorNames = [
-            'oak_door',
-            'spruce_door',
-            'birch_door',
-            'jungle_door',
-            'acacia_door',
-            'dark_oak_door',
-            'mangrove_door',
-            'cherry_door',
-            'crimson_door',
-            'warped_door',
-        ];
+        const doorNames = DOOR_BLOCKS;
         const doorIds = new Set<number>();
         for (const name of doorNames) {
             const block = mcData.blocksByName[name];
