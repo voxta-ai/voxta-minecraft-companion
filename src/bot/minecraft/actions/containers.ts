@@ -124,7 +124,7 @@ export async function inspectContainer(bot: Bot, target: string | undefined): Pr
             matching: (b) => b.name === 'crafting_table',
             maxDistance: 32,
         });
-        if (!block) return 'No crafting table found nearby';
+        if (!block) return 'Looked around but there is no crafting table nearby';
         const dist = Math.round(block.position.distanceTo(bot.entity.position));
         return `Crafting table found ${dist} blocks away (crafting tables don't store items)`;
     }
@@ -136,7 +136,7 @@ async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: st
     const result = await findAndReachBlock(
         bot,
         (b) => matcher(b.name),
-        `No ${label} found nearby`,
+        `Looked around but there is no ${label} nearby`,
         `Cannot reach the ${label}`,
     );
     if ('error' in result) return result.error;

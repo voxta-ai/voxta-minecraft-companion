@@ -4,7 +4,7 @@ import { getActionAbort, getOnFishCaught } from './action-state.js';
 export async function fishAction(bot: Bot, countStr: string | undefined): Promise<string> {
     // Find and equip a fishing rod
     const rod = bot.inventory.items().find((i) => i.name === 'fishing_rod');
-    if (!rod) return 'No fishing rod in inventory';
+    if (!rod) return 'Checked inventory but has no fishing rod';
 
     try {
         await bot.equip(rod, 'hand');
@@ -81,7 +81,7 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
     console.log(`[Fish] Facing water at (${Math.round(nearestWater.x)}, ${nearestWater.y}, ${Math.round(nearestWater.z)})`);
 
     const targetCount = countStr ? parseInt(countStr, 10) : 5;
-    if (isNaN(targetCount) || targetCount <= 0) return 'Invalid count';
+    if (isNaN(targetCount) || targetCount <= 0) return `Invalid count: ${countStr}`;
 
     const signal = getActionAbort(bot).signal;
     const caught = new Map<string, number>(); // displayName → count

@@ -121,7 +121,7 @@ export async function goTo(
     yStr: string | undefined,
     zStr: string | undefined,
 ): Promise<string> {
-    if (!xStr || !yStr || !zStr) return 'Missing coordinates';
+    if (!xStr || !yStr || !zStr) return 'No coordinates provided';
 
     const x = parseFloat(xStr);
     const y = parseFloat(yStr);
