@@ -3,6 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import { BED_BLOCKS } from './game-data';
 import { getCurrentActivity, getBotMode, getHomePosition } from './actions/action-state.js';
+import { getVehicle, isInWater, isInLava } from './mineflayer-types';
 
 export interface WorldState {
     position: { x: number; y: number; z: number };
@@ -291,19 +292,18 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     }
 
     // Riding state — bot.vehicle exists at runtime but is missing from TS types
-    const vehicle = (bot as unknown as { vehicle: Entity | null }).vehicle ?? null;
+    const vehicle = getVehicle(bot);
     const riding = vehicle ? (vehicle.displayName ?? vehicle.name ?? 'something') : null;
 
     // Movement state — physical body status
     let movement = 'standing';
-    const ent = bot.entity as Entity & { isInWater?: boolean; isInLava?: boolean };
     if (riding) {
         movement = `riding a ${riding}`;
     } else if (bot.isSleeping) {
         movement = 'sleeping';
-    } else if (ent.isInLava) {
+    } else if (isInLava(bot.entity)) {
         movement = 'in lava';
-    } else if (ent.isInWater) {
+    } else if (isInWater(bot.entity)) {
         movement = 'swimming';
     } else if (!bot.entity.onGround && bot.entity.velocity.y < -0.1) {
         movement = 'falling';

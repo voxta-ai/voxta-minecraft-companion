@@ -1,17 +1,19 @@
 import type { Bot } from 'mineflayer';
-import type { Entity } from 'prismarine-entity';
 import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity } from './action-helpers.js';
 import { getActionAbort, getHomePosition, clearHome } from './action-state.js';
+import {
+    getVehicle, setVehicle, getClient, getFollowDistance,
+    getEntityVehicle, getPassengers, getRegistry,
+} from '../mineflayer-types';
 
 export async function followPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
     // Auto-dismount — pathfinder can't work while mounted
-    const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
-    if (vehicle) {
+    if (getVehicle(bot)) {
         console.log('[MC Action] Auto-dismounting before following');
         await dismountEntity(bot);
     }
@@ -68,10 +70,10 @@ export async function followPlayer(bot: Bot, playerName: string | undefined, nam
 
     // When the player is mounted, their entity position goes stale.
     // Follow the vehicle entity instead — it gets real position updates.
-    const playerVehicle = (player as unknown as { vehicle: Entity | null }).vehicle;
+    const playerVehicle = getEntityVehicle(player);
     const followTarget = playerVehicle ?? player;
     // Per-bot follow distance — set by bot-engine for dual-bot spacing, defaults to 3
-    const followDist = (bot as unknown as { followDistance?: number }).followDistance ?? 3;
+    const followDist = getFollowDistance(bot);
     const goal = new goals.GoalFollow(followTarget, followDist);
     bot.pathfinder.setGoal(goal, true); // dynamic = true → keeps following
     console.log(`[MC Action] Follow goal set for ${displayName}${playerVehicle ? ' (via vehicle)' : ''} (dist=${followDist}), goal active: ${!!bot.pathfinder.goal}`);
@@ -106,9 +108,9 @@ export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegi
     // Flush pending a stop flag (see comment in followPlayer above)
     bot.pathfinder.setGoal(null);
 
-    const playerVehicle = (player as unknown as { vehicle: Entity | null }).vehicle;
+    const playerVehicle = getEntityVehicle(player);
     const followTarget = playerVehicle ?? player;
-    const followDist = (bot as unknown as { followDistance?: number }).followDistance ?? 3;
+    const followDist = getFollowDistance(bot);
     const goal = new goals.GoalFollow(followTarget, followDist);
     bot.pathfinder.setGoal(goal, true);
     console.log(`[MC Action] Resume follow goal set for ${displayName}${playerVehicle ? ' (via vehicle)' : ''} (dist=${followDist}), goal active: ${!!bot.pathfinder.goal}`);
@@ -204,8 +206,7 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
     if (!entityName) return 'No entity name provided';
 
     // Auto-dismount — pathfinder can't work while mounted
-    const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
-    if (vehicle) {
+    if (getVehicle(bot)) {
         console.log('[MC Action] Auto-dismounting before going to entity');
         await dismountEntity(bot);
     }
@@ -273,11 +274,9 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
             // wandering_trader. Temporarily spoof the entityType so the assert
             // passes — openVillager handles trade_list packet registration
             // that openEntity alone does NOT do.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const registry = (bot as any).registry;
-            const villagerTypeId = registry.entitiesByName.villager?.id ?? registry.entitiesByName.Villager?.id;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const entityObj = nearest.entity as any;
+            const registry = getRegistry(bot) as Record<string, Record<string, Record<string, { id?: number }>>>;
+            const villagerTypeId = registry.entitiesByName?.villager?.id ?? registry.entitiesByName?.Villager?.id;
+            const entityObj = nearest.entity as unknown as Record<string, unknown>;
             const originalType = entityObj.entityType;
             entityObj.entityType = villagerTypeId;
 
@@ -324,16 +323,6 @@ const RIDEABLE_ENTITIES = new Set([
     'minecart',
 ]);
 
-/** bot.vehicle exists at runtime but is missing from mineflayer's TS declarations */
-function getVehicle(bot: Bot): Entity | null {
-    return (bot as unknown as { vehicle: Entity | null }).vehicle ?? null;
-}
-
-/** Manually set/clear bot.vehicle — needed to work around mineflayer's stale state bug */
-function setVehicle(bot: Bot, vehicle: Entity | null): void {
-    (bot as unknown as { vehicle: Entity | null }).vehicle = vehicle;
-}
-
 export async function mountEntity(bot: Bot, entityName: string | undefined): Promise<string> {
     // Already riding something?
     const currentVehicle = getVehicle(bot);
@@ -366,8 +355,7 @@ export async function mountEntity(bot: Bot, entityName: string | undefined): Pro
         }
 
         // Skip entities already being ridden by someone else
-        const passengers = (entity as unknown as { passengers?: { id: number }[] }).passengers;
-        if (passengers && passengers.length > 0) continue;
+        if (getPassengers(entity).length > 0) continue;
 
         const dist = entity.position.distanceTo(bot.entity.position);
         if (dist > 32) continue; // Too far
@@ -430,8 +418,7 @@ export async function dismountEntity(bot: Bot): Promise<string> {
     bot.pathfinder.stop();
     bot.pathfinder.setGoal(null);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const client = (bot as any)._client;
+    const client = getClient(bot);
     const botId = bot.entity.id;
 
     // Continuously send player_input with shift:true — the correct dismount for 1.21.2+.

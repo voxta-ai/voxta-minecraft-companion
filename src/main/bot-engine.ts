@@ -40,6 +40,7 @@ import {
 } from './plugin-channel';
 import { McEventBridge } from '../bot/minecraft/events';
 import type { Bot as MineflayerBot } from 'mineflayer';
+import { setFollowDistance, getVehicle } from '../bot/minecraft/mineflayer-types';
 
 // Extracted modules
 import {
@@ -630,8 +631,8 @@ export class BotEngine extends EventEmitter {
             this.mcBot.setCompanion(this.mcBot2.bot);
             this.mcBot2.setCompanion(this.mcBot.bot);
             // Bot 1 follows at 3 blocks, bot 2 at 5 — creates natural spacing layers
-            (this.mcBot.bot as unknown as { followDistance: number }).followDistance = 3;
-            (this.mcBot2.bot as unknown as { followDistance: number }).followDistance = 5;
+            setFollowDistance(this.mcBot.bot, 3);
+            setFollowDistance(this.mcBot2.bot, 5);
         }
 
         // ---- 2. Start chat with a selected character ----
@@ -643,13 +644,13 @@ export class BotEngine extends EventEmitter {
         this.autoDismounting = false;
         const autoDismount = async (): Promise<void> => {
             await new Promise((r) => setTimeout(r, 3000));
-            const v = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+            const v = getVehicle(bot);
             console.log(`[MC] Auto-dismount check: vehicle=${v ? 'yes (id=' + v.id + ')' : 'no'}`);
             if (!v) return;
 
             this.autoDismounting = true;
             for (let attempt = 1; attempt <= 3; attempt++) {
-                const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
+                const vehicle = getVehicle(bot);
                 if (!vehicle) {
                     console.log(`[MC] Auto-dismount: vehicle cleared (attempt ${attempt})`);
                     break;

@@ -4,6 +4,7 @@ const { pathfinder, Movements } = pathfinderPkg;
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import type { CompanionConfig } from '../config.js';
+import { isInWater } from './mineflayer-types';
 
 export interface MinecraftBot {
     bot: mineflayer.Bot;
@@ -308,8 +309,8 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         // Without this, the bot sinks and drowns if it enters water while idle.
         let wasSwimming = false;
         bot.on('physicsTick', () => {
-            const isInWater = (bot.entity as unknown as { isInWater?: boolean }).isInWater;
-            if (isInWater) {
+            const inWater = isInWater(bot.entity);
+            if (inWater) {
                 if (!wasSwimming) {
                     console.log(`[${bot.username}] Entered water — auto-swimming`);
                     wasSwimming = true;
@@ -452,14 +453,14 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                     const controls = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak'] as const;
                     const activeControls = controls.filter((c) => bot.getControlState(c));
                     const onGround = bot.entity.onGround;
-                    const isInWater = (bot.entity as unknown as { isInWater?: boolean }).isInWater;
+                    const inWaterDiag = isInWater(bot.entity);
                     const hasGoal = !!bot.pathfinder.goal;
                     const isMining = bot.pathfinder.isMining();
 
                     console.log(
                         `[MC Stuck] === DIAGNOSTIC DUMP (cycle #${consecutiveStuckCount}) ===\n` +
                         `  pos: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}) block: (${bx}, ${by}, ${bz})\n` +
-                        `  yaw: ${((yaw * 180) / Math.PI).toFixed(1)}°, onGround: ${onGround}, inWater: ${isInWater}\n` +
+                        `  yaw: ${((yaw * 180) / Math.PI).toFixed(1)}°, onGround: ${onGround}, inWater: ${inWaterDiag}\n` +
                         `  controls: [${activeControls.join(', ')}]\n` +
                         `  pathfinder: goal=${hasGoal}, moving=${isMoving}, mining=${isMining}\n` +
                         `  --- Block survey ---\n` +

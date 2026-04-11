@@ -7,6 +7,7 @@ import { isActionBusy, getCurrentActivity } from './actions';
 import { isPickupSuppressed, setAutoDefending, isAutoDefending, getBotMode, getCurrentCombatTarget } from './actions/action-state.js';
 import { hasLineOfSight } from './perception';
 import { FOOD_ITEMS } from './game-data';
+import { getEntityKind, isInWater, isInLava } from './mineflayer-types';
 
 // ---- Callback interface ----
 
@@ -33,7 +34,7 @@ export interface McEventCallbacks {
 // (e.g. phantom) have type 'mob' with category 'Hostile mobs'.
 // entity.kind maps to the minecraft-data category field.
 export function isHostileEntity(e: Entity): boolean {
-    return e.type === 'hostile' || (e as unknown as Record<string, unknown>).kind === 'Hostile mobs';
+    return e.type === 'hostile' || getEntityKind(e) === 'Hostile mobs';
 }
 
 // ---- MC Event Bridge ----
@@ -677,11 +678,11 @@ export class McEventBridge {
     private getDamageSource(): string {
         // Check environmental causes first — these are unambiguous
         if (this.bot.food === 0) return 'starvation (no food)';
-        const meta = this.bot.entity as unknown as Record<string, unknown>;
-        if (meta['isInWater'] && (this.bot.oxygenLevel ?? 20) <= 0) return 'drowning';
-        if (meta['isInWater'] && (this.bot.oxygenLevel ?? 400) < 100) return 'drowning (underwater)';
-        if (meta['isInLava']) return 'lava';
-        if (meta['isInFire'] || meta['onFire']) return 'fire';
+        if (isInWater(this.bot.entity) && (this.bot.oxygenLevel ?? 20) <= 0) return 'drowning';
+        if (isInWater(this.bot.entity) && (this.bot.oxygenLevel ?? 400) < 100) return 'drowning (underwater)';
+        if (isInLava(this.bot.entity)) return 'lava';
+        const fireMeta = this.bot.entity as unknown as Record<string, unknown>;
+        if (fireMeta['isInFire'] || fireMeta['onFire']) return 'fire';
         if (this.bot.entity.position.y < -60) return 'falling into the void';
 
         // Then check for a recent attacker (mob or player hit)

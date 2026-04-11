@@ -6,6 +6,7 @@ import { findPlayerEntity, getBestWeapon, getBestBow, getArrowCount } from './ac
 import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget, setCurrentActivity } from './action-state.js';
 import { ENTITY_ALIASES } from '../game-data';
 import { dismountEntity } from './movement.js';
+import { getVehicle, getClient } from '../mineflayer-types';
 
 // Below this HP threshold (3 hearts = 6 HP), the bot kites instead of fighting
 const LOW_HEALTH_THRESHOLD = 6;
@@ -14,8 +15,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
     if (!entityName) return 'No entity name provided';
 
     // Auto-dismount — pathfinder can't work while mounted
-    const vehicle = (bot as unknown as { vehicle: { id: number } | null }).vehicle;
-    if (vehicle) {
+    if (getVehicle(bot)) {
         console.log('[MC Action] Auto-dismounting before combat');
         await dismountEntity(bot);
     }
@@ -102,10 +102,10 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
     const onMainExplosion = (): void => {
         mainLoopExplosion = true; // Any explosion while fighting = it exploded
     };
-    (bot as unknown as { _client: { on: (e: string, fn: (...args: never[]) => void) => void } })._client.on('explosion', onMainExplosion as never);
+    getClient(bot).on('explosion', onMainExplosion as never);
 
     const cleanupExplosionListener = (): void => {
-        (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onMainExplosion as never);
+        getClient(bot).removeListener('explosion', onMainExplosion as never);
     };
 
     return new Promise<string>((resolve) => {
@@ -215,14 +215,14 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                 const onExplosion = (): void => {
                     explosionDetected = true;
                 };
-                (bot as unknown as { _client: { on: (e: string, fn: (...args: never[]) => void) => void } })._client.on('explosion', onExplosion as never);
+                getClient(bot).on('explosion', onExplosion as never);
 
                 const fleeCheck = setInterval(() => {
                     // Death cancels everything (flag set by 'death' event)
                     if (kiteDied || bot.health <= 0) {
                         clearInterval(fleeCheck);
                         bot.removeListener('death', onKiteDeath);
-                        (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                        getClient(bot).removeListener('explosion', onExplosion as never);
                         bot.setControlState('sprint', false);
                         bot.pathfinder.stop();
                         setCurrentActivity(bot, null);
@@ -234,7 +234,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                     if (!isCreeper && bot.health > LOW_HEALTH_THRESHOLD) {
                         clearInterval(fleeCheck);
                         bot.removeListener('death', onKiteDeath);
-                        (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                        getClient(bot).removeListener('explosion', onExplosion as never);
                         bot.setControlState('sprint', false);
                         bot.pathfinder.stop();
                         setCurrentActivity(bot, null);
@@ -252,7 +252,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                         // Creeper: wait 150ms for explosion packet (arrives after entity_destroy)
                         if (isCreeper) {
                             setTimeout(() => {
-                                (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                                getClient(bot).removeListener('explosion', onExplosion as never);
                                 if (explosionDetected) {
                                     resolve('');
                                 } else {
@@ -260,7 +260,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                                 }
                             }, 150);
                         } else {
-                            (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                            getClient(bot).removeListener('explosion', onExplosion as never);
                             resolve(`Killed the ${displayName} while kiting! (health: ${Math.round(bot.health)}/20)`);
                         }
                         return;
@@ -270,7 +270,7 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
                     if (Date.now() - fleeStart > FLEE_TIMEOUT_MS) {
                         clearInterval(fleeCheck);
                         bot.removeListener('death', onKiteDeath);
-                        (bot as unknown as { _client: { removeListener: (e: string, fn: (...args: never[]) => void) => void } })._client.removeListener('explosion', onExplosion as never);
+                        getClient(bot).removeListener('explosion', onExplosion as never);
                         bot.setControlState('sprint', false);
                         bot.pathfinder.stop();
                         setCurrentActivity(bot, null);
