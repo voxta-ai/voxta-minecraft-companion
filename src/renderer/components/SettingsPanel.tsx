@@ -1,6 +1,7 @@
 import { createSignal, For, Show } from 'solid-js';
 import type { McSettings, VisionMode, ActionInferenceTiming } from '../../shared/ipc-types';
 import { settings, updateSetting } from '../stores/app-store';
+import { SettingCard } from './SettingCard';
 
 interface ToggleItem {
     key: keyof McSettings;
@@ -64,11 +65,7 @@ const VOICE_CHANCE_SLIDERS: SliderItem[] = [
 
 function ToggleCard(props: { item: ToggleItem }) {
     return (
-        <div class="setting-card">
-            <div class="setting-card-info">
-                <div class="setting-card-name">{props.item.label}</div>
-                <div class="setting-card-desc">{props.item.description}</div>
-            </div>
+        <SettingCard name={props.item.label} description={props.item.description}>
             <label class="toggle">
                 <input
                     type="checkbox"
@@ -77,17 +74,13 @@ function ToggleCard(props: { item: ToggleItem }) {
                 />
                 <span class="toggle-slider" />
             </label>
-        </div>
+        </SettingCard>
     );
 }
 
 function SliderCard(props: { item: SliderItem }) {
     return (
-        <div class="setting-card">
-            <div class="setting-card-info">
-                <div class="setting-card-name">{props.item.label}</div>
-                <div class="setting-card-desc">{props.item.description}</div>
-            </div>
+        <SettingCard name={props.item.label} description={props.item.description}>
             <div class="slider-control">
                 <input
                     type="range"
@@ -99,7 +92,7 @@ function SliderCard(props: { item: SliderItem }) {
                 />
                 <span class="slider-value">{settings[props.item.key] as number}%</span>
             </div>
-        </div>
+        </SettingCard>
     );
 }
 
@@ -187,15 +180,11 @@ function VisionModeSelector() {
                 <span class="field-hint">{visionHint()}</span>
             </div>
             <Show when={settings.visionMode === 'eyes'}>
-                <div class="setting-card">
-                    <div class="setting-card-info">
-                        <div class="setting-card-name">Target Window</div>
-                        <div class="setting-card-desc">Select which Minecraft window to capture</div>
-                    </div>
+                <SettingCard name="Target Window" description="Select which Minecraft window to capture">
                     <button class="btn-switch-window" onClick={handleCycleWindow}>
                         Switch Window
                     </button>
-                </div>
+                </SettingCard>
                 <Show when={switchResult()}>
                     <div class="vision-window-info">{switchResult()}</div>
                 </Show>
@@ -237,13 +226,7 @@ function AudioEffects() {
             <div class="action-category-title">🔊 Audio Effects</div>
 
             {/* Spatial Audio */}
-            <div class="setting-card">
-                <div class="setting-card-info">
-                    <div class="setting-card-name">Spatial Audio</div>
-                    <div class="setting-card-desc">
-                        Distance-based volume and stereo panning — use headphones
-                    </div>
-                </div>
+            <SettingCard name="Spatial Audio" description="Distance-based volume and stereo panning — use headphones">
                 <label class="toggle">
                     <input
                         type="checkbox"
@@ -252,13 +235,9 @@ function AudioEffects() {
                     />
                     <span class="toggle-slider" />
                 </label>
-            </div>
+            </SettingCard>
             <Show when={settings.enableSpatialAudio}>
-                <div class="setting-card">
-                    <div class="setting-card-info">
-                        <div class="setting-card-name">Near Distance</div>
-                        <div class="setting-card-desc">Full volume within this range (blocks)</div>
-                    </div>
+                <SettingCard name="Near Distance" description="Full volume within this range (blocks)">
                     <div class="slider-control">
                         <input
                             type="range"
@@ -270,12 +249,8 @@ function AudioEffects() {
                         />
                         <span class="slider-value">{settings.spatialNearDistance}</span>
                     </div>
-                </div>
-                <div class="setting-card">
-                    <div class="setting-card-info">
-                        <div class="setting-card-name">Max Distance</div>
-                        <div class="setting-card-desc">Silent beyond this range (blocks)</div>
-                    </div>
+                </SettingCard>
+                <SettingCard name="Max Distance" description="Silent beyond this range (blocks)">
                     <div class="slider-control">
                         <input
                             type="range"
@@ -287,15 +262,11 @@ function AudioEffects() {
                         />
                         <span class="slider-value">{settings.spatialMaxDistance}</span>
                     </div>
-                </div>
+                </SettingCard>
             </Show>
 
             {/* Reverb */}
-            <div class="setting-card">
-                <div class="setting-card-info">
-                    <div class="setting-card-name">Reverb</div>
-                    <div class="setting-card-desc">Cave-like echo ambience</div>
-                </div>
+            <SettingCard name="Reverb" description="Cave-like echo ambience">
                 <label class="toggle">
                     <input
                         type="checkbox"
@@ -304,13 +275,9 @@ function AudioEffects() {
                     />
                     <span class="toggle-slider" />
                 </label>
-            </div>
+            </SettingCard>
             <Show when={settings.enableReverb}>
-                <div class="setting-card">
-                    <div class="setting-card-info">
-                        <div class="setting-card-name">Amount</div>
-                        <div class="setting-card-desc">Wet/dry mix</div>
-                    </div>
+                <SettingCard name="Amount" description="Wet/dry mix">
                     <div class="slider-control">
                         <input
                             type="range"
@@ -322,12 +289,8 @@ function AudioEffects() {
                         />
                         <span class="slider-value">{settings.reverbAmount}%</span>
                     </div>
-                </div>
-                <div class="setting-card">
-                    <div class="setting-card-info">
-                        <div class="setting-card-name">Decay</div>
-                        <div class="setting-card-desc">How long the reverb tail lasts</div>
-                    </div>
+                </SettingCard>
+                <SettingCard name="Decay" description="How long the reverb tail lasts">
                     <div class="slider-control">
                         <input
                             type="range"
@@ -339,15 +302,11 @@ function AudioEffects() {
                         />
                         <span class="slider-value">{settings.reverbDecay}%</span>
                     </div>
-                </div>
+                </SettingCard>
             </Show>
 
             {/* Echo */}
-            <div class="setting-card">
-                <div class="setting-card-info">
-                    <div class="setting-card-name">Echo</div>
-                    <div class="setting-card-desc">Delayed voice repetition</div>
-                </div>
+            <SettingCard name="Echo" description="Delayed voice repetition">
                 <label class="toggle">
                     <input
                         type="checkbox"
@@ -356,13 +315,9 @@ function AudioEffects() {
                     />
                     <span class="toggle-slider" />
                 </label>
-            </div>
+            </SettingCard>
             <Show when={settings.enableEcho}>
-                <div class="setting-card">
-                    <div class="setting-card-info">
-                        <div class="setting-card-name">Delay</div>
-                        <div class="setting-card-desc">Time between echoes</div>
-                    </div>
+                <SettingCard name="Delay" description="Time between echoes">
                     <div class="slider-control">
                         <input
                             type="range"
@@ -374,12 +329,8 @@ function AudioEffects() {
                         />
                         <span class="slider-value">{settings.echoDelay}ms</span>
                     </div>
-                </div>
-                <div class="setting-card">
-                    <div class="setting-card-info">
-                        <div class="setting-card-name">Feedback</div>
-                        <div class="setting-card-desc">How many times the echo repeats</div>
-                    </div>
+                </SettingCard>
+                <SettingCard name="Feedback" description="How many times the echo repeats">
                     <div class="slider-control">
                         <input
                             type="range"
@@ -391,15 +342,11 @@ function AudioEffects() {
                         />
                         <span class="slider-value">{settings.echoDecay}%</span>
                     </div>
-                </div>
+                </SettingCard>
             </Show>
 
             {/* Test button */}
-            <div class="setting-card">
-                <div class="setting-card-info">
-                    <div class="setting-card-name">Preview</div>
-                    <div class="setting-card-desc">Play a test tone through the effects chain</div>
-                </div>
+            <SettingCard name="Preview" description="Play a test tone through the effects chain">
                 <button
                     class="btn-test-voice"
                     disabled={testing()}
@@ -407,7 +354,7 @@ function AudioEffects() {
                 >
                     {testing() ? '...' : '🔊 Test'}
                 </button>
-            </div>
+            </SettingCard>
         </div>
     );
 }
