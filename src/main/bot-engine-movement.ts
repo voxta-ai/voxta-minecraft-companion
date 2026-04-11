@@ -15,6 +15,14 @@ import { isHostileEntity } from '../bot/minecraft/events';
 import { getClient, getFollowDistance, getVehicle, getEntityVehicle, setEntityVehicle } from '../bot/minecraft/mineflayer-types';
 import { AGGRO_SKIP_MOBS, HUNTABLE_ANIMALS, SPLIT_MOBS, LOW_HEALTH_THRESHOLD } from '../bot/minecraft/game-data';
 
+// ---- Timing constants ----
+const BATCH_FLUSH_MS = 5000;         // Delay before flushing batched kill notes
+const SPLIT_MOB_COOLDOWN_MS = 5000;  // Ignore split mob babies after a kill
+const FOLLOW_RESUME_DELAY_MS = 2000; // Wait before resuming follow after combat
+const MODE_SCAN_INTERVAL_MS = 2000;  // How often aggro/hunt/guard scans for targets
+const WATCHDOG_INTERVAL_MS = 5000;   // Follow watchdog check frequency
+const DEFAULT_MOVE_SPEED = 0.225;    // Minecraft default movement speed attribute
+
 /** Callbacks the movement loops use to interact with BotEngine state */
 export interface MovementCallbacks {
     getFollowingPlayer(): string | null;
@@ -114,7 +122,7 @@ export function createModeScanLoop(
                             modeKillCounts[mobName] = (modeKillCounts[mobName] ?? 0) + 1;
                             // Reset batch timer — flush after 5s of no new kills
                             if (modeBatchTimer) clearTimeout(modeBatchTimer);
-                            modeBatchTimer = setTimeout(flushModeBatch, 5000);
+                            modeBatchTimer = setTimeout(flushModeBatch, BATCH_FLUSH_MS);
                         } else if (!result) {
                             // Empty = creeper explosion — environmental note, no bot attribution
                             callbacks.addChat('note', 'Note', 'Creeper exploded nearby');
@@ -126,15 +134,15 @@ export function createModeScanLoop(
 
                         // Set cooldown for split mobs
                         if (SPLIT_MOBS.includes(mobName)) {
-                            aggroCooldowns[mobName] = Date.now() + 5000;
+                            aggroCooldowns[mobName] = Date.now() + SPLIT_MOB_COOLDOWN_MS;
                             console.log(`[${label}] Aggro: ${mobName} split cooldown set for 5s`);
                         }
                     })
                     .catch((err) => console.log(`[${label}] Aggro attack failed:`, err))
                     .finally(() => {
                         setAutoDefending(bot, false);
-                        console.log(`[${label}] Aggro: combat ended, scheduling follow resume in 2s`);
-                        // Wait 2s before resuming follow — if another fight starts
+                        console.log(`[${label}] Aggro: combat ended, scheduling follow resume`);
+                        // Wait before resuming follow — if another fight starts
                         // in that window, the scan will pick it up, and this timer
                         // becomes irrelevant (the new fight sets its own goal).
                         setTimeout(() => {
@@ -152,7 +160,7 @@ export function createModeScanLoop(
                             } else {
                                 console.log(`[${label}] Aggro: skipped follow resume (busy or no player)`);
                             }
-                        }, 2000);
+                        }, FOLLOW_RESUME_DELAY_MS);
                     });
             }
             return;
@@ -199,7 +207,7 @@ export function createModeScanLoop(
                             modeBatchLabel = 'hunt';
                             modeKillCounts[animalName] = (modeKillCounts[animalName] ?? 0) + 1;
                             if (modeBatchTimer) clearTimeout(modeBatchTimer);
-                            modeBatchTimer = setTimeout(flushModeBatch, 5000);
+                            modeBatchTimer = setTimeout(flushModeBatch, BATCH_FLUSH_MS);
                         } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
                             callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
                             callbacks.queueNote(`${getAssistantName()}: ${result}`);
@@ -226,7 +234,7 @@ export function createModeScanLoop(
                             } else {
                                 console.log(`[${label}] Hunt: skipped follow resume (busy or no player)`);
                             }
-                        }, 2000);
+                        }, FOLLOW_RESUME_DELAY_MS);
                     });
             }
             return;
@@ -291,7 +299,7 @@ export function createModeScanLoop(
             const { GoalNear } = require('mineflayer-pathfinder').goals;
             bot.pathfinder.setGoal(new GoalNear(patrolTarget.x, center.y, patrolTarget.z, 1));
         }
-    }, 2000);
+    }, MODE_SCAN_INTERVAL_MS);
 
     return { loop, flush: flushModeBatch };
 }
@@ -360,11 +368,11 @@ export function createMountedSteeringLoop(
         const yaw = -Math.atan2(dx, dz);
         const yawDeg = yaw * (180 / Math.PI);
 
-        let speedAttr = 0.225;
+        let speedAttr = DEFAULT_MOVE_SPEED;
         if (vehicleEntity.attributes?.['minecraft:generic.movement_speed']) {
-            speedAttr = vehicleEntity.attributes['minecraft:generic.movement_speed'].value ?? 0.225;
+            speedAttr = vehicleEntity.attributes['minecraft:generic.movement_speed'].value ?? DEFAULT_MOVE_SPEED;
         } else if (vehicleEntity.attributes?.['generic.movementSpeed']) {
-            speedAttr = vehicleEntity.attributes['generic.movementSpeed'].value ?? 0.225;
+            speedAttr = vehicleEntity.attributes['generic.movementSpeed'].value ?? DEFAULT_MOVE_SPEED;
         }
         const blocksPerSec = speedAttr * 100;
         const moveStep = Math.min(blocksPerSec * 0.05, 2.0);
@@ -530,5 +538,5 @@ export function createFollowWatchdog(
             bot.setControlState('forward', true);
             bot.setControlState('sprint', true);
         }
-    }, 5000);
+    }, WATCHDOG_INTERVAL_MS);
 }

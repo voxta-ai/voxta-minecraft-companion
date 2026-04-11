@@ -37,6 +37,11 @@ export function isHostileEntity(e: Entity): boolean {
     return e.type === 'hostile' || getEntityKind(e) === 'Hostile mobs';
 }
 
+// ---- Timing constants ----
+const DAMAGE_CONSOLIDATION_MS = 3000; // Accumulate damage hits before sending one note
+const PICKUP_FLUSH_MS = 3000;         // Batch pickup notifications before sending
+const AUTO_EAT_THRESHOLD = 14;        // Eat when food drops below this (20 = full)
+
 // ---- MC Event Bridge ----
 
 /**
@@ -137,7 +142,7 @@ export class McEventBridge {
                     const damageSource = source;
                     this.damageTimer = setTimeout(() => {
                         this.flushDamageNote(damageSource);
-                    }, 3000);
+                    }, DAMAGE_CONSOLIDATION_MS);
                 }
             }
             this.lastHealth = currentHealth;
@@ -274,6 +279,7 @@ export class McEventBridge {
                     void this.onAutoDefenseAction(this.bot, targetName).finally(() => {
                         this.isAutoDefending = false;
                         setAutoDefending(this.bot, false);
+                        this.clearLastAttacker();
                     });
                 }
             }
@@ -326,6 +332,7 @@ export class McEventBridge {
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
                 setAutoDefending(this.bot, false);
+                this.clearLastAttacker();
             });
         }) as (...args: never[]) => void);
 
@@ -377,6 +384,7 @@ export class McEventBridge {
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
                 setAutoDefending(this.bot, false);
+                this.clearLastAttacker();
             });
         }) as (...args: never[]) => void);
 
@@ -409,6 +417,7 @@ export class McEventBridge {
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
                 setAutoDefending(this.bot, false);
+                this.clearLastAttacker();
             });
         }, 1000);
 
@@ -424,7 +433,7 @@ export class McEventBridge {
 
         const tryAutoEat = (): void => {
             if (isAutoEating) return;
-            if (this.bot.food >= 14) return; // only eat when hungry (20 = full)
+            if (this.bot.food >= AUTO_EAT_THRESHOLD) return; // only eat when hungry (20 = full)
 
             // Find the best food in inventory
             const items = this.bot.inventory.items();
@@ -463,7 +472,7 @@ export class McEventBridge {
                 } finally {
                     isAutoEating = false;
                     // Still hungry? Eat again after a short delay
-                    if (this.bot.food < 14) {
+                    if (this.bot.food < AUTO_EAT_THRESHOLD) {
                         setTimeout(() => tryAutoEat(), 2000);
                     }
                 }
@@ -544,7 +553,7 @@ export class McEventBridge {
 
                 if (gains.length > 0) {
                     if (!pickupFlushTimer) {
-                        pickupFlushTimer = setTimeout(flushPickups, 3000);
+                        pickupFlushTimer = setTimeout(flushPickups, PICKUP_FLUSH_MS);
                     }
                 }
 
