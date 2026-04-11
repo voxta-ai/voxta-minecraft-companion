@@ -60,6 +60,14 @@ export default tseslint.config(
         },
     },
 
+    // Test file overrides — vi.fn() mocks trigger false positives for unbound-method
+    {
+        files: ['src/__tests__/**'],
+        rules: {
+            '@typescript-eslint/unbound-method': 'off',
+        },
+    },
+
     // Ignore output directories
     {
         ignores: [
