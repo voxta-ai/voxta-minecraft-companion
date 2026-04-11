@@ -50,6 +50,7 @@ export interface BotStatus {
     assistantName: string | null;
     assistantName2: string | null;
     sessionId: string | null;
+    paused: boolean;
 }
 
 export interface ChatMessage {
@@ -409,6 +410,7 @@ export const IPC_CHANNELS = {
     FAVORITE_CHAT: 'bot:favorite-chat',
     DELETE_CHAT: 'bot:delete-chat',
     REFRESH_CHARACTERS: 'bot:refresh-characters',
+    PAUSE_CHAT: 'bot:pause-chat',
 
     // Main → Renderer
     STATUS_CHANGED: 'bot:status-changed',

@@ -159,6 +159,10 @@ export function registerIpcHandlers(win: BrowserWindow): { serverManager: Server
         return engine.refreshCharacters();
     });
 
+    ipcMain.handle(IPC_CHANNELS.PAUSE_CHAT, async (_event, pause: boolean) => {
+        return engine.pauseChat(pause);
+    });
+
     // ---- Server Manager ----
 
     serverManager.on('server-status-changed', (status: ServerStatus) => {
