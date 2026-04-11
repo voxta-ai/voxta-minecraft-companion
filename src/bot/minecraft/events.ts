@@ -279,6 +279,7 @@ export class McEventBridge {
                     void this.onAutoDefenseAction(this.bot, targetName).finally(() => {
                         this.isAutoDefending = false;
                         setAutoDefending(this.bot, false);
+                        this.clearLastAttacker();
                     });
                 }
             }
@@ -331,6 +332,7 @@ export class McEventBridge {
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
                 setAutoDefending(this.bot, false);
+                this.clearLastAttacker();
             });
         }) as (...args: never[]) => void);
 
@@ -382,6 +384,7 @@ export class McEventBridge {
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
                 setAutoDefending(this.bot, false);
+                this.clearLastAttacker();
             });
         }) as (...args: never[]) => void);
 
@@ -414,6 +417,7 @@ export class McEventBridge {
             void this.onAutoDefenseAction(this.bot, mobName).finally(() => {
                 this.isAutoDefending = false;
                 setAutoDefending(this.bot, false);
+                this.clearLastAttacker();
             });
         }, 1000);
 
