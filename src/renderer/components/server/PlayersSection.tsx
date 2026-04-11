@@ -1,16 +1,11 @@
 import { createSignal, onMount, Show, For } from 'solid-js';
-import type { Accessor } from 'solid-js';
 import { serverState } from '../../stores/server-store';
 import { addToast } from '../../stores/toast-store';
-import type { WhitelistEntry, OpsEntry, ServerProperties } from '../../../shared/ipc-types';
+import { properties, updateProperty } from '../../stores/server-properties-store';
+import type { WhitelistEntry, OpsEntry } from '../../../shared/ipc-types';
 import { SettingCard } from '../SettingCard';
 
-interface PlayersSectionProps {
-    properties: Accessor<ServerProperties>;
-    setProperties: (fn: (prev: ServerProperties) => ServerProperties) => void;
-}
-
-export default function PlayersSection(props: PlayersSectionProps) {
+export default function PlayersSection() {
     const [whitelist, setWhitelist] = createSignal<WhitelistEntry[]>([]);
     const [ops, setOps] = createSignal<OpsEntry[]>([]);
     const [whitelistInput, setWhitelistInput] = createSignal('');
@@ -102,17 +97,17 @@ export default function PlayersSection(props: PlayersSectionProps) {
                     <label class="toggle" style={{ "margin-left": "auto" }}>
                         <input
                             type="checkbox"
-                            checked={props.properties()['white-list'] === 'true'}
+                            checked={properties()['white-list'] === 'true'}
                             onChange={(e) => {
                                 const value = e.currentTarget.checked ? 'true' : 'false';
-                                props.setProperties((prev) => ({ ...prev, 'white-list': value }));
-                                void window.api.serverSaveProperties({ ...props.properties(), 'white-list': value });
+                                updateProperty('white-list', value);
+                                void window.api.serverSaveProperties({ ...properties(), 'white-list': value });
                             }}
                         />
                         <span class="toggle-slider"></span>
                     </label>
                 </div>
-                <Show when={props.properties()['white-list'] === 'true'}>
+                <Show when={properties()['white-list'] === 'true'}>
                     <div class="player-add-row">
                         <input
                             type="text"
@@ -151,7 +146,7 @@ export default function PlayersSection(props: PlayersSectionProps) {
                         </Show>
                     </div>
                 </Show>
-                <Show when={props.properties()['white-list'] !== 'true'}>
+                <Show when={properties()['white-list'] !== 'true'}>
                     <div class="plugin-empty">
                         Whitelist is off — anyone can join. Enable it to restrict access.
                     </div>

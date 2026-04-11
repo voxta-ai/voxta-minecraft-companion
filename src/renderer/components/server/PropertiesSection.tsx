@@ -1,28 +1,23 @@
 import { Show } from 'solid-js';
-import type { Accessor } from 'solid-js';
 import { serverState } from '../../stores/server-store';
-import type { ServerProperties } from '../../../shared/ipc-types';
+import {
+    properties,
+    updateProperty,
+    propsChanged,
+    savingProps,
+    saveProperties,
+    resetDefaults,
+    memoryMb,
+    updateMemoryMb,
+    autoStart,
+    updateAutoStart,
+    configChanged,
+    savingConfig,
+    saveConfig,
+} from '../../stores/server-properties-store';
 import { SettingCard } from '../SettingCard';
 
-interface PropertiesSectionProps {
-    properties: Accessor<ServerProperties>;
-    updateProperty: (key: string, value: string) => void;
-    propsChanged: Accessor<boolean>;
-    savingProps: Accessor<boolean>;
-    onSaveProperties: () => void;
-    onResetDefaults: () => void;
-    // Config
-    memoryMb: Accessor<number>;
-    setMemoryMb: (v: number) => void;
-    autoStart: Accessor<boolean>;
-    setAutoStart: (v: boolean) => void;
-    configChanged: Accessor<boolean>;
-    setConfigChanged: (v: boolean) => void;
-    savingConfig: Accessor<boolean>;
-    onSaveConfig: () => void;
-}
-
-export default function PropertiesSection(props: PropertiesSectionProps) {
+export default function PropertiesSection() {
     return (
         <div class="server-properties-section">
             <Show when={serverState() === 'running'}>
@@ -36,11 +31,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                         <label class="toggle">
                             <input
                                 type="checkbox"
-                                checked={props.autoStart()}
-                                onChange={(e) => {
-                                    props.setAutoStart(e.currentTarget.checked);
-                                    props.setConfigChanged(true);
-                                }}
+                                checked={autoStart()}
+                                onChange={(e) => updateAutoStart(e.currentTarget.checked)}
                             />
                             <span class="toggle-slider"></span>
                         </label>
@@ -65,14 +57,11 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                                 min="512"
                                 max="8192"
                                 step="512"
-                                value={props.memoryMb()}
-                                onInput={(e) => {
-                                    props.setMemoryMb(parseInt(e.currentTarget.value, 10));
-                                    props.setConfigChanged(true);
-                                }}
+                                value={memoryMb()}
+                                onInput={(e) => updateMemoryMb(parseInt(e.currentTarget.value, 10))}
                             />
                             <span class="memory-value">
-                                {props.memoryMb() >= 1024 ? `${(props.memoryMb() / 1024).toFixed(props.memoryMb() % 1024 === 0 ? 0 : 1)} GB` : `${props.memoryMb()} MB`}
+                                {memoryMb() >= 1024 ? `${(memoryMb() / 1024).toFixed(memoryMb() % 1024 === 0 ? 0 : 1)} GB` : `${memoryMb()} MB`}
                             </span>
                         </div>
                         <div class="memory-labels">
@@ -89,8 +78,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                     <SettingCard name="Difficulty">
                         <select
                             class="vision-select"
-                            value={props.properties()['difficulty'] ?? 'easy'}
-                            onChange={(e) => props.updateProperty('difficulty', e.currentTarget.value)}
+                            value={properties()['difficulty'] ?? 'easy'}
+                            onChange={(e) => updateProperty('difficulty', e.currentTarget.value)}
                         >
                             <option value="peaceful">Peaceful</option>
                             <option value="easy">Easy</option>
@@ -101,8 +90,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                     <SettingCard name="Game Mode">
                         <select
                             class="vision-select"
-                            value={props.properties()['gamemode'] ?? 'survival'}
-                            onChange={(e) => props.updateProperty('gamemode', e.currentTarget.value)}
+                            value={properties()['gamemode'] ?? 'survival'}
+                            onChange={(e) => updateProperty('gamemode', e.currentTarget.value)}
                         >
                             <option value="survival">Survival</option>
                             <option value="creative">Creative</option>
@@ -114,10 +103,10 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                         <input
                             type="number"
                             class="server-prop-number"
-                            value={props.properties()['max-players'] ?? '5'}
+                            value={properties()['max-players'] ?? '5'}
                             min="1"
                             max="100"
-                            onChange={(e) => props.updateProperty('max-players', e.currentTarget.value)}
+                            onChange={(e) => updateProperty('max-players', e.currentTarget.value)}
                         />
                     </SettingCard>
                 </div>
@@ -130,26 +119,26 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                         <input
                             type="text"
                             class="server-prop-text"
-                            value={props.properties()['motd'] ?? 'Voxta Test Server'}
-                            onChange={(e) => props.updateProperty('motd', e.currentTarget.value)}
+                            value={properties()['motd'] ?? 'Voxta Test Server'}
+                            onChange={(e) => updateProperty('motd', e.currentTarget.value)}
                         />
                     </SettingCard>
                     <SettingCard name="Server Port">
                         <input
                             type="number"
                             class="server-prop-number"
-                            value={props.properties()['server-port'] ?? '25565'}
+                            value={properties()['server-port'] ?? '25565'}
                             min="1024"
                             max="65535"
-                            onChange={(e) => props.updateProperty('server-port', e.currentTarget.value)}
+                            onChange={(e) => updateProperty('server-port', e.currentTarget.value)}
                         />
                     </SettingCard>
                     <SettingCard name="Verify Mojang Accounts" description="When off, anyone can join without a paid account (required for bots)">
                         <label class="toggle">
                             <input
                                 type="checkbox"
-                                checked={props.properties()['online-mode'] === 'true'}
-                                onChange={(e) => props.updateProperty('online-mode', e.currentTarget.checked ? 'true' : 'false')}
+                                checked={properties()['online-mode'] === 'true'}
+                                onChange={(e) => updateProperty('online-mode', e.currentTarget.checked ? 'true' : 'false')}
                             />
                             <span class="toggle-slider" />
                         </label>
@@ -164,8 +153,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                         <label class="toggle">
                             <input
                                 type="checkbox"
-                                checked={props.properties()['spawn-monsters'] !== 'false'}
-                                onChange={(e) => props.updateProperty('spawn-monsters', e.currentTarget.checked ? 'true' : 'false')}
+                                checked={properties()['spawn-monsters'] !== 'false'}
+                                onChange={(e) => updateProperty('spawn-monsters', e.currentTarget.checked ? 'true' : 'false')}
                             />
                             <span class="toggle-slider" />
                         </label>
@@ -174,8 +163,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                         <label class="toggle">
                             <input
                                 type="checkbox"
-                                checked={props.properties()['spawn-animals'] !== 'false'}
-                                onChange={(e) => props.updateProperty('spawn-animals', e.currentTarget.checked ? 'true' : 'false')}
+                                checked={properties()['spawn-animals'] !== 'false'}
+                                onChange={(e) => updateProperty('spawn-animals', e.currentTarget.checked ? 'true' : 'false')}
                             />
                             <span class="toggle-slider" />
                         </label>
@@ -184,8 +173,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                         <label class="toggle">
                             <input
                                 type="checkbox"
-                                checked={props.properties()['allow-flight'] === 'true'}
-                                onChange={(e) => props.updateProperty('allow-flight', e.currentTarget.checked ? 'true' : 'false')}
+                                checked={properties()['allow-flight'] === 'true'}
+                                onChange={(e) => updateProperty('allow-flight', e.currentTarget.checked ? 'true' : 'false')}
                             />
                             <span class="toggle-slider" />
                         </label>
@@ -194,8 +183,8 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                         <label class="toggle">
                             <input
                                 type="checkbox"
-                                checked={props.properties()['enable-command-block'] !== 'false'}
-                                onChange={(e) => props.updateProperty('enable-command-block', e.currentTarget.checked ? 'true' : 'false')}
+                                checked={properties()['enable-command-block'] !== 'false'}
+                                onChange={(e) => updateProperty('enable-command-block', e.currentTarget.checked ? 'true' : 'false')}
                             />
                             <span class="toggle-slider" />
                         </label>
@@ -208,7 +197,7 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                     <SettingCard name="Reset to Defaults" description="Restore all settings to their original values">
                         <button
                             class="server-reset-btn"
-                            onClick={props.onResetDefaults}
+                            onClick={resetDefaults}
                         >
                             Reset
                         </button>
@@ -220,14 +209,14 @@ export default function PropertiesSection(props: PropertiesSectionProps) {
                 <button
                     class="btn btn-connect"
                     onClick={() => {
-                        if (props.propsChanged()) props.onSaveProperties();
-                        if (props.configChanged()) props.onSaveConfig();
+                        if (propsChanged()) void saveProperties();
+                        if (configChanged()) void saveConfig();
                     }}
-                    disabled={props.savingProps() || props.savingConfig() || (!props.propsChanged() && !props.configChanged())}
+                    disabled={savingProps() || savingConfig() || (!propsChanged() && !configChanged())}
                 >
-                    {props.savingProps() || props.savingConfig() ? 'Saving...' : 'Save Settings'}
+                    {savingProps() || savingConfig() ? 'Saving...' : 'Save Settings'}
                 </button>
-                <Show when={props.propsChanged() || props.configChanged()}>
+                <Show when={propsChanged() || configChanged()}>
                     <span class="server-hint">Restart the server for changes to take effect.</span>
                 </Show>
             </div>
