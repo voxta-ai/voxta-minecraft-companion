@@ -4,6 +4,7 @@ import { app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { fetchJson, downloadFile } from './server-http';
+import { parseProperties, updatePropertiesContent } from './server-properties';
 import { PluginManager } from './plugin-manager';
 import { WorldManager } from './world-manager';
 import { PlayerManager } from './player-manager';
@@ -259,7 +260,7 @@ export class ServerManager extends EventEmitter {
         const propsPath = path.join(this.serverDir, 'server.properties');
         try {
             const content = await fs.readFile(propsPath, 'utf-8');
-            return this.parseProperties(content);
+            return parseProperties(content);
         } catch {
             return {};
         }
@@ -277,13 +278,13 @@ export class ServerManager extends EventEmitter {
 
         // Detect whitelist toggle change and apply live if server running
         if (this.isRunning()) {
-            const oldProps = this.parseProperties(content);
+            const oldProps = parseProperties(content);
             if (props['white-list'] !== oldProps['white-list']) {
                 this.sendCommand(props['white-list'] === 'true' ? 'whitelist on' : 'whitelist off');
             }
         }
 
-        const updatedContent = this.updatePropertiesContent(content, props);
+        const updatedContent = updatePropertiesContent(content, props);
         await fs.writeFile(propsPath, updatedContent);
     }
 
@@ -406,48 +407,6 @@ export class ServerManager extends EventEmitter {
         if (line.includes('WARN') || line.includes('WARNING')) return 'warn';
         if (line.includes('ERROR') || line.includes('SEVERE') || line.includes('FATAL')) return 'error';
         return 'info';
-    }
-
-    private parseProperties(content: string): ServerProperties {
-        const props: ServerProperties = {};
-        for (const line of content.split('\n')) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('#')) continue;
-            const eqIdx = trimmed.indexOf('=');
-            if (eqIdx === -1) continue;
-            props[trimmed.substring(0, eqIdx)] = trimmed.substring(eqIdx + 1);
-        }
-        return props;
-    }
-
-    private updatePropertiesContent(original: string, updates: ServerProperties): string {
-        if (!original.trim()) {
-            return Object.entries(updates)
-                .map(([key, value]) => `${key}=${value}`)
-                .join('\n') + '\n';
-        }
-
-        const updatedKeys = new Set<string>();
-        const lines = original.split('\n').map((line) => {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('#')) return line;
-            const eqIdx = trimmed.indexOf('=');
-            if (eqIdx === -1) return line;
-            const key = trimmed.substring(0, eqIdx);
-            if (key in updates) {
-                updatedKeys.add(key);
-                return `${key}=${updates[key]}`;
-            }
-            return line;
-        });
-
-        for (const [key, value] of Object.entries(updates)) {
-            if (!updatedKeys.has(key)) {
-                lines.push(`${key}=${value}`);
-            }
-        }
-
-        return lines.join('\n');
     }
 
     private async getMemoryMb(): Promise<number> {

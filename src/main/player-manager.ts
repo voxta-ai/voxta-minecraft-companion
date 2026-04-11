@@ -76,12 +76,16 @@ export class PlayerManager {
         sendCommand?.(`deop ${name}`);
     }
 
-    /** Generate an offline-mode UUID v3 from a player name */
     private offlineUuid(name: string): string {
-        const md5 = crypto.createHash('md5').update(`OfflinePlayer:${name}`).digest();
-        md5[6] = (md5[6] & 0x0f) | 0x30; // version 3
-        md5[8] = (md5[8] & 0x3f) | 0x80; // variant
-        const hex = md5.toString('hex');
-        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+        return offlineUuid(name);
     }
+}
+
+/** Generate an offline-mode UUID v3 from a player name */
+export function offlineUuid(name: string): string {
+    const md5 = crypto.createHash('md5').update(`OfflinePlayer:${name}`).digest();
+    md5[6] = (md5[6] & 0x0f) | 0x30; // version 3
+    md5[8] = (md5[8] & 0x3f) | 0x80; // variant
+    const hex = md5.toString('hex');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

@@ -14,7 +14,22 @@ npm run format:fix   # Auto-format code
 npm run dist         # Build Windows NSIS installer + portable ZIP
 ```
 
-There are no unit tests — validation is lint + format only.
+### Tests
+```bash
+npm test             # Run all Vitest tests (once)
+npm run test:watch   # Run tests in watch mode
+```
+Tests live in `src/__tests__/` and cover pure logic: NameRegistry, properties parsing, humanizeError, offlineUuid, action definitions.
+
+### Verification after refactoring or code changes
+
+Always run all three checks — each catches different problems:
+
+1. `npx eslint src/` — catches lint rule violations (style, unused vars, etc.)
+2. `npx electron-vite build` — catches import resolution and bundling errors
+3. `npx tsc --noEmit` — catches type errors (implicit any, missing modules, type mismatches)
+
+**Why all three are needed:** ESLint doesn't type-check. Vite/esbuild transpiles without type-checking (it strips types for speed). Only `tsc --noEmit` runs the full TypeScript compiler to verify types are correct.
 
 ## What This Project Is
 
