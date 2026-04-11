@@ -1,0 +1,157 @@
+/* ---- CSS Variables (Voxta-inspired dark theme) ---- */
+:root {
+    --bg-primary: #0f0f1a;
+    --bg-secondary: #16162a;
+    --bg-surface: #1e1e38;
+    --bg-hover: #262645;
+    --border-color: #2a2a4a;
+    --border-active: #4a4a8a;
+    --text-primary: #e8e8f0;
+    --text-secondary: #9898b4;
+    --text-muted: #6868888;
+    --accent-green: #4ade80;
+    --accent-green-dim: #22c55e33;
+    --accent-blue: #60a5fa;
+    --accent-amber: #fbbf24;
+    --accent-red: #dc2626;
+    --accent-purple: #a78bfa;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --transition: 0.2s ease;
+    --font: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ---- Reset & Base ---- */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    font-family: var(--font), sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Global Scrollbar ---- */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--border-active);
+}
+
+/* ---- App Layout ---- */
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    -webkit-app-region: drag;
+    user-select: none;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.app-header h1 {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.app-header .logo {
+    font-size: 20px;
+}
+
+.header-actions {
+    display: flex;
+    gap: 4px;
+    -webkit-app-region: no-drag;
+}
+
+.header-btn {
+    padding: 4px 8px;
+    height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.header-btn-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.header-btn-label {
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.02em;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.header-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-color);
+}
+
+.header-btn.active {
+    background: var(--bg-hover);
+    border-color: var(--accent-blue);
+}
+
+.header-btn-disconnect .header-btn-icon,
+.header-btn-disconnect .header-btn-label {
+    color: var(--accent-red);
+}
+
+.header-btn-disconnect:hover {
+    background: rgba(248, 113, 113, 0.15);
+    border-color: var(--accent-red);
+}

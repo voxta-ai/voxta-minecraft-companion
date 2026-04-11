@@ -1,0 +1,156 @@
+/* ---- Terminal Panel ---- */
+.terminal-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    background: #000;
+    border-top: 1px solid #333;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 12px;
+    color: #ccc;
+}
+
+.terminal-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 12px;
+    background: #0a0a0a;
+    border-bottom: 1px solid #333;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.terminal-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.terminal-toolbar-icon {
+    color: #569CD6;
+    font-weight: bold;
+    font-size: 13px;
+}
+
+.terminal-toolbar-title {
+    font-weight: 600;
+    color: #888;
+    font-size: 12px;
+}
+
+.terminal-toolbar-btn {
+    background: none;
+    border: none;
+    color: #888;
+    font-family: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 3px;
+    transition: background 0.15s, color 0.15s;
+}
+
+.terminal-toolbar-btn:hover {
+    background: #3c3c3c;
+    color: #ccc;
+}
+
+.terminal-toolbar-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.terminal-logs {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    min-height: 0;
+}
+
+.terminal-logs::-webkit-scrollbar {
+    width: 10px;
+    background: #000;
+}
+
+.terminal-logs::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 5px;
+    border: 2px solid #000;
+}
+
+.terminal-logs code {
+    display: block;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #d4d4d4;
+}
+
+.terminal-row {
+    display: flex;
+    align-items: flex-start;
+    padding: 2px 12px;
+    gap: 8px;
+    border-bottom: 1px solid #2a2a2a;
+    transition: background 0.1s;
+}
+
+.terminal-row:hover {
+    background: #2a2d2e;
+}
+
+.terminal-row-error {
+    background: rgba(255, 0, 0, 0.05);
+    border-left: 3px solid #f48771;
+    padding-left: 9px;
+}
+
+.terminal-row-error .terminal-content {
+    color: #f48771;
+}
+
+.terminal-row-warn {
+    border-left: 3px solid #cca700;
+    padding-left: 9px;
+}
+
+.terminal-row-warn .terminal-content {
+    color: #cca700;
+}
+
+.terminal-timestamp {
+    color: #666;
+    flex-shrink: 0;
+    font-size: 11px;
+    margin-top: 1px;
+}
+
+.terminal-level-icon {
+    flex-shrink: 0;
+    width: 14px;
+    margin-top: 1px;
+    font-size: 11px;
+}
+
+.terminal-row-error .terminal-level-icon {
+    color: #f48771;
+}
+
+.terminal-row-warn .terminal-level-icon {
+    color: #cca700;
+}
+
+.terminal-content {
+    flex: 1;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.terminal-empty {
+    color: #666;
+    font-style: italic;
+    padding: 16px;
+    text-align: center;
+    font-size: 12px;
+}
