@@ -111,7 +111,16 @@ export class McEventBridge {
             return false;
         };
 
-        // ---- Health / Damage ----
+        this.registerDamageHandlers();
+        this.registerCombatHandlers(isOnCooldown);
+        this.registerAutoEat();
+        this.registerInventoryTracking();
+        this.registerChatBridging();
+    }
+
+    // ---- Damage, death, and respawn ----
+
+    private registerDamageHandlers(): void {
         this.on('health', (() => {
             const settings = this.callbacks.getSettings();
             const currentHealth = Math.round(this.bot.health * 10) / 10;
@@ -186,7 +195,17 @@ export class McEventBridge {
             );
         }) as (...args: never[]) => void);
 
-        // ---- Entity swing arm (melee hit tracking) ----
+        this.on('wake', (() => {
+            const botName = this.callbacks.getAssistantName();
+            this.callbacks.onChat('event', 'Event', `${botName} woke up!`);
+            this.callbacks.onEvent(`${botName} woke up. It is now morning.`);
+        }) as (...args: never[]) => void);
+    }
+
+    // ---- Combat: swing tracking, auto-defense, player protection, companion assist, proximity ----
+
+    private registerCombatHandlers(isOnCooldown: (key: string) => boolean): void {
+        // Melee hit tracking
         this.on('entitySwingArm', ((entity: Entity) => {
             if (entity.id === this.bot.entity.id) return;
             if (entity.position.distanceTo(this.bot.entity.position) < 6) {
@@ -196,17 +215,12 @@ export class McEventBridge {
             }
         }) as (...args: never[]) => void);
 
-        // ---- Entity hurt (under attack detection + auto-defense) ----
+        // Under attack detection + auto self-defense
         this.on('entityHurt', ((entity: { id: number }) => {
             if (entity.id !== this.bot.entity.id) return;
+            if (this.bot.food === 0) return; // starvation — no attacker
 
-            // Ignore environmental damage (starvation, drowning, fall, etc.)
-            // bot.food === 0 means starvation; no attacker to defend against.
-            if (this.bot.food === 0) return;
-
-            // Priority 1: Check for nearby hostile mobs (handles explosions, ranged, AOE)
-            // Pick the CLOSEST hostile mob — not the first in the dictionary.
-            // Using find() could target a distant spider while a skeleton shoots us.
+            // Find closest hostile mob
             let hostileMob: Entity | undefined;
             let hostileDist = Infinity;
             for (const e of Object.values(this.bot.entities)) {
@@ -285,7 +299,7 @@ export class McEventBridge {
             }
         }) as (...args: never[]) => void);
 
-        // ---- Player protection: auto-defend nearby players ----
+        // Player protection: auto-defend nearby players
         let lastProtectTime = 0;
         this.on('entityHurt', ((entity: Entity) => {
             // Only react to players (not the bot itself — handled above)
@@ -336,7 +350,7 @@ export class McEventBridge {
             });
         }) as (...args: never[]) => void);
 
-        // ---- Companion assist: help player fight when they attack something ----
+        // Companion assist: help player fight when they attack something
         this.on('entityHurt', ((entity: Entity) => {
             // Only care about non-player, non-bot entities (mobs)
             if (entity.id === this.bot.entity.id) return;
@@ -388,13 +402,13 @@ export class McEventBridge {
             });
         }) as (...args: never[]) => void);
 
-        // ---- Proximity self-defense: attack hostile mobs within melee range ----
+        // Proximity self-defense: attack hostile mobs within melee range
         this.proximityScanTimer = setInterval(() => {
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoDefense) return;
             if (this.isAutoDefending || isAutoDefending(this.bot) || getCurrentCombatTarget(this.bot)) return;
-            if (getBotMode(this.bot) !== 'passive') return; // aggro/hunt/guard handle their own scanning
-            if (this.bot.health <= LOW_HEALTH_THRESHOLD) return; // don't attack at critical health — kite instead
+            if (getBotMode(this.bot) !== 'passive') return;
+            if (this.bot.health <= LOW_HEALTH_THRESHOLD) return;
 
             const pos = this.bot.entity.position;
             if (!Number.isFinite(pos.x)) return;
@@ -420,20 +434,16 @@ export class McEventBridge {
                 this.clearLastAttacker();
             });
         }, 1000);
+    }
 
-        // ---- Wake up ----
-        this.on('wake', (() => {
-            const botName = this.callbacks.getAssistantName();
-            this.callbacks.onChat('event', 'Event', `${botName} woke up!`);
-            this.callbacks.onEvent(`${botName} woke up. It is now morning.`);
-        }) as (...args: never[]) => void);
+    // ---- Auto-eat when hunger drops ----
 
-        // ---- Auto-eat: eat when hunger drops below a threshold ----
+    private registerAutoEat(): void {
         let isAutoEating = false;
 
         const tryAutoEat = (): void => {
             if (isAutoEating) return;
-            if (this.bot.food >= AUTO_EAT_THRESHOLD) return; // only eat when hungry (20 = full)
+            if (this.bot.food >= AUTO_EAT_THRESHOLD) return;
 
             // Find the best food in inventory
             const items = this.bot.inventory.items();
@@ -484,11 +494,12 @@ export class McEventBridge {
 
         // Also check on spawn (health event doesn't fire for initial values)
         setTimeout(() => tryAutoEat(), 5000);
+    }
 
-        // ---- Inventory changes (item pickup) ----
-        // Batch pickup notes: accumulate items over a short window, then send
-        // a single aggregated note to Voxta (e.g. "Zom picked up 5 Dirt, 3 Leaf Litter").
-        const pendingPickups = new Map<string, number>(); // displayName → total gained
+    // ---- Inventory tracking: pickup batching, tool breaks, inventory full ----
+
+    private registerInventoryTracking(): void {
+        const pendingPickups = new Map<string, number>();
         let pickupFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
         const flushPickups = (): void => {
@@ -557,9 +568,7 @@ export class McEventBridge {
                     }
                 }
 
-                // Detect tool/weapon/armor breaks — item disappeared from inventory.
-                // Guards: skip during death (items lost) and suppression (give/toss/craft).
-                // The only unsuppressed case where a tool count drops to 0 is a real durability break.
+                // Detect tool/weapon/armor breaks
                 if (!this.died && !isPickupSuppressed(this.bot)) {
                     const BREAKABLE_SUFFIXES = [
                         '_pickaxe', '_sword', '_axe', '_shovel', '_hoe',
@@ -602,64 +611,60 @@ export class McEventBridge {
             }, 500);
         };
         startPickupCheck();
-        // Store for cleanup
         this.pickupCheckTimer = pickupCheckTimer;
+    }
 
-        // ---- Chat bridging (only on primary bot — both bots see the same MC chat) ----
-        if (!this.skipChatBridging) {
-            // ---- Log ALL server messages (command output, death msgs, system announcements) ----
-            this.on('message', ((jsonMsg: { toString: () => string }) => {
-                const message = jsonMsg.toString();
-                if (!message) return;
-                // Skip messages from any of our bots (not just this one)
-                for (const name of this.allBotUsernames) {
-                    if (message.startsWith(`<${name}>`)) return;
-                }
-                console.log(`[MC Server] ${message}`);
-            }) as (...args: never[]) => void);
+    // ---- Chat bridging: forward MC chat to Voxta ----
 
-            this.on('chat', ((username: string, message: string) => {
-                console.log(`[MC Chat] <${username ?? 'server'}> ${message}`);
-                if (!username || this.allBotUsernames.has(username)) return;
-                const settings = this.callbacks.getSettings();
-                if (!settings.enableNoteChat) return;
+    private registerChatBridging(): void {
+        if (this.skipChatBridging) return;
 
-                // Skip SkinsRestorer system messages — these come from the server
-                // when applying or changing skins and shouldn't be forwarded to the AI.
-                const isSkinsRestorerMsg = /^(Uploading skin|Your skin has been changed|You can change your skin again in|Skin data updated|Failed to set skin)/i.test(message);
-                if (isSkinsRestorerMsg) {
-                    this.callbacks.onChat('system', 'SkinsRestorer', message);
-                    return; // Don't forward to AI
-                }
+        // Log ALL server messages
+        this.on('message', ((jsonMsg: { toString: () => string }) => {
+            const message = jsonMsg.toString();
+            if (!message) return;
+            for (const name of this.allBotUsernames) {
+                if (message.startsWith(`<${name}>`)) return;
+            }
+            console.log(`[MC Server] ${message}`);
+        }) as (...args: never[]) => void);
 
-                // Skip Minecraft command output (cheat codes like /give, /tp, /summon, etc.)
-                // These come through the 'chat' event attributed to the player who ran the
-                // command, but aren't actual player messages. Command feedback always follows
-                // predictable patterns: "Verb + rest" (e.g. "Summoned new Skeleton",
-                // "Teleported Emptyngton to 0, 64, 0", "Set the time to 1000").
-                const isCommandOutput = /^(Gave|Teleported|Summoned|Killed|Applied|Enchanted|Cleared|Set |Added |Removed |Changed |Filled |Cloned |Played |Stopped |Enabled |Disabled |Made |Nothing |Data |Gamerule |\[Server])/i.test(message);
-                if (isCommandOutput) {
-                    const cleanMsg = message.replace(/^\[|]$/g, '');
-                    this.callbacks.onChat('system', 'System', cleanMsg);
-                    return; // Don't forward to AI
-                }
+        this.on('chat', ((username: string, message: string) => {
+            console.log(`[MC Chat] <${username ?? 'server'}> ${message}`);
+            if (!username || this.allBotUsernames.has(username)) return;
+            const settings = this.callbacks.getSettings();
+            if (!settings.enableNoteChat) return;
 
-                const voxtaName = this.names.resolveToVoxta(username);
-                const resolvedMsg = this.names.resolveNamesInText(message);
-                this.callbacks.onChat('player', voxtaName, resolvedMsg);
-                this.callbacks.onPlayerChat(resolvedMsg);
-            }) as (...args: never[]) => void);
+            // Skip SkinsRestorer system messages
+            const isSkinsRestorerMsg = /^(Uploading skin|Your skin has been changed|You can change your skin again in|Skin data updated|Failed to set skin)/i.test(message);
+            if (isSkinsRestorerMsg) {
+                this.callbacks.onChat('system', 'SkinsRestorer', message);
+                return;
+            }
 
-            this.on('whisper', ((username: string, message: string) => {
-                if (this.allBotUsernames.has(username)) return;
-                const settings = this.callbacks.getSettings();
-                if (!settings.enableNoteChat) return;
-                const voxtaName = this.names.resolveToVoxta(username);
-                const resolvedMsg = this.names.resolveNamesInText(message);
-                this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
-                this.callbacks.onPlayerChat(resolvedMsg);
-            }) as (...args: never[]) => void);
-        }
+            // Skip Minecraft command output
+            const isCommandOutput = /^(Gave|Teleported|Summoned|Killed|Applied|Enchanted|Cleared|Set |Added |Removed |Changed |Filled |Cloned |Played |Stopped |Enabled |Disabled |Made |Nothing |Data |Gamerule |\[Server])/i.test(message);
+            if (isCommandOutput) {
+                const cleanMsg = message.replace(/^\[|]$/g, '');
+                this.callbacks.onChat('system', 'System', cleanMsg);
+                return;
+            }
+
+            const voxtaName = this.names.resolveToVoxta(username);
+            const resolvedMsg = this.names.resolveNamesInText(message);
+            this.callbacks.onChat('player', voxtaName, resolvedMsg);
+            this.callbacks.onPlayerChat(resolvedMsg);
+        }) as (...args: never[]) => void);
+
+        this.on('whisper', ((username: string, message: string) => {
+            if (this.allBotUsernames.has(username)) return;
+            const settings = this.callbacks.getSettings();
+            if (!settings.enableNoteChat) return;
+            const voxtaName = this.names.resolveToVoxta(username);
+            const resolvedMsg = this.names.resolveNamesInText(message);
+            this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
+            this.callbacks.onPlayerChat(resolvedMsg);
+        }) as (...args: never[]) => void);
     }
 
     /** Send accumulated damage as a single note and start cooldown */
