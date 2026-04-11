@@ -14,6 +14,8 @@
         "format:fix": "prettier --write src/",
         "pack": "electron-vite build && electron-builder --dir",
         "dist": "electron-vite build && electron-builder",
+        "test": "vitest run",
+        "test:watch": "vitest",
         "postinstall": "patch-package"
     },
     "build": {
@@ -75,6 +77,7 @@
         "typescript": "^5.7.0",
         "typescript-eslint": "^8.56.1",
         "vite": "^5.0.0",
-        "vite-plugin-solid": "^2.11.0"
+        "vite-plugin-solid": "^2.11.0",
+        "vitest": "^4.1.4"
     }
 }
