@@ -107,7 +107,7 @@ export default function App() {
                         onClick={() => togglePopup('server')}
                         title="Server Manager"
                     >
-                        <span class="header-btn-icon" style={{ color: 'var(--text-secondary)' }}><i class="bi bi-hdd-rack"></i></span>
+                        <span class="header-btn-icon"><i class="bi bi-hdd-rack"></i></span>
                         <span class="header-btn-label">Server</span>
                     </button>
                     <button
@@ -115,7 +115,7 @@ export default function App() {
                         onClick={() => setTerminalOpen(!terminalOpen())}
                         title="Terminal (F2)"
                     >
-                        <span class="header-btn-icon" style={{ color: 'var(--text-secondary)' }}><i class="bi bi-terminal-fill"></i></span>
+                        <span class="header-btn-icon"><i class="bi bi-terminal-fill"></i></span>
                         <span class="header-btn-label">Terminal</span>
                     </button>
                     <button

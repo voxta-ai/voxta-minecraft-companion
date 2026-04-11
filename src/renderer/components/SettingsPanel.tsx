@@ -162,7 +162,7 @@ function VisionModeSelector() {
     return (
         <div class="action-category">
             <div class="action-category-title">👁️ Vision</div>
-            <div class="setting-card" style={{ 'flex-direction': 'column', 'align-items': 'stretch', gap: '8px' }}>
+            <div class="setting-card setting-card-column">
                 <div class="setting-card-name">Vision Mode</div>
                 <select
                     class="vision-select"
@@ -370,7 +370,7 @@ export default function SettingsPanel() {
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
             <div class="action-category">
                 <div class="action-category-title">🧠 Action Inference</div>
-                <div class="setting-card" style={{ 'flex-direction': 'column', 'align-items': 'stretch', gap: '8px' }}>
+                <div class="setting-card setting-card-column">
                     <div class="setting-card-name">Timing</div>
                     <select
                         class="vision-select"

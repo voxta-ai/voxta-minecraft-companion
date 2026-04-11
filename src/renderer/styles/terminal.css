@@ -154,3 +154,10 @@
     text-align: center;
     font-size: 12px;
 }
+
+/* Console line links */
+.console-link {
+    color: #569CD6;
+    text-decoration: underline;
+    cursor: pointer;
+}

@@ -63,6 +63,29 @@
     color: var(--accent-blue);
 }
 
+.inspector-subtabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--bg-hover);
+    padding-bottom: 8px;
+}
+
+.inspector-subtabs .btn-subtab {
+    flex: 1;
+    background: transparent;
+    color: var(--text-secondary);
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.inspector-subtabs .btn-subtab.active {
+    background: var(--accent-blue);
+    color: white;
+}
+
 .inspector-drawer-body {
     flex: 1;
     overflow-y: auto;

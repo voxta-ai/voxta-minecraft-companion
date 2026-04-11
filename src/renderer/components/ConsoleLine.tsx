@@ -19,7 +19,7 @@ export default function ConsoleLine(props: Props) {
                                 href={token.text}
                                 target="_blank"
                                 rel="noreferrer"
-                                style={{ color: '#569CD6', 'text-decoration': 'underline', cursor: 'pointer' }}
+                                class="console-link"
                                 onClick={(e) => e.stopPropagation()}
                             >
                                 {token.text}

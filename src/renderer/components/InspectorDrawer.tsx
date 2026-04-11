@@ -184,17 +184,15 @@ export default function InspectorDrawer(props: InspectorDrawerProps) {
                 {/* Contexts Tab */}
                 <Show when={activeTab() === 'contexts'}>
                     <Show when={hasSecondBotContext()}>
-                        <div class="inspector-subtabs" style={{ display: 'flex', gap: '4px', 'margin-bottom': '12px', 'border-bottom': '1px solid var(--bg-hover)', 'padding-bottom': '8px' }}>
-                            <button 
+                        <div class="inspector-subtabs">
+                            <button
                                 class={`btn-subtab ${activeContextBot() === 'minecraft-bot1' ? 'active' : ''}`}
-                                style={{ flex: 1, 'background': activeContextBot() === 'minecraft-bot1' ? 'var(--accent-blue-hover)' : 'transparent', color: activeContextBot() === 'minecraft-bot1' ? 'white' : 'var(--text-secondary)', border: 'none', padding: '4px 8px', 'border-radius': '4px', cursor: 'pointer' }}
                                 onClick={() => setActiveContextBot('minecraft-bot1')}
                             >
                                 Bot 1 (Primary)
                             </button>
-                            <button 
+                            <button
                                 class={`btn-subtab ${activeContextBot() === 'minecraft-bot2' ? 'active' : ''}`}
-                                style={{ flex: 1, 'background': activeContextBot() === 'minecraft-bot2' ? 'var(--accent-blue-hover)' : 'transparent', color: activeContextBot() === 'minecraft-bot2' ? 'white' : 'var(--text-secondary)', border: 'none', padding: '4px 8px', 'border-radius': '4px', cursor: 'pointer' }}
                                 onClick={() => setActiveContextBot('minecraft-bot2')}
                             >
                                 Bot 2 (Secondary)
