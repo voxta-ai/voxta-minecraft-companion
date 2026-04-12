@@ -395,7 +395,9 @@ export async function mineBlock(
     const maxCount = Math.min(count, 32);
     let dug = 0;
     let attempts = 0;
+    let consecutivePathFailures = 0;
     const MAX_ATTEMPTS = maxCount + 10;
+    const MAX_CONSECUTIVE_PATH_FAILURES = 3;
 
     const itemNames = buildDropNameSet(mcData, blockIds);
     const countInventory = (): number => {
@@ -487,10 +489,15 @@ export async function mineBlock(
         }
 
         try {
-            // Navigate to the block. For trees, stay at ground level and reach up
-            // (avoids pathfinder climbing on top of leaves to reach upper logs).
-            const botY = bot.entity.position.y;
-            const goalY = ctx.isTreeBlock ? Math.floor(botY) : block.position.y;
+            // Navigate to the block. For trees, stay at the starting ground level
+            // (avoids pathfinder digging underground or climbing on top of leaves).
+            const goalY = ctx.isTreeBlock ? Math.floor(ctx.anchorY) : block.position.y;
+            const botPos = bot.entity.position;
+            console.log(
+                `[MC Mine] Attempt ${attempts}/${MAX_ATTEMPTS}: pathing to ${block.name} at (${blockPos.x},${blockPos.y},${blockPos.z}) ` +
+                `goalY=${goalY} bot=(${Math.floor(botPos.x)},${Math.floor(botPos.y)},${Math.floor(botPos.z)}) ` +
+                `dug=${dug}/${maxCount} failures=${consecutivePathFailures}`,
+            );
             const pathPromise = bot.pathfinder.goto(new goals.GoalNear(block.position.x, goalY, block.position.z, 2));
             const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
             await Promise.race([pathPromise, timeout]);
@@ -560,6 +567,7 @@ export async function mineBlock(
             }
 
             console.log(`[MC Action] Dug ${block.name} (collected ${countInventory() - startCount}/${maxCount})`);
+            consecutivePathFailures = 0;
         } catch (err) {
             // If we were canceled by a new action, exit cleanly without
             // touching pathfinder (the new action owns it now)
@@ -567,6 +575,11 @@ export async function mineBlock(
             const message = getErrorMessage(err);
             console.warn(`[MC Action] Skipping block at ${posKey}: ${message}`);
             ctx.failedPositions.add(posKey);
+            consecutivePathFailures++;
+            if (consecutivePathFailures >= MAX_CONSECUTIVE_PATH_FAILURES) {
+                console.warn(`[MC Action] ${MAX_CONSECUTIVE_PATH_FAILURES} consecutive path failures — aborting mining`);
+                break;
+            }
         }
     }
 
