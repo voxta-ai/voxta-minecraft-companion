@@ -71,7 +71,12 @@ export default function ChatView(props: ChatViewProps) {
                     <For each={chatMessages.messages}>
                         {(msg) => (
                             <div class={`chat-msg ${msg.type}`}>
-                                <div class="sender">{msg.sender}</div>
+                                <div class="sender">
+                                    {msg.sender}
+                                    <span class="chat-time">
+                                        {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                    </span>
+                                </div>
                                 <div>
                                     {msg.text}
                                     {(msg.repeatCount ?? 0) > 1 && (
