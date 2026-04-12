@@ -11,6 +11,12 @@ export interface McAction extends ScenarioAction {
     isQuick: boolean;
     /** Physical actions set the busy flag and cancel previous actions */
     isPhysical: boolean;
+    /** Long-running tasks — ignore duplicates while already busy */
+    isLongRunning?: boolean;
+    /** Combat actions — skip if auto-defense is already fighting */
+    isCombat?: boolean;
+    /** Inventory/silent actions — results are always notes, never voiced */
+    isSilentResult?: boolean;
 }
 
 // ---- Action definitions for Voxta registration ----
@@ -80,6 +86,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'movement',
         isQuick: false,
         isPhysical: true,
+        isCombat: true,
     },
     {
         name: 'mc_mine_block',
@@ -101,6 +108,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'survival',
         isQuick: false,
         isPhysical: true,
+        isLongRunning: true,
     },
     {
         name: 'mc_attack',
@@ -120,6 +128,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'combat',
         isQuick: false,
         isPhysical: true,
+        isCombat: true,
     },
     {
         name: 'mc_look_at',
@@ -166,6 +175,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'interaction',
         isQuick: true,
         isPhysical: true,
+        isSilentResult: true,
     },
     {
         name: 'mc_give_item',
@@ -181,6 +191,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'interaction',
         isQuick: false,
         isPhysical: true,
+        isSilentResult: true,
     },
     {
         name: 'mc_collect_items',
@@ -279,6 +290,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'survival',
         isQuick: false,
         isPhysical: true,
+        isLongRunning: true,
     },
     {
         name: 'mc_craft',
@@ -299,6 +311,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'survival',
         isQuick: false,
         isPhysical: true,
+        isLongRunning: true,
     },
     {
         name: 'mc_place_block',
@@ -338,6 +351,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'survival',
         isQuick: false,
         isPhysical: true,
+        isLongRunning: true,
     },
     {
         name: 'mc_store_item',
@@ -364,6 +378,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'interaction',
         isQuick: false,
         isPhysical: true,
+        isSilentResult: true,
     },
     {
         name: 'mc_take_item',
@@ -389,6 +404,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'interaction',
         isQuick: false,
         isPhysical: true,
+        isSilentResult: true,
     },
     {
         name: 'mc_inspect',
@@ -434,6 +450,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'interaction',
         isQuick: false,
         isPhysical: false,
+        isSilentResult: true,
     },
     {
         name: 'mc_fish',
@@ -453,6 +470,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'survival',
         isQuick: false,
         isPhysical: true,
+        isLongRunning: true,
     },
     {
         name: 'mc_use_item',

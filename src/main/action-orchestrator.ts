@@ -49,6 +49,7 @@ export function handleActionMessage(
     callbacks: ActionOrchestratorCallbacks,
 ): void {
     const actionName = action.value?.trim() ?? '';
+    const actionDef = MINECRAFT_ACTIONS.find((a) => a.name === actionName);
     const timing = callbacks.getSettings().actionInferenceTiming;
     console.log(
         `[<< AI] action (${timing}): ${actionName}(${action.arguments?.map((a) => `${a.name}=${a.value}`).join(', ') ?? ''})`,
@@ -63,8 +64,7 @@ export function handleActionMessage(
     // Ignore duplicate long-running actions — the LLM sometimes re-triggers the same
     // action when the user says "keep going" or "you're doing great", which would abort
     // the current operation and restart from scratch.
-    const LONG_RUNNING_ACTIONS = ['mc_mine_block', 'mc_fish', 'mc_craft', 'mc_cook', 'mc_build'];
-    if (LONG_RUNNING_ACTIONS.includes(actionName) && isActionBusy(bot) && getCurrentActivity(bot)) {
+    if (actionDef?.isLongRunning && isActionBusy(bot) && getCurrentActivity(bot)) {
         console.log(`[Bot] Ignoring duplicate ${actionName} — already busy with: ${getCurrentActivity(bot)}`);
         return;
     }
@@ -72,8 +72,7 @@ export function handleActionMessage(
     // Skip AI-generated combat actions only when auto-defense is actively fighting.
     // We do NOT block based on mode alone — the user may explicitly ask the bot to
     // attack a specific target (e.g. "kill that pig") even while aggro/hunt/guard is active.
-    const COMBAT_ACTIONS = ['mc_attack', 'mc_go_to_entity'];
-    if (COMBAT_ACTIONS.includes(actionName) && isAutoDefending(bot)) {
+    if (actionDef?.isCombat && isAutoDefending(bot)) {
         console.log(`[Bot] Ignoring ${actionName} — auto-defense is actively fighting`);
         return;
     }
@@ -230,8 +229,6 @@ export function handleActionMessage(
             console.log(`[Bot] Resumed following: ${resumeResult}`);
         }
 
-        // Look up action metadata to decide if we should report the result
-        const actionDef = MINECRAFT_ACTIONS.find((a) => a.name === actionName);
         const failureKeywords = ['cannot', 'failed', 'unknown', 'no ', 'not a block', 'not a ', 'need ', 'missing', 'too far'];
         if (actionDef?.isQuick) {
             if (!result) return;
@@ -257,8 +254,7 @@ export function handleActionMessage(
 
         // Transactional actions (give, toss, store, equip) — the AI already announced
         // them in its reply, so the result is always a silent note, never a voiced event.
-        const ALWAYS_SILENT_ACTIONS = ['mc_give_item', 'mc_toss', 'mc_store_item', 'mc_take_item', 'mc_equip'];
-        if (ALWAYS_SILENT_ACTIONS.includes(actionName) && !isFailure) {
+        if (actionDef?.isSilentResult && !isFailure) {
             callbacks.addChat('note', 'Note', `${botName}: ${result}`);
             callbacks.queueNote(`${botName}: ${result}`);
             return;
