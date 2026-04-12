@@ -52,6 +52,11 @@ const BEHAVIOR_TOGGLES: ToggleItem[] = [
         label: 'Auto-Defend Against Mobs',
         description: 'Bot attacks hostile mobs automatically',
     },
+    {
+        key: 'enableAutoTorch',
+        label: 'Auto-Torch at Night',
+        description: 'Bot crafts and holds a torch in off-hand when night falls',
+    },
 ];
 
 const VOICE_CHANCE_SLIDERS: SliderItem[] = [

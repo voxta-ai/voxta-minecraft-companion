@@ -4,7 +4,7 @@ import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
 import { isActionBusy, getCurrentActivity } from './actions';
-import { isPickupSuppressed, setAutoDefending, isAutoDefending, isAutoEating, setAutoEating, getBotMode, getCurrentCombatTarget } from './actions/action-state.js';
+import { isPickupSuppressed, setAutoDefending, isAutoDefending, isAutoEating, setAutoEating, isAutoTorching, setAutoTorching, getBotMode, getCurrentCombatTarget } from './actions/action-state.js';
 import { hasLineOfSight } from './perception';
 import { FOOD_ITEMS, NEUTRAL_HOSTILE_MOBS, LOW_HEALTH_THRESHOLD } from './game-data';
 import { getEntityKind, isInWater, isInLava } from './mineflayer-types';
@@ -44,6 +44,8 @@ const PICKUP_FLUSH_MS = 3000;          // Batch pickup notifications before send
 const AUTO_EAT_THRESHOLD = 14;         // Eat when food drops below this (20 = full)
 const AUTO_EAT_RETRY_DELAY_MS = 2000;  // Retry auto-eat after this delay
 const AUTO_EAT_INITIAL_DELAY_MS = 5000; // Check food on spawn after this delay
+const AUTO_TORCH_CHECK_INTERVAL_MS = 10_000; // Check day/night every 10s
+const AUTO_TORCH_NIGHT_TICK = 13000;   // Night starts around tick 13000 (7:00 PM)
 
 // ---- Distance/range constants ----
 const SWING_TRACKING_DIST = 6;         // Arm-swing attribution range (blocks)
@@ -153,6 +155,7 @@ export class McEventBridge {
         this.registerDamageHandlers();
         this.registerCombatHandlers(isOnCooldown);
         this.registerAutoEat();
+        this.registerAutoTorch();
         this.registerInventoryTracking();
         this.registerChatBridging();
     }
@@ -525,6 +528,148 @@ export class McEventBridge {
         setTimeout(() => tryAutoEat(), AUTO_EAT_INITIAL_DELAY_MS);
     }
 
+    // ---- Auto-torch: craft and hold torch at night ----
+
+    private autoTorchInterval: ReturnType<typeof setInterval> | null = null;
+    private torchEquipped = false;
+
+    private registerAutoTorch(): void {
+        // All log variants that can be crafted into planks
+        const LOG_NAMES = [
+            'oak_log', 'spruce_log', 'birch_log', 'jungle_log',
+            'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log',
+            'stripped_oak_log', 'stripped_spruce_log', 'stripped_birch_log',
+            'stripped_jungle_log', 'stripped_acacia_log', 'stripped_dark_oak_log',
+            'stripped_mangrove_log', 'stripped_cherry_log',
+        ];
+
+        const findItem = (name: string) => this.bot.inventory.items().find((i) => i.name === name);
+        const countItem = (name: string) => this.bot.inventory.items()
+            .filter((i) => i.name === name)
+            .reduce((sum, i) => sum + i.count, 0);
+        const findAnyLog = () => this.bot.inventory.items().find((i) => LOG_NAMES.includes(i.name));
+        const findAnyPlanks = () => this.bot.inventory.items().find((i) => i.name.endsWith('_planks'));
+
+        const checkAutoTorch = (): void => {
+            const settings = this.callbacks.getSettings();
+            if (!settings.enableAutoTorch) return;
+            if (isAutoTorching(this.bot)) return;
+            if (isActionBusy(this.bot)) return;
+            if (isAutoEating(this.bot)) return;
+
+            const isNight = this.bot.time.timeOfDay >= AUTO_TORCH_NIGHT_TICK;
+
+            // Daytime: unequip torch from off-hand
+            if (!isNight && this.torchEquipped) {
+                this.torchEquipped = false;
+                void (async () => {
+                    try {
+                        await this.bot.unequip('off-hand');
+                    } catch { /* best effort */ }
+                })();
+                return;
+            }
+
+            if (!isNight) return;
+
+            // Already holding a torch in off-hand
+            if (this.torchEquipped) return;
+
+            // Check if we already have torches
+            const existingTorch = findItem('torch');
+            if (existingTorch) {
+                void this.equipTorchOffHand(existingTorch);
+                return;
+            }
+
+            // Need to craft — check for coal/charcoal + wood
+            const hasCoal = countItem('coal') > 0 || countItem('charcoal') > 0;
+            const hasSticks = countItem('stick') >= 1;
+            const hasPlanks = !!findAnyPlanks();
+            const hasLogs = !!findAnyLog();
+
+            if (!hasCoal) return; // Can't make torches without coal
+            if (!hasSticks && !hasPlanks && !hasLogs) return; // No wood at all
+
+            void this.craftAndEquipTorch();
+        };
+
+        this.autoTorchInterval = setInterval(checkAutoTorch, AUTO_TORCH_CHECK_INTERVAL_MS);
+    }
+
+    private async craftAndEquipTorch(): Promise<void> {
+        if (isAutoTorching(this.bot)) return;
+        setAutoTorching(this.bot, true);
+
+        const botName = this.callbacks.getAssistantName();
+
+        try {
+            const mcData = require('minecraft-data')(this.bot.version);
+
+            // Step 1: Ensure we have sticks
+            const stickCount = this.bot.inventory.items()
+                .filter((i) => i.name === 'stick')
+                .reduce((sum, i) => sum + i.count, 0);
+
+            if (stickCount < 1) {
+                // Need planks first?
+                const planks = this.bot.inventory.items().find((i) => i.name.endsWith('_planks'));
+                if (!planks) {
+                    // Craft planks from a log
+                    const log = this.bot.inventory.items().find((i) => i.name.includes('_log'));
+                    if (!log) { return; }
+                    const plankId = mcData.itemsByName['oak_planks']?.id;
+                    if (!plankId) return;
+                    const plankRecipes = this.bot.recipesFor(plankId, null, 1, null);
+                    if (plankRecipes.length > 0) {
+                        await this.bot.craft(plankRecipes[0], 1, undefined);
+                    }
+                }
+                // Craft sticks from planks
+                const stickId = mcData.itemsByName['stick']?.id;
+                if (!stickId) return;
+                const stickRecipes = this.bot.recipesFor(stickId, null, 1, null);
+                if (stickRecipes.length > 0) {
+                    await this.bot.craft(stickRecipes[0], 1, undefined);
+                }
+            }
+
+            // Step 2: Craft torches (1 stick + 1 coal = 4 torches)
+            const torchId = mcData.itemsByName['torch']?.id;
+            if (!torchId) return;
+            const torchRecipes = this.bot.recipesFor(torchId, null, 1, null);
+            if (torchRecipes.length === 0) return;
+            await this.bot.craft(torchRecipes[0], 1, undefined);
+
+            // Step 3: Equip to off-hand
+            const torch = this.bot.inventory.items().find((i) => i.name === 'torch');
+            if (torch) {
+                await this.equipTorchOffHand(torch);
+                console.log(`[MC] Auto-torch: crafted and equipped torch for nighttime`);
+                this.callbacks.onNote(
+                    `${botName} crafted a torch and is holding it for light as night falls.`,
+                );
+            }
+        } catch (err) {
+            console.warn(`[MC] Auto-torch craft failed:`, err);
+        } finally {
+            setAutoTorching(this.bot, false);
+        }
+    }
+
+    private async equipTorchOffHand(torch: { type: number }): Promise<void> {
+        try {
+            await this.bot.equip(torch.type, 'off-hand');
+            this.torchEquipped = true;
+        } catch {
+            // Fallback: some servers may not support off-hand
+            try {
+                await this.bot.equip(torch.type, 'hand');
+                this.torchEquipped = true;
+            } catch { /* best effort */ }
+        }
+    }
+
     // ---- Inventory tracking: pickup batching, tool breaks, inventory full ----
 
     private registerInventoryTracking(): void {
@@ -783,6 +928,10 @@ export class McEventBridge {
         if (this.proximityScanTimer) {
             clearInterval(this.proximityScanTimer);
             this.proximityScanTimer = null;
+        }
+        if (this.autoTorchInterval) {
+            clearInterval(this.autoTorchInterval);
+            this.autoTorchInterval = null;
         }
         if (this.damageTimer) {
             clearTimeout(this.damageTimer);
