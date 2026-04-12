@@ -10,6 +10,22 @@ import type { ServerActionMessage } from '../bot/voxta/types';
 import type { McSettings, ChatMessage } from '../shared/ipc-types';
 import { getVehicle } from '../bot/minecraft/mineflayer-types';
 
+// ---- Constants ----
+const DEFAULT_VOICE_CHANCE = 50;       // Fallback voice chance when no category matches
+const LOG_PREVIEW_LENGTH = 80;         // Truncation length for log messages
+const GO_TO_ENTITY_LINGER_MS = 3000;   // Pause at entity before resuming follow
+
+/** Keywords indicating an action failed — AI must acknowledge */
+const FAILURE_KEYWORDS = ['cannot', 'failed', 'unknown', 'no ', 'not a block', 'not a ', 'need ', 'missing', 'too far'];
+
+/** Result patterns that should never trigger a voiced reply */
+const ALWAYS_SILENT_PATTERNS = [
+    'nowhere in sight', 'no entity name provided', 'no player name provided',
+    'no block name', 'no item', 'too tough to kill', 'barely got away',
+    'stopped fighting', 'died while fighting', 'reached the', 'cannot find',
+    'failed to eat', 'not edible', 'ate some', 'nothing to eat',
+];
+
 export interface ActionOrchestratorCallbacks {
     getAssistantName(): string;
     getSettings(): McSettings;
@@ -131,7 +147,7 @@ export function handleActionMessage(
             const voiceChance = getVoiceChance(callbacks.getSettings(), 'survival');
             const roll = Math.random() * 100;
             if (roll < voiceChance && !callbacks.isReplying()) {
-                console.log(`[Bot >>] event: "${msg.substring(0, 80)}"`);
+                console.log(`[Bot >>] event: "${msg.substring(0, LOG_PREVIEW_LENGTH)}"`);
                 callbacks.addChat('event', 'Event', msg);
                 void callbacks.getVoxta()?.sendEvent(msg);
             } else {
@@ -218,7 +234,7 @@ export function handleActionMessage(
         if (shouldResume) {
             // Linger at the entity for 3s before returning to the player
             if (actionName === 'mc_go_to_entity') {
-                await new Promise((r) => setTimeout(r, 3000));
+                await new Promise((r) => setTimeout(r, GO_TO_ENTITY_LINGER_MS));
             }
             const resumeResult = await executeAction(
                 bot,
@@ -229,10 +245,9 @@ export function handleActionMessage(
             console.log(`[Bot] Resumed following: ${resumeResult}`);
         }
 
-        const failureKeywords = ['cannot', 'failed', 'unknown', 'no ', 'not a block', 'not a ', 'need ', 'missing', 'too far'];
         if (actionDef?.isQuick) {
             if (!result) return;
-            const isQuickFailure = failureKeywords.some((kw) => result.toLowerCase().includes(kw));
+            const isQuickFailure = FAILURE_KEYWORDS.some((kw) => result.toLowerCase().includes(kw));
             if (isQuickFailure) {
                 // Quick action failed — AI must know so it doesn't hallucinate success
                 callbacks.addChat('note', 'Note', `${botName}: ${result}`);
@@ -247,7 +262,7 @@ export function handleActionMessage(
 
         // Detect action failures — these must always trigger an AI reply
         // so the AI acknowledges the error instead of hallucinating success
-        const isFailure = failureKeywords.some((kw) => result.toLowerCase().includes(kw));
+        const isFailure = FAILURE_KEYWORDS.some((kw) => result.toLowerCase().includes(kw));
         const hasTrades = result.includes('Their trades:');
         const voxta = callbacks.getVoxta();
         const timing = callbacks.getSettings().actionInferenceTiming;
@@ -263,7 +278,6 @@ export function handleActionMessage(
         // Noise that should never trigger a voiced reply — always a silent note:
         // - "nowhere in sight" = target not found or too far
         // - "No entity name provided" / "No player name provided" = AI sent empty param
-        const ALWAYS_SILENT_PATTERNS = ['nowhere in sight', 'no entity name provided', 'no player name provided', 'no block name', 'no item', 'too tough to kill', 'barely got away', 'stopped fighting', 'died while fighting', 'reached the', 'cannot find', 'failed to eat', 'not edible', 'ate some', 'nothing to eat'];
         if (ALWAYS_SILENT_PATTERNS.some((p) => result.toLowerCase().includes(p))) {
             callbacks.addChat('note', 'Note', `${botName}: ${result}`);
             callbacks.queueNote(`${botName}: ${result}`);
@@ -291,7 +305,7 @@ export function handleActionMessage(
             // Failures always voiced — AI must acknowledge what went wrong
             // Disable action inference so hints like "kill spiders" don't auto-trigger actions
             callbacks.addChat('event', 'Event', `${botName}: ${result}`);
-            console.log(`[Bot >>] event (failure): "${result.substring(0, 80)}"`);
+            console.log(`[Bot >>] event (failure): "${result.substring(0, LOG_PREVIEW_LENGTH)}"`);
             void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
         } else {
             // Wall builds are quick defensive placements — always a silent note.
@@ -308,7 +322,7 @@ export function handleActionMessage(
             if (roll < voiceChance && !callbacks.isReplying()) {
                 // Voiced: send it as an event so the AI replies about the result
                 callbacks.addChat('event', 'Event', `${botName}: ${result}`);
-                console.log(`[Bot >>] event (action result): "${result.substring(0, 80)}"`);
+                console.log(`[Bot >>] event (action result): "${result.substring(0, LOG_PREVIEW_LENGTH)}"`);
                 void voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
             } else {
                 // Silent: AI sees it but stays quiet — single note, no duplicate
@@ -331,6 +345,6 @@ function getVoiceChance(settings: McSettings, category?: ActionCategory): number
         case 'interaction':
             return settings.voiceChanceInteraction;
         default:
-            return 50;
+            return DEFAULT_VOICE_CHANCE;
     }
 }

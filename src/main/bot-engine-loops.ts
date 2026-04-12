@@ -6,6 +6,14 @@ import type { ScenarioAction } from '../bot/voxta/types';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { getVehicle, getEntityVehicle } from '../bot/minecraft/mineflayer-types';
 
+// ---- Loop interval constants ----
+const SPATIAL_LOOP_INTERVAL_MS = 100;    // Fast — responsive spatial audio positioning
+const PROXIMITY_LOOP_INTERVAL_MS = 5000; // How often to check bot-player distance
+const PROXIMITY_RANGE = 40;              // Blocks — beyond this, bot is silenced
+const OUT_OF_RANGE_OFFSET = 9999;        // Offset to signal "player not visible"
+const CONTEXT_KEY_BOT1 = 'minecraft-bot1';
+const CONTEXT_KEY_BOT2 = 'minecraft-bot2';
+
 /** Callbacks the perception/proximity/spatial loops use to interact with BotEngine state */
 export interface LoopCallbacks {
     getVoxta(): VoxtaClient | null;
@@ -39,7 +47,7 @@ export function createPerceptionLoop(
     callbacks: LoopCallbacks,
 ): ReturnType<typeof setInterval> {
     let lastContextHash = initialContextStrings.join('|');
-    const contextKey = slot === 1 ? 'minecraft-bot1' : 'minecraft-bot2';
+    const contextKey = slot === 1 ? CONTEXT_KEY_BOT1 : CONTEXT_KEY_BOT2;
     const statusPositionKey = slot === 1 ? 'position' : 'position2';
     const statusHealthKey = slot === 1 ? 'health' : 'health2';
     const statusFoodKey = slot === 1 ? 'food' : 'food2';
@@ -128,7 +136,7 @@ export function createSpatialLoop(
                     botX: botPos.x,
                     botY: botPos.y,
                     botZ: botPos.z,
-                    playerX: botPos.x + 9999,
+                    playerX: botPos.x + OUT_OF_RANGE_OFFSET,
                     playerY: botPos.y,
                     playerZ: botPos.z,
                     playerYaw: 0,
@@ -137,7 +145,7 @@ export function createSpatialLoop(
         } catch {
             // Entity may not exist yet
         }
-    }, 100);
+    }, SPATIAL_LOOP_INTERVAL_MS);
 }
 
 /**
@@ -149,7 +157,6 @@ export function createProximityLoop(
     isDualBot: boolean,
     callbacks: LoopCallbacks,
 ): ReturnType<typeof setInterval> {
-    const PROXIMITY_RANGE = 40; // blocks
     let proximityLogTick = 0;
 
     return setInterval(() => {
@@ -197,5 +204,5 @@ export function createProximityLoop(
             }
         }
         proximityLogTick++;
-    }, 5000);
+    }, PROXIMITY_LOOP_INTERVAL_MS);
 }

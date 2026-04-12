@@ -25,6 +25,31 @@ const MODE_SCAN_INTERVAL_MS = 2000;  // How often aggro/hunt/guard scans for tar
 const WATCHDOG_INTERVAL_MS = 5000;   // Follow watchdog check frequency
 const DEFAULT_MOVE_SPEED = 0.225;    // Minecraft default movement speed attribute
 
+// ---- Mode scan constants ----
+const AGGRO_TARGET_RANGE = 16;       // Blocks to scan for hostile mobs in aggro mode
+const HUNT_TARGET_RANGE = 12;        // Blocks to scan for animals in hunt mode
+const GUARD_TARGET_RANGE = 16;       // Blocks to scan for hostiles in guard mode
+const HUNT_POST_KILL_COOLDOWN_MS = 1500;
+const PATROL_MIN_RADIUS = 3;         // Closest patrol point from guard center
+const PATROL_MAX_RADIUS = 5;         // Additional random radius (total = 3-8)
+const PATROL_PAUSE_MIN_MS = 3000;    // Min pause between patrol moves
+const PATROL_PAUSE_RANGE_MS = 3000;  // Random extra pause (total = 3-6s)
+
+// ---- Mounted steering constants ----
+const COMPANION_AVOIDANCE_RANGE = 4; // Blocks — push apart when horses overlap
+const PUSH_WEIGHT_DIVISOR = 2;       // Divisor for avoidance weight scaling
+const PUSH_WEIGHT_MIN = 0.3;
+const MOVE_STEP_CAP = 2.0;           // Max blocks per steering tick
+const STEER_TICK_MS = 50;            // Mounted steering loop interval
+const STEER_LOG_INTERVAL_MS = 2000;
+const STEP_UP_HEIGHT_MIN = 0.5;      // Jump if ground rises at least this much
+const STEP_UP_HEIGHT_MAX = 1.5;      // Don't jump if rise is bigger than this
+const VERTICAL_CORRECTION_CAP = 0.5; // Max Y adjustment per tick when not jumping
+
+// ---- Watchdog constants ----
+const WATCHDOG_CLOSE_DIST = 5;       // Stop following within this range
+const WATCHDOG_MOVED_THRESHOLD = 0.5; // Reset stuck counter if moved this far
+
 /** Callbacks the movement loops use to interact with BotEngine state */
 export interface MovementCallbacks {
     getFollowingPlayer(): string | null;
@@ -209,7 +234,7 @@ export function createModeScanLoop(
 
         // ---- Aggro mode: attack nearest hostile while following player ----
         if (mode === 'aggro') {
-            const target = findNearestHostile(bot, 16, player, aggroCooldowns);
+            const target = findNearestHostile(bot, AGGRO_TARGET_RANGE, player, aggroCooldowns);
             if (target && !getCurrentCombatTarget(bot)) {
                 const mobName = target.name ?? 'unknown';
                 const dist = target.position.distanceTo(pos);
@@ -238,7 +263,7 @@ export function createModeScanLoop(
         if (mode === 'hunt') {
             if (Date.now() < huntCooldownUntil) return;
 
-            const target = findNearestHuntable(bot, 12, player);
+            const target = findNearestHuntable(bot, HUNT_TARGET_RANGE, player);
             if (target && !getCurrentCombatTarget(bot)) {
                 const animalName = target.name ?? 'unknown';
                 const dist = target.position.distanceTo(pos);
@@ -252,7 +277,7 @@ export function createModeScanLoop(
                     .catch((err) => console.log(`[${label}] Hunt attack failed:`, err))
                     .finally(() => {
                         setAutoDefending(bot, false);
-                        huntCooldownUntil = Date.now() + 1500;
+                        huntCooldownUntil = Date.now() + HUNT_POST_KILL_COOLDOWN_MS;
                         scheduleFollowResume(bot, label, callbacks);
                     });
             }
@@ -264,7 +289,7 @@ export function createModeScanLoop(
             const center = getGuardCenter(bot);
             if (!center) return;
 
-            const target = findNearestHostile(bot, 16, null);
+            const target = findNearestHostile(bot, GUARD_TARGET_RANGE, null);
             if (target && !getCurrentCombatTarget(bot)) {
                 const mobName = target.name ?? 'unknown';
                 const dist = target.position.distanceTo(pos);
@@ -291,12 +316,12 @@ export function createModeScanLoop(
 
             // Pick new patrol point within 8 blocks of center
             const angle = Math.random() * Math.PI * 2;
-            const radius = 3 + Math.random() * 5; // 3-8 blocks
+            const radius = PATROL_MIN_RADIUS + Math.random() * PATROL_MAX_RADIUS;
             const patrolTarget = {
                 x: center.x + Math.cos(angle) * radius,
                 z: center.z + Math.sin(angle) * radius,
             };
-            patrolPauseUntil = Date.now() + 3000 + Math.random() * 3000; // 3-6s between moves
+            patrolPauseUntil = Date.now() + PATROL_PAUSE_MIN_MS + Math.random() * PATROL_PAUSE_RANGE_MS;
             console.log(`[${label}] Patrol: walking to (${patrolTarget.x.toFixed(0)}, ${patrolTarget.z.toFixed(0)}) — ${distToCenter.toFixed(1)} from center`);
 
             // Walk to patrol point
@@ -356,13 +381,13 @@ export function createMountedSteeringLoop(
             const compPos = compVehicle ? compVehicle.position : companionBot.entity?.position;
             if (compPos) {
                 const compDist = vPos.distanceTo(compPos);
-                if (compDist < 4) {
+                if (compDist < COMPANION_AVOIDANCE_RANGE) {
                     // Push direction: away from companion
                     const pushX = vPos.x - compPos.x;
                     const pushZ = vPos.z - compPos.z;
                     const pushLen = Math.sqrt(pushX * pushX + pushZ * pushZ) || 1;
                     // Stronger push the closer they are (weight: 0.5 at 4 blocks, up to 2.0 at 0 blocks)
-                    const pushWeight = Math.max(0.3, (4 - compDist) / 2);
+                    const pushWeight = Math.max(PUSH_WEIGHT_MIN, (COMPANION_AVOIDANCE_RANGE - compDist) / PUSH_WEIGHT_DIVISOR);
                     dx += (pushX / pushLen) * pushWeight;
                     dz += (pushZ / pushLen) * pushWeight;
                 }
@@ -379,7 +404,7 @@ export function createMountedSteeringLoop(
             speedAttr = vehicleEntity.attributes['generic.movementSpeed'].value ?? DEFAULT_MOVE_SPEED;
         }
         const blocksPerSec = speedAttr * 100;
-        const moveStep = Math.min(blocksPerSec * 0.05, 2.0);
+        const moveStep = Math.min(blocksPerSec * (STEER_TICK_MS / 1000), MOVE_STEP_CAP);
 
         const Vec3 = require('vec3');
         const isBlocked = (x: number, z: number, baseY: number): boolean => {
@@ -390,7 +415,7 @@ export function createMountedSteeringLoop(
                     const b = bot.blockAt(new Vec3(x, y, z));
                     if (b && b.boundingBox === 'block') { groundLevel = y; break; }
                 }
-                if ((groundLevel + 1) - baseY > 1.5) return true;
+                if ((groundLevel + 1) - baseY > STEP_UP_HEIGHT_MAX) return true;
                 const standY = groundLevel + 1;
                 for (let dy = 0; dy <= 2; dy++) {
                     const b = bot.blockAt(new Vec3(x, standY + dy, z));
@@ -428,8 +453,8 @@ export function createMountedSteeringLoop(
                 const b = bot.blockAt(new Vec3(newX, y, newZ));
                 if (b && b.boundingBox === 'block') {
                     const yDiff = (y + 1) - vPos.y;
-                    if (yDiff >= 0.5 && yDiff <= 1.5) { shouldJump = true; newY = y + 1; }
-                    else { newY = vPos.y + Math.max(-0.5, Math.min(0.5, yDiff)); }
+                    if (yDiff >= STEP_UP_HEIGHT_MIN && yDiff <= STEP_UP_HEIGHT_MAX) { shouldJump = true; newY = y + 1; }
+                    else { newY = vPos.y + Math.max(-VERTICAL_CORRECTION_CAP, Math.min(VERTICAL_CORRECTION_CAP, yDiff)); }
                     break;
                 }
             }
@@ -442,11 +467,11 @@ export function createMountedSteeringLoop(
         mcClient.write('vehicle_move', { x: newX, y: newY, z: newZ, yaw: moveYawDeg, pitch: 0, onGround: !shouldJump });
 
         const now = Date.now();
-        if (now - lastSteerLog > 2000) {
+        if (now - lastSteerLog > STEER_LOG_INTERVAL_MS) {
             lastSteerLog = now;
             console.log(`[MC Steer] Riding: dist=${dist.toFixed(1)}, speed=${blocksPerSec.toFixed(1)}b/s, step=${moveStep.toFixed(2)}, y=${newY.toFixed(1)}, pos=(${newX.toFixed(1)}, ${newZ.toFixed(1)})`);
         }
-    }, 50);
+    }, STEER_TICK_MS);
 }
 
 /**
@@ -515,13 +540,13 @@ export function createFollowWatchdog(
         const moved = pos.distanceTo(lastPos);
         lastPos = pos.clone();
 
-        if (distToPlayer < 5) {
+        if (distToPlayer < WATCHDOG_CLOSE_DIST) {
             stuckCount = 0;
             bot.setControlState('forward', false);
             bot.setControlState('sprint', false);
             return;
         }
-        if (moved > 0.5) { stuckCount = 0; return; }
+        if (moved > WATCHDOG_MOVED_THRESHOLD) { stuckCount = 0; return; }
 
         stuckCount++;
         if (stuckCount <= 1) {

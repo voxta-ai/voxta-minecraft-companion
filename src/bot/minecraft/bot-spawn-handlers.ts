@@ -8,6 +8,18 @@
 import type { Bot } from 'mineflayer';
 import { isInWater } from './mineflayer-types';
 
+// ---- Constants ----
+const NAN_WARNING_RATE_LIMIT_MS = 10_000;
+const DOOR_GLOBAL_COOLDOWN_MS = 1000;
+const DOOR_REOPEN_COOLDOWN_MS = 3000;    // Don't re-toggle a recently opened door
+const DOOR_WALK_THROUGH_MS = 800;        // Time to walk through after opening
+const DOOR_CLEANUP_TIMEOUT_MS = 10_000;  // Prune old door-open timestamps
+const STUCK_MOVEMENT_THRESHOLD = 0.1;    // Blocks moved to count as "not stuck"
+const STUCK_DETECTION_TIMEOUT_MS = 1500; // Must be stuck this long before teleporting
+const STUCK_DIAG_Y_MIN = -1;
+const STUCK_DIAG_Y_MAX = 2;
+const TREE_SPAWN_JUMP_DURATION_MS = 1500;
+
 // ---- NaN position/velocity guard ----
 // mineflayer's physics engine (prismarine-physics) clones bot.entity.position
 // every tick, runs simulation, then REPLACES the reference:
@@ -40,7 +52,7 @@ export function setupNaNGuards(bot: Bot): void {
                         // Rate-limit NaN warnings — mineflayer sends bursts of
                         // NaN velocity from entity packets, no need to log each one.
                         const now = Date.now();
-                        if (now - lastNaNWarnTime > 10_000) {
+                        if (now - lastNaNWarnTime > NAN_WARNING_RATE_LIMIT_MS) {
                             if (suppressedNaNCount > 0) {
                                 console.warn(`[MC Guard] (suppressed ${suppressedNaNCount} NaN blocks in the last 10s)`);
                             }
@@ -102,7 +114,7 @@ export function setupDoorAutomation(bot: Bot, doorIds: Set<number>): void {
     bot.on('physicsTick', () => {
         const now = performance.now();
         if (doorWalkingThrough) return; // already handling a door
-        if (now - lastDoorOpen < 1000) return; // global cooldown
+        if (now - lastDoorOpen < DOOR_GLOBAL_COOLDOWN_MS) return; // global cooldown
         // Fire when pathfinder is moving OR has a goal but is stuck
         if (!bot.pathfinder.isMoving() && !bot.pathfinder.goal) return;
 
@@ -119,7 +131,7 @@ export function setupDoorAutomation(bot: Bot, doorIds: Set<number>): void {
                     // immediately closing via the top half on the next tick.
                     const key = `${block.position.x},${block.position.z}`;
                     const lastOpen = recentlyOpened.get(key);
-                    if (lastOpen && now - lastOpen < 3000) continue;
+                    if (lastOpen && now - lastOpen < DOOR_REOPEN_COOLDOWN_MS) continue;
 
                     // Find the bottom half of the door for more reliable activation.
                     // In Minecraft, doors have 'half' property: 'upper' or 'lower'.
@@ -155,7 +167,7 @@ export function setupDoorAutomation(bot: Bot, doorIds: Set<number>): void {
                             setTimeout(() => {
                                 bot.setControlState('forward', false);
                                 doorWalkingThrough = false;
-                            }, 800);
+                            }, DOOR_WALK_THROUGH_MS);
                         })
                         .catch((err) => {
                             console.warn(`[MC] Door activation failed at ${key}:`, err);
@@ -164,7 +176,7 @@ export function setupDoorAutomation(bot: Bot, doorIds: Set<number>): void {
 
                     // Clean up old entries
                     for (const [k, t] of recentlyOpened) {
-                        if (now - t > 10000) recentlyOpened.delete(k);
+                        if (now - t > DOOR_CLEANUP_TIMEOUT_MS) recentlyOpened.delete(k);
                     }
                     return;
                 }
@@ -226,7 +238,7 @@ export function setupStuckDetection(bot: Bot): void {
         }
 
         const moved = pos.distanceTo(lastMovePos);
-        if (moved > 0.1) {
+        if (moved > STUCK_MOVEMENT_THRESHOLD) {
             stuckSince = null;
             if (consecutiveStuckCount > 0) {
                 console.log(`[MC Stuck] Unstuck (moved ${moved.toFixed(2)}) after ${consecutiveStuckCount} cycles`);
@@ -242,7 +254,7 @@ export function setupStuckDetection(bot: Bot): void {
             return;
         }
 
-        if (now - stuckSince > 1500) {
+        if (now - stuckSince > STUCK_DETECTION_TIMEOUT_MS) {
             consecutiveStuckCount++;
 
             // Teleport 1 block forward in the direction the pathfinder is facing.
@@ -312,13 +324,13 @@ export function setupStuckDetection(bot: Bot): void {
                 ];
                 const survey: string[] = [];
                 // Current column
-                for (let dy = -1; dy <= 2; dy++) {
+                for (let dy = STUCK_DIAG_Y_MIN; dy <= STUCK_DIAG_Y_MAX; dy++) {
                     const b = bot.blockAt(pos.offset(0, dy, 0));
                     survey.push(`  self  y${dy >= 0 ? '+' : ''}${dy}: ${b?.name ?? 'unloaded'} (${b?.boundingBox ?? '?'})`);
                 }
                 // Cardinal directions
                 for (const dir of dirs) {
-                    for (let dy = -1; dy <= 2; dy++) {
+                    for (let dy = STUCK_DIAG_Y_MIN; dy <= STUCK_DIAG_Y_MAX; dy++) {
                         const b = bot.blockAt(pos.offset(dir.dx, dy, dir.dz));
                         survey.push(`  ${dir.label}     y${dy >= 0 ? '+' : ''}${dy}: ${b?.name ?? 'unloaded'} (${b?.boundingBox ?? '?'})`);
                     }
@@ -369,7 +381,7 @@ export function handleTreeSpawn(bot: Bot): void {
             setTimeout(() => {
                 bot.setControlState('jump', false);
                 bot.setControlState('forward', false);
-            }, 1500);
+            }, TREE_SPAWN_JUMP_DURATION_MS);
         }
     } catch {
         /* chunk not loaded — skip */
