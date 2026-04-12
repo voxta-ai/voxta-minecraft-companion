@@ -107,10 +107,14 @@ async function handleAutoDefense(
         const isNoise = result.startsWith('Already fighting')
             || result.startsWith('Stopped fighting')
             || result.startsWith('Died while fighting');
+        // When aggro/hunt/guard mode is active, those systems report kills via
+        // their own batched handleCombatResult — skip here to avoid duplicates
+        const mode = getBotMode(botInstance);
+        const modeHandlesReporting = mode !== 'passive';
         if (!result) {
             callbacks.addChat('note', 'Note', 'Creeper exploded nearby');
             callbacks.queueNote('Creeper exploded nearby');
-        } else if (!isNoise) {
+        } else if (!isNoise && !modeHandlesReporting) {
             callbacks.addChat('note', 'Note', `${botName}: ${result}`);
             callbacks.queueNote(`${botName}: ${result}`);
         }

@@ -5,7 +5,7 @@ const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { FOOD_ITEMS, ITEM_ALIASES } from '../game-data';
 import { findPlayerEntity, getEquipSlot } from './action-helpers.js';
-import { setSuppressPickups } from './action-state.js';
+import { isAutoEating, setSuppressPickups } from './action-state.js';
 import { getErrorMessage } from '../utils';
 import { fishAction } from './fishing.js';
 
@@ -76,6 +76,8 @@ export async function equipItem(bot: Bot, itemName: string | undefined): Promise
 }
 
 export async function eatFood(bot: Bot, foodName: string | undefined): Promise<string> {
+    if (isAutoEating(bot)) return 'Already eating food automatically';
+
     const items = bot.inventory.items();
 
     let foodItem;
