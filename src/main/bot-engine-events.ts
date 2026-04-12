@@ -18,6 +18,7 @@ const FOLLOW_RESUME_DELAY_MS = 150;    // Delay for pathfinder to clear before r
 export interface EventBridgeCallbacks {
     getVoxta(): VoxtaClient | null;
     getSettings(): McSettings;
+    getPlayerMcUsername(): string | null;
     getFollowingPlayer(): string | null;
     isReplying(): boolean;
     getAssistantName(slot: 1 | 2): string | null;
@@ -57,10 +58,20 @@ function handleUrgentEvent(
 
 /** Handle player chat from MC: interrupt if speaking, then forward to Voxta */
 function handlePlayerChat(
+    mcUsername: string,
     text: string,
     callbacks: EventBridgeCallbacks,
 ): void {
     if (!callbacks.getVoxta()?.sessionId) return;
+
+    // If the sender is NOT the user, send as an event so the AI knows who's talking
+    const playerMcUsername = callbacks.getPlayerMcUsername();
+    if (playerMcUsername && mcUsername.toLowerCase() !== playerMcUsername.toLowerCase()) {
+        console.log(`[Other >>] MC chat from ${mcUsername}: "${text}"`);
+        void callbacks.getVoxta()?.sendEvent(`${mcUsername} says: ${text}`);
+        return;
+    }
+
     console.log(`[User >>] MC chat: "${text}"`);
     resetActionFired();
     callbacks.flushHuntBatch(1);
@@ -197,7 +208,7 @@ export function createEventBridge(
             },
             onUrgentEvent: (text) => handleUrgentEvent(text, label, callbacks),
             onPlayerChat: slot === 1
-                ? (text) => handlePlayerChat(text, callbacks)
+                ? (mcUsername, text) => handlePlayerChat(mcUsername, text, callbacks)
                 : () => {},
             getSettings: () => callbacks.getSettings(),
             getAssistantName: () => callbacks.getAssistantName(slot) ?? label,

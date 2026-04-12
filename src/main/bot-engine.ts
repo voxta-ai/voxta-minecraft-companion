@@ -387,6 +387,7 @@ export class BotEngine extends EventEmitter {
         return {
             getVoxta: () => this.voxta,
             getSettings: () => this.settings,
+            getPlayerMcUsername: () => this.playerMcUsername,
             getFollowingPlayer: () => this.followingPlayer,
             isReplying: () => this.isReplying,
             getAssistantName: (slot) => this.slot(slot).assistantName,
