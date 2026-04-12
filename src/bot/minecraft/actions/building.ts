@@ -154,6 +154,10 @@ interface BuildSite {
 /**
  * Find a flat area to build on, oriented so the entrance faces the player.
  */
+/**
+ * Search outward from the bot in expanding rings to find a build site.
+ * The entrance is oriented to face the nearest human player.
+ */
 function findBuildSite(bot: Bot, blueprint: Blueprint): BuildSite | null {
     const Vec3 = require('vec3').Vec3;
     const pos = bot.entity.position;
@@ -161,37 +165,40 @@ function findBuildSite(bot: Bot, blueprint: Blueprint): BuildSite | null {
     const by = Math.floor(pos.y);
     const bz = Math.floor(pos.z);
 
-    // Search in front of the bot (based on yaw) for a flat area
-    const yaw = bot.entity.yaw;
-    const forwardX = Math.round(-Math.sin(yaw));
-    const forwardZ = Math.round(-Math.cos(yaw));
+    const halfW = Math.floor(blueprint.width / 2);
+    const halfD = Math.floor(blueprint.depth / 2);
 
-    // Try distances 3-10 blocks away in the forward direction
-    for (let dist = 3; dist <= 10; dist++) {
-        const centerX = bx + forwardX * dist;
-        const centerZ = bz + forwardZ * dist;
+    // Search in expanding rings: radius 2, 3, 4, ... up to 10
+    for (let radius = 2; radius <= 10; radius++) {
+        for (let ox = -radius; ox <= radius; ox++) {
+            for (let oz = -radius; oz <= radius; oz++) {
+                // Only check the ring perimeter, not the filled square
+                if (Math.abs(ox) !== radius && Math.abs(oz) !== radius) continue;
 
-        // Origin is the front-left corner — offset so the entrance faces the bot
-        // The entrance is at the center of the south wall (Z = depth - 1)
-        // We want the entrance closest to the bot
-        const originX = centerX - Math.floor(blueprint.width / 2);
-        const originZ = centerZ - Math.floor(blueprint.depth / 2);
-
-        const site = checkSiteViability(bot, Vec3, blueprint, originX, by, originZ);
-        if (site) return site;
-    }
-
-    // Also try at bot's current position offset slightly
-    for (let ox = -3; ox <= 3; ox++) {
-        for (let oz = 2; oz <= 6; oz++) {
-            const originX = bx + ox;
-            const originZ = bz + oz;
-            const site = checkSiteViability(bot, Vec3, blueprint, originX, by, originZ);
-            if (site) return site;
+                const originX = bx + ox - halfW;
+                const originZ = bz + oz - halfD;
+                const site = checkSiteViability(bot, Vec3, blueprint, originX, by, originZ);
+                if (site) return site;
+            }
         }
     }
 
     return null;
+}
+
+/** Max Y variation across the footprint before a site is rejected */
+const MAX_GROUND_Y_VARIATION = 2;
+
+/** Breakable vegetation that won't block a build site */
+const CLEARABLE_BLOCKS = new Set([
+    'short_grass', 'tall_grass', 'fern', 'dandelion', 'poppy',
+    'dead_bush', 'seagrass', 'sweet_berry_bush', 'azure_bluet',
+    'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'cactus',
+    'sugar_cane', 'bamboo',
+]);
+
+function isClearable(name: string): boolean {
+    return CLEARABLE_BLOCKS.has(name) || name.includes('flower') || name.includes('tulip');
 }
 
 function checkSiteViability(
@@ -203,57 +210,79 @@ function checkSiteViability(
     originY: number,
     originZ: number,
 ): BuildSite | null {
-    // Find ground level — check the center of the footprint
-    const centerX = originX + Math.floor(blueprint.width / 2);
-    const centerZ = originZ + Math.floor(blueprint.depth / 2);
-
-    // Scan downward from originY+2 to find solid ground
-    let groundY = originY;
-    for (let y = originY + 2; y >= originY - 3; y--) {
-        const block = bot.blockAt(new Vec3(centerX, y, centerZ));
-        if (block && block.boundingBox === 'block') {
-            groundY = y + 1; // stand on top of this block
-            break;
-        }
-    }
-
-    // Check the footprint: ground should be mostly solid, space above mostly clear
+    // Per-column ground detection: find the ground Y for each column
+    // independently, then check if the variation is acceptable.
+    let minGroundY = Infinity;
+    let maxGroundY = -Infinity;
     let solidCount = 0;
     let totalChecks = 0;
+    const columnGroundY: number[][] = [];
 
     for (let x = 0; x < blueprint.width; x++) {
+        columnGroundY[x] = [];
         for (let z = 0; z < blueprint.depth; z++) {
             totalChecks++;
             const wx = originX + x;
             const wz = originZ + z;
 
-            // Ground block (one below standing level)
-            const ground = bot.blockAt(new Vec3(wx, groundY - 1, wz));
-            if (ground && ground.boundingBox === 'block') {
-                solidCount++;
+            // Scan downward to find ground for this specific column
+            let colGround = -1;
+            for (let y = originY + 2; y >= originY - 3; y--) {
+                const block = bot.blockAt(new Vec3(wx, y, wz));
+                if (block && block.boundingBox === 'block') {
+                    colGround = y + 1;
+                    break;
+                }
             }
 
-            // Check above is clear (height + 1 safety margin)
-            for (let y = 0; y < blueprint.height + 1; y++) {
-                const above = bot.blockAt(new Vec3(wx, groundY + y, wz));
-                if (above && above.boundingBox === 'block') {
-                    // Something blocking the build area — check if it's just grass/flowers
-                    // (breakable obstructions are OK, we'll clear them)
-                    if (above.name !== 'short_grass' && above.name !== 'tall_grass'
-                        && above.name !== 'fern' && !above.name.includes('flower')
-                        && above.name !== 'dandelion' && above.name !== 'poppy'
-                        && above.name !== 'dead_bush' && above.name !== 'seagrass') {
-                        // Hard obstruction (tree trunk, rock) — site not viable
-                        // Allow up to 5 hard obstructions (imperfect terrain is OK)
-                        if (y < 2) return null; // can't have blocks right where walls go
-                    }
-                }
+            if (colGround >= 0) {
+                solidCount++;
+                columnGroundY[x][z] = colGround;
+                if (colGround < minGroundY) minGroundY = colGround;
+                if (colGround > maxGroundY) maxGroundY = colGround;
+            } else {
+                columnGroundY[x][z] = originY;
             }
         }
     }
 
-    // Need at least 60% solid ground (patches will fill the rest)
+    // Need at least 60% solid ground (floor patches fill the rest)
     if (solidCount / totalChecks < 0.6) return null;
+
+    // Reject if terrain is too uneven
+    if (maxGroundY - minGroundY > MAX_GROUND_Y_VARIATION) return null;
+
+    // Use the most common ground Y as the build level
+    const yCounts = new Map<number, number>();
+    for (let x = 0; x < blueprint.width; x++) {
+        for (let z = 0; z < blueprint.depth; z++) {
+            const y = columnGroundY[x][z];
+            yCounts.set(y, (yCounts.get(y) ?? 0) + 1);
+        }
+    }
+    let groundY = originY;
+    let bestCount = 0;
+    for (const [y, count] of yCounts) {
+        if (count > bestCount) {
+            bestCount = count;
+            groundY = y;
+        }
+    }
+
+    // Check above is clear (height + 1 safety margin)
+    for (let x = 0; x < blueprint.width; x++) {
+        for (let z = 0; z < blueprint.depth; z++) {
+            const wx = originX + x;
+            const wz = originZ + z;
+            for (let y = 0; y < blueprint.height + 1; y++) {
+                const above = bot.blockAt(new Vec3(wx, groundY + y, wz));
+                if (above && above.boundingBox === 'block' && !isClearable(above.name)) {
+                    // Hard obstruction in the first 2 layers — site not viable
+                    if (y < 2) return null;
+                }
+            }
+        }
+    }
 
     return { originX, originY: groundY, originZ };
 }
@@ -294,6 +323,55 @@ function findReferenceBlock(bot: Bot, Vec3: any, targetX: number, targetY: numbe
         }
     }
     return null;
+}
+
+// ---- Blueprint rotation ----
+
+/**
+ * Rotate a blueprint 90° clockwise N times so the entrance (default: +Z face)
+ * ends up facing the desired direction relative to the player.
+ *
+ * 0 = no rotation (entrance faces +Z)
+ * 1 = 90° CW      (entrance faces -X)
+ * 2 = 180°        (entrance faces -Z)
+ * 3 = 90° CCW     (entrance faces +X)
+ */
+function rotateBlueprint(blueprint: Blueprint, times: number): void {
+    const n = ((times % 4) + 4) % 4; // normalize to 0-3
+    for (let r = 0; r < n; r++) {
+        const oldW = blueprint.width;
+        const oldD = blueprint.depth;
+        for (const b of blueprint.blocks) {
+            // 90° CW rotation: (dx, dz) → (oldD - 1 - dz, dx)
+            const newDx = oldD - 1 - b.dz;
+            const newDz = b.dx;
+            b.dx = newDx;
+            b.dz = newDz;
+        }
+        blueprint.width = oldD;
+        blueprint.depth = oldW;
+    }
+}
+
+/**
+ * Determine how many 90° CW rotations are needed so the entrance
+ * (default: +Z face) faces toward the player's position.
+ */
+function getEntranceRotation(site: BuildSite, blueprint: Blueprint, playerX: number, playerZ: number): number {
+    // Center of the build site
+    const cx = site.originX + blueprint.width / 2;
+    const cz = site.originZ + blueprint.depth / 2;
+    const dx = playerX - cx;
+    const dz = playerZ - cz;
+
+    // Determine which cardinal direction the player is in
+    if (Math.abs(dz) >= Math.abs(dx)) {
+        // Player is primarily along Z axis
+        return dz >= 0 ? 0 : 2; // +Z (default) or -Z (180°)
+    } else {
+        // Player is primarily along X axis
+        return dx >= 0 ? 3 : 1; // +X (270°) or -X (90°)
+    }
 }
 
 // ---- Build engine ----
@@ -574,55 +652,23 @@ export async function buildStructure(bot: Bot, structureName: string | undefined
     }
 
     // --- Step 2: Find build site ---
-    // For thin structures (walls, depth=1): place ahead of the player,
-    // oriented perpendicular to their look direction.
-    let site: BuildSite | null;
-    if (blueprint.depth === 1) {
-        // Exclude the bot itself and any other registered bots — find only the human player
+    // Search outward from bot position, then orient entrance toward the player.
+    const site = findBuildSite(bot, blueprint);
+
+    if (site) {
+        // Orient entrance to face the nearest human player
         const player = bot.nearestEntity(
             (e) => e.type === 'player' && e.username !== bot.username && !names.hasMcUsername(e.username ?? ''),
         );
         if (player) {
-            const yaw = player.yaw ?? 0;
-            // Quantize to 4 cardinal directions
-            // Minecraft yaw: 0=south(+Z), π/2=west(-X), π=north(-Z), 3π/2=east(+X)
-            const sin = Math.sin(yaw);
-            const cos = Math.cos(yaw);
-            const facingZ = Math.abs(cos) >= Math.abs(sin); // N/S vs E/W
-
             const px = Math.floor(player.position.x);
-            const py = Math.floor(player.position.y);
             const pz = Math.floor(player.position.z);
-            const dist = 2; // blocks ahead of player
-
-            if (facingZ) {
-                // Player faces N or S → wall spans X-axis (default orientation)
-                const dz = cos > 0 ? -dist : dist; // negative cos = south, place ahead
-                const originX = px - Math.floor(blueprint.width / 2);
-                const originZ = pz + dz;
-                site = { originX, originY: py, originZ };
-            } else {
-                // Player faces E or W → wall spans Z-axis (rotate: swap dx↔dz)
-                const dx = sin > 0 ? -dist : dist;
-                const originX = px + dx;
-                const originZ = pz - Math.floor(blueprint.width / 2);
-                // Rotate all blocks: swap dx↔dz
-                for (const b of blueprint.blocks) {
-                    const tmpDx = b.dx;
-                    b.dx = b.dz;
-                    b.dz = tmpDx;
-                }
-                const tmpW = blueprint.width;
-                blueprint.width = blueprint.depth;
-                blueprint.depth = tmpW;
-                site = { originX, originY: py, originZ };
+            const rotations = getEntranceRotation(site, blueprint, px, pz);
+            if (rotations !== 0) {
+                rotateBlueprint(blueprint, rotations);
+                console.log(`[MC Build] Rotated blueprint ${rotations * 90}° to face player`);
             }
-            console.log(`[MC Build] Wall placed ahead of player: origin=(${site.originX}, ${site.originY}, ${site.originZ})`);
-        } else {
-            site = findBuildSite(bot, blueprint);
         }
-    } else {
-        site = findBuildSite(bot, blueprint);
     }
 
     if (!site) {
