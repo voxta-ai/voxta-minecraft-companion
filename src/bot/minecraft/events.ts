@@ -215,8 +215,18 @@ export class McEventBridge {
 
     // ---- Combat: swing tracking, auto-defense, player protection, companion assist, proximity ----
 
+    private lastProtectTime = 0;
+
     private registerCombatHandlers(isOnCooldown: (key: string) => boolean): void {
-        // Melee hit tracking
+        this.registerSwingTracking();
+        this.registerUnderAttackHandler(isOnCooldown);
+        this.registerPlayerProtection();
+        this.registerCompanionAssist();
+        this.registerProximityScan();
+    }
+
+    /** Track which entity last swung near the bot (for PvP attacker attribution) */
+    private registerSwingTracking(): void {
         this.on('entitySwingArm', ((entity: Entity) => {
             if (entity.id === this.bot.entity.id) return;
             if (entity.position.distanceTo(this.bot.entity.position) < 6) {
@@ -225,8 +235,10 @@ export class McEventBridge {
                 this.lastSwingTime = Date.now();
             }
         }) as (...args: never[]) => void);
+    }
 
-        // Under attack detection + auto self-defense
+    /** Detect when the bot takes damage, attribute the source, notify AI, and trigger auto-defense */
+    private registerUnderAttackHandler(isOnCooldown: (key: string) => boolean): void {
         this.on('entityHurt', ((entity: { id: number }) => {
             if (entity.id !== this.bot.entity.id) return;
             if (this.bot.food === 0) return; // starvation — no attacker
@@ -303,9 +315,10 @@ export class McEventBridge {
                 }
             }
         }) as (...args: never[]) => void);
+    }
 
-        // Player protection: auto-defend nearby players
-        let lastProtectTime = 0;
+    /** Auto-defend nearby players being attacked by hostile mobs */
+    private registerPlayerProtection(): void {
         this.on('entityHurt', ((entity: Entity) => {
             // Only react to players (not the bot itself — handled above)
             if (entity.id === this.bot.entity.id) return;
@@ -316,7 +329,7 @@ export class McEventBridge {
 
             // Cooldown — don't spam protection events
             const now = Date.now();
-            if (now - lastProtectTime < 15_000) return;
+            if (now - this.lastProtectTime < 15_000) return;
 
             // Only protect if the bot is within 16 blocks of the player
             const distToPlayer = entity.position.distanceTo(this.bot.entity.position);
@@ -333,7 +346,7 @@ export class McEventBridge {
             );
             if (!attacker) return;
 
-            lastProtectTime = now;
+            this.lastProtectTime = now;
             const mobName = attacker.name ?? 'unknown';
             const playerName = entity.username ?? entity.displayName ?? 'player';
             const botName = this.callbacks.getAssistantName();
@@ -348,8 +361,10 @@ export class McEventBridge {
             }
             this.startAutoDefense(mobName);
         }) as (...args: never[]) => void);
+    }
 
-        // Companion assist: help player fight when they attack something
+    /** Join fights when the followed player attacks a mob repeatedly */
+    private registerCompanionAssist(): void {
         this.on('entityHurt', ((entity: Entity) => {
             // Only care about non-player, non-bot entities (mobs)
             if (entity.id === this.bot.entity.id) return;
@@ -393,8 +408,10 @@ export class McEventBridge {
             this.callbacks.onChat('action', 'Action', `${botName} is joining the fight against ${mobName}!`);
             this.startAutoDefense(mobName);
         }) as (...args: never[]) => void);
+    }
 
-        // Proximity self-defense: attack hostile mobs within melee range
+    /** Periodically scan for hostile mobs at melee range and auto-attack them */
+    private registerProximityScan(): void {
         this.proximityScanTimer = setInterval(() => {
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoDefense) return;

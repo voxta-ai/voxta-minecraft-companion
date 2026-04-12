@@ -1,4 +1,5 @@
 import type { Bot as MineflayerBot } from 'mineflayer';
+import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../bot/name-registry';
 import {
     isAutoDefending,
@@ -32,6 +33,146 @@ export interface MovementCallbacks {
     queueNote(text: string): void;
 }
 
+// ---- Batch kill state (shared across aggro/hunt modes) ----
+
+interface ModeBatchState {
+    killCounts: Record<string, number>;
+    timer: ReturnType<typeof setTimeout> | null;
+    modeLabel: string;
+}
+
+// ---- Entity finding helpers ----
+
+const PLAYER_LEASH_RANGE = 20; // Max distance from player for aggro/hunt targets
+
+/** Find the nearest entity matching a filter, within range, with LOS and optional player leash */
+function findNearestEntity(
+    bot: MineflayerBot,
+    maxRange: number,
+    playerEntity: Entity | null,
+    filter: (e: Entity) => boolean,
+): Entity | undefined {
+    let nearest: Entity | undefined;
+    let nearestDist = Infinity;
+    const pos = bot.entity.position;
+    for (const e of Object.values(bot.entities)) {
+        if (e === bot.entity) continue;
+        if (!filter(e)) continue;
+        const d = e.position.distanceTo(pos);
+        if (d < maxRange && d < nearestDist) {
+            if (playerEntity && e.position.distanceTo(playerEntity.position) > PLAYER_LEASH_RANGE) continue;
+            if (!hasLineOfSight(bot, e)) continue;
+            nearest = e;
+            nearestDist = d;
+        }
+    }
+    return nearest;
+}
+
+/** Find the nearest hostile mob within range, optionally leashed to a player */
+function findNearestHostile(
+    bot: MineflayerBot,
+    maxRange: number,
+    playerEntity: Entity | null,
+    aggroCooldowns?: Record<string, number>,
+): Entity | undefined {
+    return findNearestEntity(bot, maxRange, playerEntity, (e) => {
+        if (!isHostileEntity(e)) return false;
+        const name = e.name ?? '';
+        if (AGGRO_SKIP_MOBS.includes(name)) return false;
+        // Skip split-mob babies during cooldown (aggro only)
+        if (aggroCooldowns && SPLIT_MOBS.includes(name) && aggroCooldowns[name] && Date.now() < aggroCooldowns[name]) return false;
+        return true;
+    });
+}
+
+/** Find the nearest huntable animal within range, optionally leashed to a player */
+function findNearestHuntable(
+    bot: MineflayerBot,
+    maxRange: number,
+    playerEntity: Entity | null,
+): Entity | undefined {
+    return findNearestEntity(bot, maxRange, playerEntity, (e) => {
+        return HUNTABLE_ANIMALS.includes(e.name ?? '');
+    });
+}
+
+// ---- Combat result handling (shared between aggro/hunt) ----
+
+/** Flush batched kill counts as a single summary note */
+function flushModeBatch(
+    batch: ModeBatchState,
+    getAssistantName: () => string,
+    callbacks: MovementCallbacks,
+    label: string,
+): void {
+    if (batch.timer) { clearTimeout(batch.timer); batch.timer = null; }
+    const entries = Object.entries(batch.killCounts).filter(([, count]) => count > 0);
+    if (entries.length === 0) return;
+    const botName = getAssistantName();
+    const summary = entries.map(([mob, count]) => `${count} ${mob}${count > 1 ? 's' : ''}`).join(', ');
+    const verb = batch.modeLabel === 'hunt' ? 'Hunted' : 'Defeated';
+    callbacks.queueNote(`${botName}: ${verb} ${summary} in ${batch.modeLabel} mode.`);
+    console.log(`[${label}] ${batch.modeLabel} batch note: ${verb} ${summary}`);
+    for (const key of Object.keys(batch.killCounts)) {
+        batch.killCounts[key] = 0;
+    }
+}
+
+/** Process a combat result: batch kills, handle creeper explosions, send failure notes */
+function handleCombatResult(
+    result: string,
+    mobName: string,
+    modeLabel: string,
+    batch: ModeBatchState,
+    label: string,
+    getAssistantName: () => string,
+    callbacks: MovementCallbacks,
+): void {
+    console.log(`[${label}] ${modeLabel.charAt(0).toUpperCase() + modeLabel.slice(1)} attack result: ${result}`);
+
+    if (result.toLowerCase().includes('defeated')) {
+        callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
+        batch.modeLabel = modeLabel;
+        batch.killCounts[mobName] = (batch.killCounts[mobName] ?? 0) + 1;
+        if (batch.timer) clearTimeout(batch.timer);
+        batch.timer = setTimeout(() => flushModeBatch(batch, getAssistantName, callbacks, label), BATCH_FLUSH_MS);
+    } else if (!result) {
+        // Empty = creeper explosion (only relevant in aggro mode)
+        if (modeLabel === 'aggro') {
+            callbacks.addChat('note', 'Note', 'Creeper exploded nearby');
+            callbacks.queueNote('Creeper exploded nearby');
+        }
+    } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
+        callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
+        callbacks.queueNote(`${getAssistantName()}: ${result}`);
+    }
+}
+
+/** Wait, then resume following the player if no new combat started */
+function scheduleFollowResume(
+    bot: MineflayerBot,
+    label: string,
+    callbacks: MovementCallbacks,
+): void {
+    setTimeout(() => {
+        const combatTarget = getCurrentCombatTarget(bot);
+        const defending = isAutoDefending(bot);
+        const currentFollowing = callbacks.getFollowingPlayer();
+        console.log(`[${label}] Follow resume check — following=${currentFollowing}, combatTarget=${combatTarget}, defending=${defending}`);
+        if (currentFollowing && !combatTarget && !defending) {
+            void executeAction(
+                bot,
+                'mc_follow_player',
+                [{ name: 'player_name', value: currentFollowing }],
+                callbacks.getNames(),
+            ).then((r) => console.log(`[${label}] Resumed following after kill: ${r}`));
+        } else {
+            console.log(`[${label}] Skipped follow resume (busy or no player)`);
+        }
+    }, FOLLOW_RESUME_DELAY_MS);
+}
+
 /**
  * Creates the aggro/hunt/guard mode scan loop for a bot.
  * Bot 1 and bot 2 can each have their own independent loop with an isolated state.
@@ -43,31 +184,12 @@ export function createModeScanLoop(
     getAssistantName: () => string,
     callbacks: MovementCallbacks,
 ): { loop: ReturnType<typeof setInterval>; flush: () => void } {
-    let patrolTarget: { x: number; z: number } | null = null;
     const aggroCooldowns: Record<string, number> = {};
-
-    // Batch mode kills to save LLM context — instead of sending
-    // "Defeated the slime" x10, send one "Defeated 10 slimes in aggro mode."
-    const modeKillCounts: Record<string, number> = {};
-    let modeBatchTimer: ReturnType<typeof setTimeout> | null = null;
-    let modeBatchLabel = 'aggro'; // Tracks which mode the batch belongs to
-    const flushModeBatch = (): void => {
-        if (modeBatchTimer) { clearTimeout(modeBatchTimer); modeBatchTimer = null; }
-        const entries = Object.entries(modeKillCounts).filter(([, count]) => count > 0);
-        if (entries.length === 0) return;
-        const botName = getAssistantName();
-        const summary = entries.map(([mob, count]) => `${count} ${mob}${count > 1 ? 's' : ''}`).join(', ');
-        const verb = modeBatchLabel === 'hunt' ? 'Hunted' : 'Defeated';
-        callbacks.queueNote(`${botName}: ${verb} ${summary} in ${modeBatchLabel} mode.`);
-        console.log(`[${label}] ${modeBatchLabel} batch note: ${verb} ${summary}`);
-        for (const key of Object.keys(modeKillCounts)) {
-            modeKillCounts[key] = 0;
-        }
-    };
+    const batch: ModeBatchState = { killCounts: {}, timer: null, modeLabel: 'aggro' };
 
     let huntCooldownUntil = 0; // Post-kill cooldown to let the bot settle
-
     let patrolPauseUntil = 0;
+
     const loop = setInterval(() => {
         if (!isBotActive()) return;
         const mode = getBotMode(bot);
@@ -79,60 +201,24 @@ export function createModeScanLoop(
         const pos = bot.entity.position;
         if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
 
+        const followingPlayer = callbacks.getFollowingPlayer();
+        const player = followingPlayer
+            ? findPlayerEntity(bot, followingPlayer, callbacks.getNames()) ?? null
+            : null;
+
         // ---- Aggro mode: attack nearest hostile while following player ----
         if (mode === 'aggro') {
-            const followingPlayer = callbacks.getFollowingPlayer();
-            const player = followingPlayer
-                ? findPlayerEntity(bot, followingPlayer, callbacks.getNames())
-                : null;
-
-
-            let nearestHostile: (typeof bot.entities)[number] | undefined;
-            let nearestDist = Infinity;
-            for (const e of Object.values(bot.entities)) {
-                if (e === bot.entity || !isHostileEntity(e)) continue;
-                const name = e.name ?? '';
-                if (AGGRO_SKIP_MOBS.includes(name)) continue;
-                // Skip split-mob babies during cooldown
-                if (SPLIT_MOBS.includes(name) && aggroCooldowns[name] && Date.now() < aggroCooldowns[name]) continue;
-                const d = e.position.distanceTo(pos);
-                // Within 16 blocks of bot AND within 20 blocks of player (leash)
-                if (d < 16 && d < nearestDist) {
-                    if (player && e.position.distanceTo(player.position) > 20) continue;
-                    // Skip mobs behind solid walls (e.g., in adjacent cave systems)
-                    if (!hasLineOfSight(bot, e)) continue;
-                    nearestHostile = e;
-                    nearestDist = d;
-                }
-            }
-
-            if (nearestHostile && !getCurrentCombatTarget(bot)) {
-                const mobName = nearestHostile.name ?? 'unknown';
-                console.log(`[${label}] Aggro mode: attacking ${mobName} (${nearestDist.toFixed(1)} blocks)`);
+            const target = findNearestHostile(bot, 16, player, aggroCooldowns);
+            if (target && !getCurrentCombatTarget(bot)) {
+                const mobName = target.name ?? 'unknown';
+                const dist = target.position.distanceTo(pos);
+                console.log(`[${label}] Aggro mode: attacking ${mobName} (${dist.toFixed(1)} blocks)`);
                 setAutoDefending(bot, true);
                 callbacks.addChat('action', 'Action', `${getAssistantName()} fighting ${mobName}!`);
                 void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], callbacks.getNames())
                     .then((result) => {
-                        console.log(`[${label}] Aggro attack result: ${result}`);
-
-                        // Only batch successful kills, send failures immediately
-                        if (result.toLowerCase().includes('defeated')) {
-                            callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                            modeBatchLabel = 'aggro';
-                            modeKillCounts[mobName] = (modeKillCounts[mobName] ?? 0) + 1;
-                            // Reset batch timer — flush after 5s of no new kills
-                            if (modeBatchTimer) clearTimeout(modeBatchTimer);
-                            modeBatchTimer = setTimeout(flushModeBatch, BATCH_FLUSH_MS);
-                        } else if (!result) {
-                            // Empty = creeper explosion — environmental note, no bot attribution
-                            callbacks.addChat('note', 'Note', 'Creeper exploded nearby');
-                            callbacks.queueNote('Creeper exploded nearby');
-                        } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
-                            callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                            callbacks.queueNote(`${getAssistantName()}: ${result}`);
-                        }
-
-                        // Set cooldown for split mobs
+                        handleCombatResult(result, mobName, 'aggro', batch, label, getAssistantName, callbacks);
+                        // Set cooldown for split mobs (slimes, magma cubes)
                         if (SPLIT_MOBS.includes(mobName)) {
                             aggroCooldowns[mobName] = Date.now() + SPLIT_MOB_COOLDOWN_MS;
                             console.log(`[${label}] Aggro: ${mobName} split cooldown set for 5s`);
@@ -141,26 +227,7 @@ export function createModeScanLoop(
                     .catch((err) => console.log(`[${label}] Aggro attack failed:`, err))
                     .finally(() => {
                         setAutoDefending(bot, false);
-                        console.log(`[${label}] Aggro: combat ended, scheduling follow resume`);
-                        // Wait before resuming follow — if another fight starts
-                        // in that window, the scan will pick it up, and this timer
-                        // becomes irrelevant (the new fight sets its own goal).
-                        setTimeout(() => {
-                            const combatTarget = getCurrentCombatTarget(bot);
-                            const defending = isAutoDefending(bot);
-                            const currentFollowing = callbacks.getFollowingPlayer();
-                            console.log(`[${label}] Aggro: follow resume check — following=${currentFollowing}, combatTarget=${combatTarget}, defending=${defending}`);
-                            if (currentFollowing && !combatTarget && !defending) {
-                                void executeAction(
-                                    bot,
-                                    'mc_follow_player',
-                                    [{ name: 'player_name', value: currentFollowing }],
-                                    callbacks.getNames(),
-                                ).then((r) => console.log(`[${label}] Aggro: resumed following after kill: ${r}`));
-                            } else {
-                                console.log(`[${label}] Aggro: skipped follow resume (busy or no player)`);
-                            }
-                        }, FOLLOW_RESUME_DELAY_MS);
+                        scheduleFollowResume(bot, label, callbacks);
                     });
             }
             return;
@@ -168,73 +235,24 @@ export function createModeScanLoop(
 
         // ---- Hunt mode: attack nearest farm animal while following player ----
         if (mode === 'hunt') {
-            // Post-kill cooldown — let the bot settle, pick up loot, and breathe
             if (Date.now() < huntCooldownUntil) return;
 
-            const followingPlayer = callbacks.getFollowingPlayer();
-            const player = followingPlayer
-                ? findPlayerEntity(bot, followingPlayer, callbacks.getNames())
-                : null;
-
-            let nearestAnimal: (typeof bot.entities)[number] | undefined;
-            let nearestDist = Infinity;
-            for (const e of Object.values(bot.entities)) {
-                if (e === bot.entity) continue;
-                const name = e.name ?? '';
-                if (!HUNTABLE_ANIMALS.includes(name)) continue;
-                const d = e.position.distanceTo(pos);
-                // Within 12 blocks of bot AND within 20 blocks of player (leash)
-                if (d < 12 && d < nearestDist) {
-                    if (player && e.position.distanceTo(player.position) > 20) continue;
-                    // Skip animals behind solid walls
-                    if (!hasLineOfSight(bot, e)) continue;
-                    nearestAnimal = e;
-                    nearestDist = d;
-                }
-            }
-
-            if (nearestAnimal && !getCurrentCombatTarget(bot)) {
-                const animalName = nearestAnimal.name ?? 'unknown';
-                console.log(`[${label}] Hunt mode: targeting ${animalName} (${nearestDist.toFixed(1)} blocks)`);
+            const target = findNearestHuntable(bot, 12, player);
+            if (target && !getCurrentCombatTarget(bot)) {
+                const animalName = target.name ?? 'unknown';
+                const dist = target.position.distanceTo(pos);
+                console.log(`[${label}] Hunt mode: targeting ${animalName} (${dist.toFixed(1)} blocks)`);
                 setAutoDefending(bot, true);
                 callbacks.addChat('action', 'Action', `${getAssistantName()} hunting ${animalName}!`);
                 void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: animalName }], callbacks.getNames())
                     .then((result) => {
-                        console.log(`[${label}] Hunt attack result: ${result}`);
-
-                        if (result.toLowerCase().includes('defeated')) {
-                            callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                            modeBatchLabel = 'hunt';
-                            modeKillCounts[animalName] = (modeKillCounts[animalName] ?? 0) + 1;
-                            if (modeBatchTimer) clearTimeout(modeBatchTimer);
-                            modeBatchTimer = setTimeout(flushModeBatch, BATCH_FLUSH_MS);
-                        } else if (!result.startsWith('Stopped fighting') && !result.startsWith('Died while fighting')) {
-                            callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                            callbacks.queueNote(`${getAssistantName()}: ${result}`);
-                        }
+                        handleCombatResult(result, animalName, 'hunt', batch, label, getAssistantName, callbacks);
                     })
                     .catch((err) => console.log(`[${label}] Hunt attack failed:`, err))
                     .finally(() => {
                         setAutoDefending(bot, false);
-                        // 1.5-second cooldown before hunting the next animal
                         huntCooldownUntil = Date.now() + 1500;
-                        console.log(`[${label}] Hunt: kill ended, scheduling follow resume in 2s`);
-                        setTimeout(() => {
-                            const combatTarget = getCurrentCombatTarget(bot);
-                            const defending = isAutoDefending(bot);
-                            const currentFollowing = callbacks.getFollowingPlayer();
-                            console.log(`[${label}] Hunt: follow resume check — following=${currentFollowing}, combatTarget=${combatTarget}, defending=${defending}`);
-                            if (currentFollowing && !combatTarget && !defending) {
-                                void executeAction(
-                                    bot,
-                                    'mc_follow_player',
-                                    [{ name: 'player_name', value: currentFollowing }],
-                                    callbacks.getNames(),
-                                ).then((r) => console.log(`[${label}] Hunt: resumed following after kill: ${r}`));
-                            } else {
-                                console.log(`[${label}] Hunt: skipped follow resume (busy or no player)`);
-                            }
-                        }, FOLLOW_RESUME_DELAY_MS);
+                        scheduleFollowResume(bot, label, callbacks);
                     });
             }
             return;
@@ -245,26 +263,11 @@ export function createModeScanLoop(
             const center = getGuardCenter(bot);
             if (!center) return;
 
-            // Check for hostiles near guard center (skip neutral mobs like endermen)
-            let nearestHostile: (typeof bot.entities)[number] | undefined;
-            let nearestDist = Infinity;
-            for (const e of Object.values(bot.entities)) {
-                if (e === bot.entity || !isHostileEntity(e)) continue;
-                const name = e.name ?? '';
-                if (AGGRO_SKIP_MOBS.includes(name)) continue;
-                const d = e.position.distanceTo(pos);
-                if (d < 16 && d < nearestDist) {
-                    // Skip mobs behind solid walls
-                    if (!hasLineOfSight(bot, e)) continue;
-                    nearestHostile = e;
-                    nearestDist = d;
-                }
-            }
-
-            if (nearestHostile && !getCurrentCombatTarget(bot)) {
-                const mobName = nearestHostile.name ?? 'unknown';
-                console.log(`[${label}] Guard mode: engaging ${mobName} (${nearestDist.toFixed(1)} blocks)`);
-                patrolTarget = null;
+            const target = findNearestHostile(bot, 16, null);
+            if (target && !getCurrentCombatTarget(bot)) {
+                const mobName = target.name ?? 'unknown';
+                const dist = target.position.distanceTo(pos);
+                console.log(`[${label}] Guard mode: engaging ${mobName} (${dist.toFixed(1)} blocks)`);
                 setAutoDefending(bot, true);
                 callbacks.addChat('action', 'Action', `${getAssistantName()} defending area from ${mobName}!`);
                 void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], callbacks.getNames())
@@ -278,7 +281,7 @@ export function createModeScanLoop(
                 return;
             }
 
-            // Patrol: always pick a new random point on each tick after pause
+            // Patrol: pick a new random point on each tick after pause
             if (Date.now() < patrolPauseUntil) return;
 
             const distToCenter = Math.sqrt(
@@ -288,7 +291,7 @@ export function createModeScanLoop(
             // Pick new patrol point within 8 blocks of center
             const angle = Math.random() * Math.PI * 2;
             const radius = 3 + Math.random() * 5; // 3-8 blocks
-            patrolTarget = {
+            const patrolTarget = {
                 x: center.x + Math.cos(angle) * radius,
                 z: center.z + Math.sin(angle) * radius,
             };
@@ -301,7 +304,7 @@ export function createModeScanLoop(
         }
     }, MODE_SCAN_INTERVAL_MS);
 
-    return { loop, flush: flushModeBatch };
+    return { loop, flush: () => flushModeBatch(batch, getAssistantName, callbacks, label) };
 }
 
 /**
