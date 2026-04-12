@@ -284,7 +284,7 @@ describe('BotEngine', () => {
 
     describe('handleAudioStarted', () => {
         it('does not throw when voxta is null', () => {
-            engine.handleAudioStarted({ messageId: 'test', startIndex: 0, endIndex: 0, duration: 1.5 });
+            engine.handleAudioStarted({ messageId: 'test', startIndex: 0, endIndex: 1, duration: 1 });
             // No crash — voxta null guard
         });
     });

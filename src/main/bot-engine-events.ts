@@ -10,6 +10,10 @@ import { getCurrentCombatTarget, getBotMode } from '../bot/minecraft/actions';
 import { resetActionFired } from './action-orchestrator';
 import { getVehicle } from '../bot/minecraft/mineflayer-types';
 
+const LOG_PREVIEW_LENGTH = 80;
+const INTERRUPT_SETTLE_DELAY_MS = 300; // Delay after interrupt before sending new message
+const FOLLOW_RESUME_DELAY_MS = 150;    // Delay for pathfinder to clear before resuming follow
+
 /** Callbacks the event bridge setup uses to interact with BotEngine state */
 export interface EventBridgeCallbacks {
     getVoxta(): VoxtaClient | null;
@@ -27,6 +31,126 @@ export interface EventBridgeCallbacks {
     clearPendingEvents(): void;
     flushHuntBatch(slot: 1 | 2): void;
 }
+
+// ---- Extracted callback handlers ----
+
+/** Handle urgent events: interrupt current speech, then send immediately */
+function handleUrgentEvent(
+    text: string,
+    label: string,
+    callbacks: EventBridgeCallbacks,
+): void {
+    if (!callbacks.getVoxta()?.sessionId) return;
+    callbacks.addChat('event', 'Event', text);
+    callbacks.audioPipeline.interrupt();
+    callbacks.audioPipeline.fireAckNow();
+    callbacks.emit('stop-audio');
+    void callbacks.getVoxta()?.interrupt();
+    callbacks.setIsReplying(false);
+    callbacks.setCurrentReply('');
+    console.log(`[${label} >>] event (urgent): "${text.substring(0, LOG_PREVIEW_LENGTH)}"`);
+    void callbacks.getVoxta()?.sendEvent(text);
+}
+
+/** Handle player chat from MC: interrupt if speaking, then forward to Voxta */
+function handlePlayerChat(
+    text: string,
+    callbacks: EventBridgeCallbacks,
+): void {
+    if (!callbacks.getVoxta()?.sessionId) return;
+    console.log(`[User >>] MC chat: "${text}"`);
+    resetActionFired();
+    callbacks.flushHuntBatch(1);
+    callbacks.flushHuntBatch(2);
+
+    if (callbacks.isReplying()) {
+        console.log('[User >>] MC chat during speech — interrupting first');
+        callbacks.audioPipeline.interrupt();
+        callbacks.audioPipeline.fireAckNow();
+        callbacks.setIsReplying(false);
+        callbacks.setCurrentReply('');
+        callbacks.clearPendingEvents();
+        setTimeout(() => {
+            void callbacks.getVoxta()?.sendMessage(text);
+        }, INTERRUPT_SETTLE_DELAY_MS);
+    } else {
+        void callbacks.getVoxta()?.sendMessage(text);
+    }
+}
+
+/** Auto-defense: execute attack, report result, and resume follow after combat ends */
+async function handleAutoDefense(
+    botInstance: MineflayerBot,
+    mobName: string,
+    slot: 1 | 2,
+    names: NameRegistry,
+    callbacks: EventBridgeCallbacks,
+): Promise<void> {
+    const label = slot === 1 ? 'Bot' : 'Bot2';
+    const vehicleCheck = getVehicle(botInstance);
+    if (vehicleCheck) {
+        console.log(`[${label}] Skipping auto-defense against ${mobName} — mounted on vehicle`);
+        return;
+    }
+    const botName = callbacks.getAssistantName(slot) ?? label;
+    console.log(`[${label}] Auto-defense started against ${mobName}, followingPlayer=${callbacks.getFollowingPlayer()}`);
+    try {
+        const result = await executeAction(
+            botInstance,
+            'mc_attack',
+            [{ name: 'entity_name', value: mobName }],
+            names,
+        );
+        const isNoise = result.startsWith('Already fighting')
+            || result.startsWith('Stopped fighting')
+            || result.startsWith('Died while fighting');
+        if (!result) {
+            callbacks.addChat('note', 'Note', 'Creeper exploded nearby');
+            callbacks.queueNote('Creeper exploded nearby');
+        } else if (!isNoise) {
+            callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+            callbacks.queueNote(`${botName}: ${result}`);
+        }
+        console.log(`[${label}] Auto-defense attack result: ${result}`);
+    } catch (err) {
+        console.log(`[${label}] Auto-defense attack failed:`, err);
+    } finally {
+        resumeFollowAfterDefense(botInstance, slot, label, names, callbacks);
+    }
+}
+
+/** Resume following the player after auto-defense ends (if appropriate) */
+function resumeFollowAfterDefense(
+    botInstance: MineflayerBot,
+    slot: 1 | 2,
+    label: string,
+    names: NameRegistry,
+    callbacks: EventBridgeCallbacks,
+): void {
+    console.log(
+        `[${label}] Auto-defense finished, followingPlayer=${callbacks.getFollowingPlayer()}, mcBot=${!!callbacks.getMcBot(slot)}`,
+    );
+    if (getCurrentCombatTarget(botInstance)) {
+        console.log(`[${label}] Combat still active (${getCurrentCombatTarget(botInstance)}), NOT overriding with follow`);
+    } else if (getBotMode(botInstance) === 'guard') {
+        console.log(`[${label}] Guard mode — staying at post, not following`);
+    } else if (callbacks.getFollowingPlayer() && callbacks.getMcBot(slot)) {
+        const playerToFollow = callbacks.getFollowingPlayer()!;
+        const mcBotRef = callbacks.getMcBot(slot);
+        setTimeout(() => {
+            if (callbacks.getFollowingPlayer() !== playerToFollow) return;
+            if (!mcBotRef) return;
+            const resumeResult = resumeFollowPlayer(mcBotRef.bot, playerToFollow, names);
+            console.log(`[${label}] Resumed following after defense: ${resumeResult}`);
+        }, FOLLOW_RESUME_DELAY_MS);
+    } else {
+        console.log(
+            `[${label}] NOT resuming follow — followingPlayer=${callbacks.getFollowingPlayer()}, mcBot=${!!callbacks.getMcBot(slot)}`,
+        );
+    }
+}
+
+// ---- Main factory ----
 
 /**
  * Creates and wires up a McEventBridge for a bot slot.
@@ -60,120 +184,20 @@ export function createEventBridge(
                 if (callbacks.isReplying()) {
                     callbacks.queueNote(text);
                 } else {
-                    console.log(`[${label} >>] event: "${text.substring(0, 80)}"`);
+                    console.log(`[${label} >>] event: "${text.substring(0, LOG_PREVIEW_LENGTH)}"`);
                     void callbacks.getVoxta()?.sendEvent(text);
                 }
             },
-            onUrgentEvent: (text) => {
-                if (!callbacks.getVoxta()?.sessionId) return;
-                callbacks.addChat('event', 'Event', text);
-                // Interrupt current speech and server reply
-                callbacks.audioPipeline.interrupt();
-                callbacks.audioPipeline.fireAckNow();
-                callbacks.emit('stop-audio');
-                void callbacks.getVoxta()?.interrupt();
-                callbacks.setIsReplying(false);
-                callbacks.setCurrentReply('');
-                // Send the urgent event immediately
-                console.log(`[${label} >>] event (urgent): "${text.substring(0, 80)}"`);
-                void callbacks.getVoxta()?.sendEvent(text);
-            },
+            onUrgentEvent: (text) => handleUrgentEvent(text, label, callbacks),
             onPlayerChat: slot === 1
-                ? (text) => {
-                    if (!callbacks.getVoxta()?.sessionId) return;
-                    console.log(`[User >>] MC chat: "${text}"`);
-                    resetActionFired();
-                    callbacks.flushHuntBatch(1);
-                    callbacks.flushHuntBatch(2);
-
-                    if (callbacks.isReplying()) {
-                        // Interrupt the current speech first, then send it after server settles
-                        console.log('[User >>] MC chat during speech — interrupting first');
-                        callbacks.audioPipeline.interrupt();
-                        callbacks.audioPipeline.fireAckNow();
-                        callbacks.setIsReplying(false);
-                        callbacks.setCurrentReply('');
-                        callbacks.clearPendingEvents();
-                        // Give the server time to process the interrupt before sending
-                        setTimeout(() => {
-                            void callbacks.getVoxta()?.sendMessage(text);
-                        }, 300);
-                    } else {
-                        void callbacks.getVoxta()?.sendMessage(text);
-                    }
-                }
-                : () => {
-                    // No-op — bot 1's bridge handles chat bridging
-                },
+                ? (text) => handlePlayerChat(text, callbacks)
+                : () => {},
             getSettings: () => callbacks.getSettings(),
             getAssistantName: () => callbacks.getAssistantName(slot) ?? label,
             isReplying: () => callbacks.isReplying(),
         },
         () => callbacks.getFollowingPlayer(),
-        async (botInstance, mobName) => {
-            // Skip auto-defense while mounted — can't fight from horseback
-            const vehicleCheck = getVehicle(botInstance);
-            if (vehicleCheck) {
-                console.log(`[${label}] Skipping auto-defense against ${mobName} — mounted on vehicle`);
-                return;
-            }
-            const botName = callbacks.getAssistantName(slot) ?? label;
-            console.log(`[${label}] Auto-defense started against ${mobName}, followingPlayer=${callbacks.getFollowingPlayer()}`);
-            try {
-                const result = await executeAction(
-                    botInstance,
-                    'mc_attack',
-                    [{ name: 'entity_name', value: mobName }],
-                    names,
-                );
-                // Don't send redundant notes — "Already fighting" is noise,
-                // "Stopped fighting" and "Died while fighting" are covered by the death event.
-                const isNoise = result.startsWith('Already fighting')
-                    || result.startsWith('Stopped fighting')
-                    || result.startsWith('Died while fighting');
-                if (!result) {
-                    // Empty = creeper explosion — environmental note, no bot attribution
-                    callbacks.addChat('note', 'Note', 'Creeper exploded nearby');
-                    callbacks.queueNote('Creeper exploded nearby');
-                } else if (!isNoise) {
-                    callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-                    callbacks.queueNote(`${botName}: ${result}`);
-                }
-                console.log(`[${label}] Auto-defense attack result: ${result}`);
-            } catch (err) {
-                console.log(`[${label}] Auto-defense attack failed:`, err);
-            } finally {
-                // Return the bridge reference so caller can clear attacker
-                console.log(
-                    `[${label}] Auto-defense finished, followingPlayer=${callbacks.getFollowingPlayer()}, mcBot=${!!callbacks.getMcBot(slot)}`,
-                );
-                // Don't resume follow if combat is still active — another mc_attack is
-                // running with GoalFollow(target). Overwriting it with GoalFollow(player)
-                // would cause the bot to stop fighting and just absorb arrows.
-                if (getCurrentCombatTarget(botInstance)) {
-                    console.log(`[${label}] Combat still active (${getCurrentCombatTarget(botInstance)}), NOT overriding with follow`);
-                } else if (getBotMode(botInstance) === 'guard') {
-                    console.log(`[${label}] Guard mode — staying at post, not following`);
-                } else if (callbacks.getFollowingPlayer() && callbacks.getMcBot(slot)) {
-                    // Small delay: pathfinder.stop() in combat sets an internal
-                    // "stopPathing" flag that takes one tick to clear. Without
-                    // this delay, setGoal(null)+setGoal(follow) races with the
-                    // async path reset and the bot appears stuck.
-                    const playerToFollow = callbacks.getFollowingPlayer()!;
-                    const mcBotRef = callbacks.getMcBot(slot);
-                    setTimeout(() => {
-                        if (callbacks.getFollowingPlayer() !== playerToFollow) return; // state changed
-                        if (!mcBotRef) return;
-                        const resumeResult = resumeFollowPlayer(mcBotRef.bot, playerToFollow, names);
-                        console.log(`[${label}] Resumed following after defense: ${resumeResult}`);
-                    }, 150);
-                } else {
-                    console.log(
-                        `[${label}] NOT resuming follow — followingPlayer=${callbacks.getFollowingPlayer()}, mcBot=${!!callbacks.getMcBot(slot)}`,
-                    );
-                }
-            }
-        },
+        (botInstance, mobName) => handleAutoDefense(botInstance, mobName, slot, names, callbacks),
         botUsernames,
         skipChatBridging,
     );
