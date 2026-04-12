@@ -544,10 +544,17 @@ function getPhaseNote(currentRole: BlockRole, placed: number, _total: number): s
 export async function buildStructure(bot: Bot, structureName: string | undefined, names: NameRegistry): Promise<string> {
     if (!structureName) return 'What should I build? Available: ' + getAvailableBlueprints().join(', ');
 
-    const blueprint = getBlueprint(structureName);
-    if (!blueprint) {
+    const original = getBlueprint(structureName);
+    if (!original) {
         return `Don't know how to build "${structureName}". Available: ${getAvailableBlueprints().join(', ')}`;
     }
+
+    // Deep-clone so wall rotation (dx↔dz swap) doesn't mutate the shared
+    // blueprint object — custom blueprints return the same reference each time.
+    const blueprint: Blueprint = {
+        ...original,
+        blocks: original.blocks.map((b) => ({ ...b })),
+    };
 
     console.log(`[MC Build] Starting build: ${blueprint.displayName} (${blueprint.blocks.length} blocks)`);
 
