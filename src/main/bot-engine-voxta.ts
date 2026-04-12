@@ -16,7 +16,8 @@ export async function fetchCharacterDetails(
     }
     const res = await fetch(`${baseUrl}/api/characters/?assistant=true`, { headers });
     if (!res.ok) {
-        console.error(`[Voxta] Failed to fetch characters: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        console.error(`[Voxta] Failed to fetch characters: ${res.status} ${res.statusText} — ${body.substring(0, 200)}`);
         return [];
     }
 
@@ -58,7 +59,8 @@ export async function loadScenarios(
     }
     const res = await fetch(`${baseUrl}/api/scenarios`, { headers });
     if (!res.ok) {
-        console.error(`[Voxta] Failed to load scenarios: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        console.error(`[Voxta] Failed to load scenarios: ${res.status} ${res.statusText} — ${body.substring(0, 200)}`);
         return [];
     }
     const data = (await res.json()) as {
@@ -82,7 +84,8 @@ export async function loadChats(
     }
     const res = await fetch(`${baseUrl}/api/chats?characterId=${characterId}`, { headers });
     if (!res.ok) {
-        console.error(`[Voxta] Failed to load chats: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        console.error(`[Voxta] Failed to load chats: ${res.status} ${res.statusText} — ${body.substring(0, 200)}`);
         return [];
     }
     const data = (await res.json()) as {
@@ -128,7 +131,8 @@ export async function favoriteChat(
         body: JSON.stringify({ favorite }),
     });
     if (!res.ok) {
-        console.error(`[Voxta] Failed to toggle favorite: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        console.error(`[Voxta] Failed to toggle favorite: ${res.status} ${res.statusText} — ${body.substring(0, 200)}`);
     }
 }
 
@@ -150,7 +154,8 @@ export async function deleteChat(
         headers,
     });
     if (!res.ok) {
-        console.error(`[Voxta] Failed to delete chat: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        console.error(`[Voxta] Failed to delete chat: ${res.status} ${res.statusText} — ${body.substring(0, 200)}`);
     }
 }
 

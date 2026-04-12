@@ -308,7 +308,9 @@ export class ServerManager extends EventEmitter {
             console.log('[Server] Auto-starting server...');
             await this.start();
         } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
             console.error('[Server] Auto-start failed:', err);
+            this.emitConsoleLine(`Auto-start failed: ${msg}`, 'error');
         }
     }
 

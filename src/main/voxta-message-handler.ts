@@ -131,7 +131,8 @@ function handleChatStarted(message: ServerMessage, ctx: MessageHandlerContext): 
             const parsed = parseAssetUrn(skinUrn);
             if (parsed) {
                 console.log(`[MC Skin] Bot ${slot} (${char.name}): downloading skin "${parsed.assetPath}"`);
-                void downloadAndServeSkin(parsed.characterId, parsed.assetPath, slot, ctx);
+                void downloadAndServeSkin(parsed.characterId, parsed.assetPath, slot, ctx)
+                    .catch((err) => console.error(`[MC Skin] Skin download failed for bot ${slot}:`, err));
             }
         }
     }

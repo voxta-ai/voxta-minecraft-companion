@@ -177,6 +177,12 @@ export class BotEngine extends EventEmitter {
 
     // ---- Utilities ----
 
+    /** Log Voxta send errors (notes, events, context updates) without crashing */
+    private logSendError(label: string, err: unknown): void {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[Voxta] ${label} failed: ${msg}`);
+    }
+
     /** Emit a toast notification to the renderer */
     private toast(type: ToastType, message: string, durationMs?: number): void {
         const toast: ToastMessage = {
@@ -212,7 +218,7 @@ export class BotEngine extends EventEmitter {
             this.pendingNotes.push(text);
         } else {
             console.log(`[Bot >>] note: "${text.substring(0, LOG_PREVIEW_LENGTH)}"`);
-            void this.voxta?.sendNote(text);
+            void this.voxta?.sendNote(text).catch((e) => this.logSendError('sendNote', e));
         }
     }
 
@@ -222,7 +228,7 @@ export class BotEngine extends EventEmitter {
         console.log(`[Bot >>] flushing ${this.pendingNotes.length} queued note(s)`);
         for (const note of this.pendingNotes) {
             console.log(`[Bot >>] note (flushed): "${note.substring(0, LOG_PREVIEW_LENGTH)}"`);
-            void this.voxta.sendNote(note);
+            void this.voxta.sendNote(note).catch((e) => this.logSendError('sendNote', e));
         }
         this.pendingNotes = [];
     }
@@ -233,7 +239,7 @@ export class BotEngine extends EventEmitter {
         // Only send the most recent event to avoid spamming multiple replies
         const event = this.pendingEvents[this.pendingEvents.length - 1];
         console.log(`[Bot >>] event (deferred): "${event.substring(0, LOG_PREVIEW_LENGTH)}"`);
-        void this.voxta.sendEvent(event);
+        void this.voxta.sendEvent(event).catch((e) => this.logSendError('sendEvent', e));
         this.pendingEvents = [];
     }
 
@@ -275,7 +281,7 @@ export class BotEngine extends EventEmitter {
                 },
             ],
             this.getEnabledActions(),
-        );
+        ).catch((e) => this.logSendError('updateContext', e));
     }
 
     updateSettings(newSettings: McSettings): void {
@@ -761,6 +767,7 @@ export class BotEngine extends EventEmitter {
         } catch (err) {
             // Perception can fail during initial chunk loading
             console.error('[Perception] Initial context failed:', err);
+            this.toast('warning', 'World perception failed during startup — context may be incomplete until next update.');
             return [];
         }
     }
@@ -913,7 +920,7 @@ export class BotEngine extends EventEmitter {
                             'mc_follow_player',
                             [{ name: 'player_name', value: playerName }],
                             this.names,
-                        );
+                        ).catch((retryErr) => console.log(`[Bot] Auto-follow retry also failed:`, retryErr));
                     }, 2000);
                 });
             }
@@ -1194,7 +1201,7 @@ export class BotEngine extends EventEmitter {
                     this.pendingEvents.push(text);
                 } else {
                     console.log(`[Bot >>] event (immediate, reply done): "${text.substring(0, LOG_PREVIEW_LENGTH)}"`);
-                    void this.voxta?.sendEvent(text);
+                    void this.voxta?.sendEvent(text).catch((e) => this.logSendError('sendEvent', e));
                 }
             },
             emit: (event, ...args) => this.emit(event as BotEngineEvent, ...args),
