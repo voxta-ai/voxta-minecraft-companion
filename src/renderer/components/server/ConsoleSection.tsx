@@ -1,9 +1,10 @@
 import { createSignal, createEffect, Show, For } from 'solid-js';
 import { serverState, serverConsole, clearServerConsole } from '../../stores/server-store';
+import { formatTimestamp } from '../../utils/format';
+import CopyButton from '../CopyButton';
 
 export default function ConsoleSection() {
     const [commandInput, setCommandInput] = createSignal('');
-    const [consoleCopied, setConsoleCopied] = createSignal(false);
     let consoleRef: HTMLDivElement | undefined;
 
     // Auto-scroll console to bottom
@@ -27,26 +28,13 @@ export default function ConsoleSection() {
         <div class="server-console-section">
             <div class="server-console-toolbar">
                 <span class="server-console-count">{serverConsole.lines.length} lines</span>
-                <button
-                    class="terminal-toolbar-btn"
-                    onClick={() => {
-                        const text = serverConsole.lines
-                            .map((line) => {
-                                const time = new Date(line.timestamp).toLocaleTimeString([], {
-                                    hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit',
-                                });
-                                return `${time} ${line.text}`;
-                            })
-                            .join('\n');
-                        void navigator.clipboard.writeText(text).then(() => {
-                            setConsoleCopied(true);
-                            setTimeout(() => setConsoleCopied(false), 1500);
-                        });
-                    }}
-                    title="Copy to Clipboard"
-                >
-                    <i class={consoleCopied() ? 'bi bi-check-lg' : 'bi bi-clipboard'}></i> {consoleCopied() ? 'Copied!' : 'Copy'}
-                </button>
+                <CopyButton
+                    getText={() =>
+                        serverConsole.lines
+                            .map((line) => `${formatTimestamp(line.timestamp)} ${line.text}`)
+                            .join('\n')
+                    }
+                />
                 <button class="terminal-toolbar-btn" onClick={clearServerConsole}>
                     <i class="bi bi-slash-circle"></i> Clear
                 </button>
@@ -57,12 +45,7 @@ export default function ConsoleSection() {
                         {(line) => (
                             <div class={`terminal-row ${line.level === 'error' ? 'terminal-row-error' : line.level === 'warn' ? 'terminal-row-warn' : ''}`}>
                                 <span class="terminal-timestamp">
-                                    {new Date(line.timestamp).toLocaleTimeString([], {
-                                        hour12: false,
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        second: '2-digit',
-                                    })}
+                                    {formatTimestamp(line.timestamp)}
                                 </span>
                                 <div class="terminal-content">{line.text}</div>
                             </div>

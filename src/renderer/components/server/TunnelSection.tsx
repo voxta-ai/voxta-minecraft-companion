@@ -1,9 +1,9 @@
 import { createSignal, Show } from 'solid-js';
 import { tunnelState, tunnelUrl, tunnelError } from '../../stores/server-store';
 import { addToast } from '../../stores/toast-store';
+import CopyButton from '../CopyButton';
 
 export default function TunnelSection() {
-    const [tunnelCopied, setTunnelCopied] = createSignal(false);
     const [tunnelUrlInput, setTunnelUrlInput] = createSignal('');
 
     async function handleTunnelStart(): Promise<void> {
@@ -27,15 +27,6 @@ export default function TunnelSection() {
         if (!url) return;
         void window.api.tunnelSetUrl(url);
         setTunnelUrlInput('');
-    }
-
-    function handleCopyTunnelUrl(): void {
-        const url = tunnelUrl();
-        if (!url) return;
-        void navigator.clipboard.writeText(url).then(() => {
-            setTunnelCopied(true);
-            setTimeout(() => setTunnelCopied(false), 1500);
-        });
     }
 
     return (
@@ -117,14 +108,11 @@ export default function TunnelSection() {
                     >
                         <div class="tunnel-address-box">
                             <span class="tunnel-address">{tunnelUrl()}</span>
-                            <button
+                            <CopyButton
+                                getText={() => tunnelUrl() ?? ''}
                                 class="tunnel-copy-btn"
-                                onClick={handleCopyTunnelUrl}
                                 title="Copy address"
-                            >
-                                <i class={tunnelCopied() ? 'bi bi-check-lg' : 'bi bi-clipboard'}></i>
-                                {tunnelCopied() ? 'Copied!' : 'Copy'}
-                            </button>
+                            />
                         </div>
                     </Show>
                     <div class="tunnel-active-footer">

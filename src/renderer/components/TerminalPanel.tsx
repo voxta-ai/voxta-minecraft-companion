@@ -1,6 +1,8 @@
-import { For, Show, createEffect, createSignal } from 'solid-js';
+import { For, Show, createEffect } from 'solid-js';
 import { consoleLogs, clearLogs } from '../stores/console-store';
+import { formatTimestamp } from '../utils/format';
 import ConsoleLine from './ConsoleLine';
+import CopyButton from './CopyButton';
 
 /**
  * In-app terminal panel.
@@ -10,7 +12,6 @@ import ConsoleLine from './ConsoleLine';
  */
 export default function TerminalPanel() {
     let logsContainerRef: HTMLDivElement | undefined;
-    const [copied, setCopied] = createSignal(false);
 
     // Auto-scroll to bottom when new entries arrive
     createEffect(() => {
@@ -56,29 +57,13 @@ export default function TerminalPanel() {
                     </span>
                 </div>
                 <div class="terminal-toolbar-actions">
-                    <button
-                        class="terminal-toolbar-btn"
-                        onClick={() => {
-                            const text = consoleLogs.entries
-                                .map((e) => {
-                                    const time = new Date(e.timestamp).toLocaleTimeString([], {
-                                        hour12: false,
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        second: '2-digit',
-                                    });
-                                    return `${time} ${e.text}`;
-                                })
-                                .join('\n');
-                            void navigator.clipboard.writeText(text).then(() => {
-                                setCopied(true);
-                                setTimeout(() => setCopied(false), 1500);
-                            });
-                        }}
-                        title="Copy to Clipboard"
-                    >
-                        <i class={copied() ? 'bi bi-check-lg' : 'bi bi-clipboard'}></i> {copied() ? 'Copied!' : 'Copy'}
-                    </button>
+                    <CopyButton
+                        getText={() =>
+                            consoleLogs.entries
+                                .map((e) => `${formatTimestamp(e.timestamp)} ${e.text}`)
+                                .join('\n')
+                        }
+                    />
                     <button
                         class="terminal-toolbar-btn"
                         onClick={clearLogs}
@@ -95,12 +80,7 @@ export default function TerminalPanel() {
                         {(entry) => (
                             <div class={`terminal-row ${getLevelClass(entry.level)}`}>
                                 <span class="terminal-timestamp">
-                                    {new Date(entry.timestamp).toLocaleTimeString([], {
-                                        hour12: false,
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        second: '2-digit',
-                                    })}
+                                    {formatTimestamp(entry.timestamp)}
                                 </span>
                                 <Show when={entry.level !== 'log'}>
                                     <span class="terminal-level-icon">{getLevelIcon(entry.level)}</span>

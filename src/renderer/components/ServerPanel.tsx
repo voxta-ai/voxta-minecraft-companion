@@ -1,4 +1,5 @@
 import { createSignal, onMount, onCleanup, Show } from 'solid-js';
+import SetupProgressBar from './SetupProgressBar';
 import {
     serverState,
     serverPort,
@@ -234,19 +235,7 @@ export default function ServerPanel() {
                         </button>
                     </Show>
                     <Show when={setupProgress()}>
-                        <div class="server-setup-progress">
-                            <div class="server-setup-progress-label">{setupProgress()?.label}</div>
-                            <div class="server-setup-progress-bar">
-                                <div
-                                    class="server-setup-progress-fill"
-                                    style={{
-                                        width: setupProgress()?.bytesTotal
-                                            ? `${Math.round(((setupProgress()?.bytesDownloaded ?? 0) / (setupProgress()?.bytesTotal ?? 1)) * 100)}%`
-                                            : `${Math.round(((setupProgress()?.step ?? 0) / (setupProgress()?.totalSteps ?? 1)) * 100)}%`,
-                                    }}
-                                />
-                            </div>
-                        </div>
+                        <SetupProgressBar progress={setupProgress} />
                     </Show>
                 </div>
             </Show>
