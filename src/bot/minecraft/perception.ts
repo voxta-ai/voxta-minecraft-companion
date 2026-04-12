@@ -67,6 +67,7 @@ export interface NearbyEntity {
     type: string;
     distance: number;
     position: { x: number; y: number; z: number };
+    heldItem: string | null;
 }
 
 export function readWorldState(bot: Bot, entityRange: number): WorldState {
@@ -95,6 +96,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
                 y: Math.round(entity.position.y),
                 z: Math.round(entity.position.z),
             },
+            heldItem: entity.heldItem?.displayName ?? entity.heldItem?.name ?? null,
         };
 
         if (entity.type === 'player') {
@@ -576,7 +578,8 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
         const playerList = state.nearbyPlayers
             .map((p) => {
                 const voxtaName = names.resolveToVoxta(p.name);
-                return `${voxtaName} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z})`;
+                const holding = p.heldItem ? `, holding ${p.heldItem}` : '';
+                return `${voxtaName} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z}${holding})`;
             })
             .join(', ');
         lines.push(`Nearby players: ${playerList}`);
