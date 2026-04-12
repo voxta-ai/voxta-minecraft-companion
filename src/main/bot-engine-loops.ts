@@ -170,62 +170,36 @@ export function createProximityLoop(
                 (e) => e.type === 'player' && e.username?.toLowerCase() === playerMcUsername.toLowerCase(),
             );
 
-        // Bot 1
-        const bot1 = callbacks.getMcBot(1);
+        const slotsToCheck: (1 | 2)[] = isDualBot ? [1, 2] : [1];
         const charIds = callbacks.getActiveCharacterIds();
-        if (bot1 && charIds[0]) {
-            const playerEntity = findPlayer(bot1);
-            // Player is not visible in entities = beyond render distance = definitely out of range
-            const dist1 = playerEntity
-                ? playerEntity.position.distanceTo(bot1.entity.position)
+
+        for (const slot of slotsToCheck) {
+            const bot = callbacks.getMcBot(slot);
+            const charId = charIds[slot - 1];
+            if (!bot || !charId) continue;
+
+            const playerEntity = findPlayer(bot);
+            const dist = playerEntity
+                ? playerEntity.position.distanceTo(bot.entity.position)
                 : Infinity;
-            const inRange = dist1 <= PROXIMITY_RANGE;
+            const name = callbacks.getAssistantName(slot) ?? `Bot${slot}`;
+            const inRange = dist <= PROXIMITY_RANGE;
+
             if (proximityLogTick % 6 === 0) {
-                const name = callbacks.getAssistantName(1) ?? 'Bot1';
-                console.log(`[Proximity] ${name}: ${dist1 === Infinity ? 'not visible' : `${dist1.toFixed(1)} blocks`} (${inRange ? 'in range' : 'OUT OF RANGE'})`);
+                console.log(`[Proximity] ${name}: ${dist === Infinity ? 'not visible' : `${dist.toFixed(1)} blocks`} (${inRange ? 'in range' : 'OUT OF RANGE'})`);
             }
-            if (inRange !== callbacks.isBotInRange(1)) {
-                callbacks.setBotInRange(1, inRange);
-                const name = callbacks.getAssistantName(1) ?? 'Bot';
+
+            if (inRange !== callbacks.isBotInRange(slot)) {
+                callbacks.setBotInRange(slot, inRange);
                 if (inRange) {
                     console.log(`[Proximity] ${name} back in range — rejoining`);
-                    void voxta.addChatParticipant(charIds[0]);
+                    void voxta.addChatParticipant(charId);
                     callbacks.addChat('system', 'System', `${name} is back in range.`);
                     callbacks.queueNote(`${name} rejoined — back within range of the player.`);
                 } else {
                     console.log(`[Proximity] ${name} out of range — removing`);
-                    void voxta.removeChatParticipant(charIds[0]);
+                    void voxta.removeChatParticipant(charId);
                     callbacks.addChat('system', 'System', `${name} is too far away to hear.`);
-                }
-            }
-        }
-
-        // Bot 2 (dual-bot only)
-        if (isDualBot) {
-            const bot2 = callbacks.getMcBot(2);
-            if (bot2 && charIds[1]) {
-                const playerEntity2 = findPlayer(bot2);
-                const dist2 = playerEntity2
-                    ? playerEntity2.position.distanceTo(bot2.entity.position)
-                    : Infinity;
-                if (proximityLogTick % 6 === 0) {
-                    const name2 = callbacks.getAssistantName(2) ?? 'Bot2';
-                    console.log(`[Proximity] ${name2}: ${dist2 === Infinity ? 'not visible' : `${dist2.toFixed(1)} blocks`} (${dist2 <= PROXIMITY_RANGE ? 'in range' : 'OUT OF RANGE'})`);
-                }
-                const inRange2 = dist2 <= PROXIMITY_RANGE;
-                if (inRange2 !== callbacks.isBotInRange(2)) {
-                    callbacks.setBotInRange(2, inRange2);
-                    const name2 = callbacks.getAssistantName(2) ?? 'Bot2';
-                    if (inRange2) {
-                        console.log(`[Proximity] ${name2} back in range — rejoining`);
-                        void voxta.addChatParticipant(charIds[1]);
-                        callbacks.addChat('system', 'System', `${name2} is back in range.`);
-                        callbacks.queueNote(`${name2} rejoined — back within range of the player.`);
-                    } else {
-                        console.log(`[Proximity] ${name2} out of range — removing`);
-                        void voxta.removeChatParticipant(charIds[1]);
-                        callbacks.addChat('system', 'System', `${name2} is too far away to hear.`);
-                    }
                 }
             }
         }

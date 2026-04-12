@@ -79,27 +79,39 @@ type BotEngineEvent =
     | 'recording-stop'
     | 'spatial-position';
 
+/** Per-bot state that is duplicated for each bot slot */
+interface BotSlot {
+    mcBot: MinecraftBot | null;
+    perceptionLoop: ReturnType<typeof setInterval> | null;
+    followWatchdog: ReturnType<typeof setInterval> | null;
+    mountedSteeringLoop: ReturnType<typeof setInterval> | null;
+    modeScanLoop: ReturnType<typeof setInterval> | null;
+    eventBridge: McEventBridge | null;
+    assistantName: string | null;
+    flushHuntBatch: (() => void) | null;
+    inRange: boolean;
+}
+
+function createEmptySlot(): BotSlot {
+    return {
+        mcBot: null,
+        perceptionLoop: null,
+        followWatchdog: null,
+        mountedSteeringLoop: null,
+        modeScanLoop: null,
+        eventBridge: null,
+        assistantName: null,
+        flushHuntBatch: null,
+        inRange: true,
+    };
+}
+
 export class BotEngine extends EventEmitter {
-    private mcBot: MinecraftBot | null = null;
-    private mcBot2: MinecraftBot | null = null;
+    private readonly botSlots: [BotSlot, BotSlot] = [createEmptySlot(), createEmptySlot()];
     private voxta: VoxtaClient | null = null;
-    private perceptionLoop: ReturnType<typeof setInterval> | null = null;
-    private perceptionLoop2: ReturnType<typeof setInterval> | null = null;
-    private followWatchdog: ReturnType<typeof setInterval> | null = null;
-    private followWatchdog2: ReturnType<typeof setInterval> | null = null;
-    private mountedSteeringLoop: ReturnType<typeof setInterval> | null = null;
-    private mountedSteeringLoop2: ReturnType<typeof setInterval> | null = null;
     private autoDismounting = false;
-    private modeScanLoop: ReturnType<typeof setInterval> | null = null;
-    private modeScanLoop2: ReturnType<typeof setInterval> | null = null;
     private proximityLoop: ReturnType<typeof setInterval> | null = null;
-    private bot1InRange = true;
-    private bot2InRange = true;
     private spatialLoop: ReturnType<typeof setInterval> | null = null;
-    private eventBridge: McEventBridge | null = null;
-    private eventBridge2: McEventBridge | null = null;
-    private assistantName: string | null = null;
-    private assistantName2: string | null = null;
     private activeCharacterId: string | null = null;
     private activeCharacterIds: string[] = [];
     private activeScenarioId: string | null = null;
@@ -121,8 +133,6 @@ export class BotEngine extends EventEmitter {
     private pendingNotes: string[] = [];
     private pendingEvents: string[] = [];
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
-    private flushHuntBatch: (() => void) | null = null;
-    private flushHuntBatch2: (() => void) | null = null;
     private toastCounter = 0;
     // Maps Voxta character ID → MC bot slot (1 or 2) — populated after chatStarted
     private readonly characterBotMap: Map<string, 1 | 2> = new Map();
@@ -159,6 +169,9 @@ export class BotEngine extends EventEmitter {
     override emit(event: BotEngineEvent, ...args: unknown[]): boolean {
         return super.emit(event, ...args);
     }
+
+    /** Access a bot slot by 1-based index (matches callback APIs) */
+    private slot(n: 1 | 2): BotSlot { return this.botSlots[n - 1]; }
 
     // ---- Utilities ----
 
@@ -272,8 +285,9 @@ export class BotEngine extends EventEmitter {
         }
         // Sync maxDistance to SVC voice bridge plugin channel
         if (distanceChanged) {
-            if (this.mcBot) sendSetDistance(this.mcBot.bot, newSettings.spatialMaxDistance);
-            if (this.mcBot2) sendSetDistance(this.mcBot2.bot, newSettings.spatialMaxDistance);
+            for (const s of this.botSlots) {
+                if (s.mcBot) sendSetDistance(s.mcBot.bot, newSettings.spatialMaxDistance);
+            }
         }
     }
 
@@ -348,15 +362,12 @@ export class BotEngine extends EventEmitter {
             getFollowingPlayer: () => this.followingPlayer,
             getNames: () => this.names,
             getEnabledActions: () => this.getEnabledActions(),
-            isBotInRange: (slot) => slot === 1 ? this.bot1InRange : this.bot2InRange,
-            setBotInRange: (slot, inRange) => {
-                if (slot === 1) this.bot1InRange = inRange;
-                else this.bot2InRange = inRange;
-            },
+            isBotInRange: (slot) => this.slot(slot).inRange,
+            setBotInRange: (slot, inRange) => { this.slot(slot).inRange = inRange; },
             getActiveCharacterIds: () => this.activeCharacterIds,
-            getAssistantName: (slot) => slot === 1 ? this.assistantName : this.assistantName2,
+            getAssistantName: (slot) => this.slot(slot).assistantName,
             getLastSpeakingSlot: () => this.lastSpeakingSlot,
-            getMcBot: (slot) => slot === 1 ? this.mcBot?.bot ?? null : this.mcBot2?.bot ?? null,
+            getMcBot: (slot) => this.slot(slot).mcBot?.bot ?? null,
             updateStatus: (patch) => this.updateStatus(patch),
             addChat: (type, sender, text) => this.addChat(type, sender, text),
             queueNote: (text) => this.queueNote(text),
@@ -370,8 +381,8 @@ export class BotEngine extends EventEmitter {
             getSettings: () => this.settings,
             getFollowingPlayer: () => this.followingPlayer,
             isReplying: () => this.isReplying,
-            getAssistantName: (slot) => slot === 1 ? this.assistantName : this.assistantName2,
-            getMcBot: (slot) => slot === 1 ? this.mcBot : this.mcBot2,
+            getAssistantName: (slot) => this.slot(slot).assistantName,
+            getMcBot: (slot) => this.slot(slot).mcBot,
             addChat: (type, sender, text) => this.addChat(type, sender, text),
             queueNote: (text) => this.queueNote(text),
             audioPipeline: this.audioPipeline,
@@ -379,10 +390,7 @@ export class BotEngine extends EventEmitter {
             setIsReplying: (value) => { this.isReplying = value; },
             setCurrentReply: (text) => { this.currentReply = text; },
             clearPendingEvents: () => { this.pendingEvents = []; },
-            flushHuntBatch: (slot) => {
-                if (slot === 1) this.flushHuntBatch?.();
-                else this.flushHuntBatch2?.();
-            },
+            flushHuntBatch: (slot) => { this.slot(slot).flushHuntBatch?.(); },
         };
     }
 
@@ -424,7 +432,7 @@ export class BotEngine extends EventEmitter {
             this.emit('stop-audio');
 
             // Auto-resume the chat if we had an active session
-            if (this.activeCharacterId && this.mcBot) {
+            if (this.activeCharacterId && this.botSlots[0].mcBot) {
                 this.addChat('system', 'System', 'Voxta reconnected — resuming chat...');
                 this.toast('info', 'Reconnected to Voxta — resuming chat...');
                 void this.autoResumeChat();
@@ -554,19 +562,19 @@ export class BotEngine extends EventEmitter {
         if (isDualBot) await this.connectSecondaryBot(config, uiConfig);
 
         // 2. Auto-dismount from previous session + resolve characters/names
-        void this.autoDismountOnSpawn(this.mcBot!.bot);
-        this.resolvePlayersAndNames(this.mcBot!.bot, uiConfig, config, isDualBot);
+        void this.autoDismountOnSpawn(this.botSlots[0].mcBot!.bot);
+        this.resolvePlayersAndNames(this.botSlots[0].mcBot!.bot, uiConfig, config, isDualBot);
 
         // 3. Read initial world state and start Voxta chat
-        const initialContextStrings = this.readInitialWorldContext(this.mcBot!.bot, config);
+        const initialContextStrings = this.readInitialWorldContext(this.botSlots[0].mcBot!.bot, config);
         await this.startVoxtaChat(uiConfig, isDualBot, initialContextStrings);
 
         // 4. Start all loops and register event bridges
-        this.startAllLoops(this.mcBot!.bot, config, isDualBot, initialContextStrings);
-        this.registerEventBridges(this.mcBot!.bot, config, isDualBot, uiConfig);
+        this.startAllLoops(this.botSlots[0].mcBot!.bot, config, isDualBot, initialContextStrings);
+        this.registerEventBridges(this.botSlots[0].mcBot!.bot, config, isDualBot, uiConfig);
 
         // 5. Auto-follow player on spawn
-        this.setupAutoFollow(isDualBot);
+        this.setupAutoFollow();
     }
 
     private resetSessionState(): void {
@@ -605,11 +613,11 @@ export class BotEngine extends EventEmitter {
         this.updateStatus({ mc: 'connecting' });
         this.addChat('system', 'System', `Connecting to MC ${config.mc.host}:${config.mc.port}...`);
         try {
-            this.mcBot = createMinecraftBot(config);
-            await this.mcBot.connect();
-            initHomePosition(this.mcBot.bot, config.mc.host, config.mc.port);
+            this.botSlots[0].mcBot = createMinecraftBot(config);
+            await this.botSlots[0].mcBot.connect();
+            initHomePosition(this.botSlots[0].mcBot.bot, config.mc.host, config.mc.port);
             loadCustomBlueprints();
-            this.setupPluginChannel(this.mcBot.bot, uiConfig.playerMcUsername);
+            this.setupPluginChannel(this.botSlots[0].mcBot.bot, uiConfig.playerMcUsername);
             this.updateStatus({ mc: 'connected' });
             this.addChat('system', 'System', `Minecraft bot spawned as ${config.mc.username}`);
             this.toast('success', `Bot "${config.mc.username}" joined the Minecraft server!`);
@@ -631,10 +639,10 @@ export class BotEngine extends EventEmitter {
             mc: { ...config.mc, username: uiConfig.secondMcUsername! },
         };
         try {
-            this.mcBot2 = createMinecraftBot(config2);
-            await this.mcBot2.connect();
-            initHomePosition(this.mcBot2.bot, config2.mc.host, config2.mc.port);
-            this.setupPluginChannel(this.mcBot2.bot, uiConfig.playerMcUsername);
+            this.botSlots[1].mcBot = createMinecraftBot(config2);
+            await this.botSlots[1].mcBot.connect();
+            initHomePosition(this.botSlots[1].mcBot.bot, config2.mc.host, config2.mc.port);
+            this.setupPluginChannel(this.botSlots[1].mcBot.bot, uiConfig.playerMcUsername);
             this.updateStatus({ mc2: 'connected' });
             this.addChat('system', 'System', `Minecraft bot 2 spawned as ${config2.mc.username}`);
             this.toast('success', `Bot "${config2.mc.username}" joined the Minecraft server!`);
@@ -644,16 +652,16 @@ export class BotEngine extends EventEmitter {
             this.addChat('system', 'System', `MC bot 2 connection failed: ${message}`);
             this.toast('error', message);
             // Continue with single-bot mode — don't abort the whole session
-            this.mcBot2 = null;
+            this.botSlots[1].mcBot = null;
             return;
         }
 
         // Wire dual-bot spacing: each bot's pathfinder treats the other as
         // high-cost terrain. Bot 1 at 3 blocks, bot 2 at 5 — natural spacing.
-        this.mcBot!.setCompanion(this.mcBot2.bot);
-        this.mcBot2.setCompanion(this.mcBot!.bot);
-        setFollowDistance(this.mcBot!.bot, 3);
-        setFollowDistance(this.mcBot2.bot, 5);
+        this.botSlots[0].mcBot!.setCompanion(this.botSlots[1].mcBot.bot);
+        this.botSlots[1].mcBot.setCompanion(this.botSlots[0].mcBot!.bot);
+        setFollowDistance(this.botSlots[0].mcBot!.bot, 3);
+        setFollowDistance(this.botSlots[1].mcBot.bot, 5);
     }
 
     /** Fire-and-forget: dismount if the MC server remembers a vehicle from previous session */
@@ -691,14 +699,14 @@ export class BotEngine extends EventEmitter {
         isDualBot: boolean,
     ): void {
         const character = this.characters.find((c) => c.id === uiConfig.characterId);
-        this.assistantName = character?.name ?? 'AI';
+        this.botSlots[0].assistantName = character?.name ?? 'AI';
         this.activeCharacterId = uiConfig.characterId;
 
         if (isDualBot && uiConfig.secondCharacterId) {
             const char2 = this.characters.find((c) => c.id === uiConfig.secondCharacterId);
-            this.assistantName2 = char2?.name ?? 'AI2';
+            this.botSlots[1].assistantName = char2?.name ?? 'AI2';
         } else {
-            this.assistantName2 = null;
+            this.botSlots[1].assistantName = null;
         }
 
         // Auto-detect the player's actual MC username from the server
@@ -722,11 +730,11 @@ export class BotEngine extends EventEmitter {
         if (this.voxtaUserName && this.playerMcUsername) {
             this.names.register(this.voxtaUserName, this.playerMcUsername);
         }
-        if (this.assistantName && config.mc.username) {
-            this.names.register(this.assistantName, config.mc.username);
+        if (this.botSlots[0].assistantName && config.mc.username) {
+            this.names.register(this.botSlots[0].assistantName, config.mc.username);
         }
-        if (this.assistantName2 && uiConfig.secondMcUsername) {
-            this.names.register(this.assistantName2, uiConfig.secondMcUsername);
+        if (this.botSlots[1].assistantName && uiConfig.secondMcUsername) {
+            this.names.register(this.botSlots[1].assistantName, uiConfig.secondMcUsername);
         }
     }
 
@@ -734,8 +742,8 @@ export class BotEngine extends EventEmitter {
     private readInitialWorldContext(bot: MineflayerBot, config: CompanionConfig): string[] {
         try {
             const initialState = readWorldState(bot, config.perception.entityRange);
-            const rawStrings = buildContextStrings(initialState, this.names, this.assistantName);
-            const contextStrings = rawStrings.map((s) => `[${this.assistantName}] ${s}`);
+            const rawStrings = buildContextStrings(initialState, this.names, this.botSlots[0].assistantName);
+            const contextStrings = rawStrings.map((s) => `[${this.botSlots[0].assistantName}] ${s}`);
             this.updateStatus({
                 position: initialState.position
                     ? {
@@ -785,13 +793,13 @@ export class BotEngine extends EventEmitter {
 
         this.updateStatus({
             sessionId: this.voxta!.sessionId,
-            assistantName: this.assistantName,
-            assistantName2: this.assistantName2,
+            assistantName: this.botSlots[0].assistantName,
+            assistantName2: this.botSlots[1].assistantName,
         });
 
-        const sessionMsg = isDualBot && this.assistantName2
-            ? `Chat started with ${this.assistantName} & ${this.assistantName2}`
-            : `Chat started with ${this.assistantName}`;
+        const sessionMsg = isDualBot && this.botSlots[1].assistantName
+            ? `Chat started with ${this.botSlots[0].assistantName} & ${this.botSlots[1].assistantName}`
+            : `Chat started with ${this.botSlots[0].assistantName}`;
         this.addChat('system', 'System', sessionMsg);
     }
 
@@ -805,57 +813,55 @@ export class BotEngine extends EventEmitter {
         const loopCallbacks = this.buildLoopCallbacks();
         const movementCallbacks = this.buildMovementCallbacks();
 
-        // Perception — bot 1
-        this.perceptionLoop = createPerceptionLoop(
-            bot, 1, config.perception.intervalMs, config.perception.entityRange,
-            this.assistantName ?? 'Bot', initialContextStrings, loopCallbacks,
-        );
+        const bot2 = this.botSlots[1].mcBot;
+        const labels = ['Bot', 'Bot2'] as const;
 
-        // Perception — bot 2
-        if (isDualBot && this.mcBot2) {
-            this.perceptionLoop2 = createPerceptionLoop(
-                this.mcBot2.bot, 2, config.perception.intervalMs, config.perception.entityRange,
-                this.assistantName2 ?? 'AI2', [], loopCallbacks,
+        // Perception loops
+        this.botSlots[0].perceptionLoop = createPerceptionLoop(
+            bot, 1, config.perception.intervalMs, config.perception.entityRange,
+            this.botSlots[0].assistantName ?? 'Bot', initialContextStrings, loopCallbacks,
+        );
+        if (isDualBot && bot2) {
+            this.botSlots[1].perceptionLoop = createPerceptionLoop(
+                bot2.bot, 2, config.perception.intervalMs, config.perception.entityRange,
+                this.botSlots[1].assistantName ?? 'AI2', [], loopCallbacks,
             );
         }
 
         // Spatial audio
         this.spatialLoop = createSpatialLoop(loopCallbacks);
 
-        // Mounted steering + Follow watchdog — bot 1
-        this.mountedSteeringLoop = createMountedSteeringLoop(
-            bot, () => !!this.mcBot,
-            isDualBot && this.mcBot2 ? this.mcBot2.bot : null,
+        // Mounted steering + Follow watchdog + Mode scan — both bots
+        this.botSlots[0].mountedSteeringLoop = createMountedSteeringLoop(
+            bot, () => !!this.botSlots[0].mcBot,
+            isDualBot && bot2 ? bot2.bot : null,
             movementCallbacks,
         );
-        this.followWatchdog = createFollowWatchdog(bot, () => !!this.mcBot, 'Bot', movementCallbacks);
+        this.botSlots[0].followWatchdog = createFollowWatchdog(bot, () => !!this.botSlots[0].mcBot, labels[0], movementCallbacks);
 
-        // Same for bot 2
-        if (isDualBot && this.mcBot2) {
-            this.mountedSteeringLoop2 = createMountedSteeringLoop(
-                this.mcBot2.bot, () => !!this.mcBot2, bot,
+        if (isDualBot && bot2) {
+            this.botSlots[1].mountedSteeringLoop = createMountedSteeringLoop(
+                bot2.bot, () => !!this.botSlots[1].mcBot, bot,
                 movementCallbacks,
             );
-            this.followWatchdog2 = createFollowWatchdog(this.mcBot2.bot, () => !!this.mcBot2, 'Bot2', movementCallbacks);
-            const { loop: scanLoop2, flush: flushBatch2 } = createModeScanLoop(
-                this.mcBot2.bot, () => !!this.mcBot2, 'Bot2', () => this.assistantName2 ?? 'Bot2',
-                movementCallbacks,
-            );
-            this.modeScanLoop2 = scanLoop2;
-            this.flushHuntBatch2 = flushBatch2;
+            this.botSlots[1].followWatchdog = createFollowWatchdog(bot2.bot, () => !!this.botSlots[1].mcBot, labels[1], movementCallbacks);
         }
 
-        // Mode scan loop — bot 1
-        const { loop: scanLoop1, flush: flushBatch1 } = createModeScanLoop(
-            bot, () => !!this.mcBot, 'Bot', () => this.assistantName ?? 'Bot',
-            movementCallbacks,
-        );
-        this.modeScanLoop = scanLoop1;
-        this.flushHuntBatch = flushBatch1;
+        // Mode scan loops — both bots
+        for (let i = 0; i < 2; i++) {
+            const s = this.botSlots[i];
+            if (!s.mcBot) continue;
+            const { loop, flush } = createModeScanLoop(
+                s.mcBot.bot, () => !!this.botSlots[i].mcBot, labels[i],
+                () => this.botSlots[i].assistantName ?? labels[i],
+                movementCallbacks,
+            );
+            s.modeScanLoop = loop;
+            s.flushHuntBatch = flush;
+        }
 
         // Proximity loop
-        this.bot1InRange = true;
-        this.bot2InRange = true;
+        for (const s of this.botSlots) s.inRange = true;
         this.proximityLoop = createProximityLoop(isDualBot, loopCallbacks);
     }
 
@@ -872,21 +878,22 @@ export class BotEngine extends EventEmitter {
             ...(isDualBot && uiConfig.secondMcUsername ? [uiConfig.secondMcUsername] : []),
         ]);
 
-        this.eventBridge = createEventBridge(bot, 1, this.names, botUsernames, eventBridgeCallbacks);
+        this.botSlots[0].eventBridge = createEventBridge(bot, 1, this.names, botUsernames, eventBridgeCallbacks);
 
-        if (isDualBot && this.mcBot2) {
-            this.eventBridge2 = createEventBridge(this.mcBot2.bot, 2, this.names, botUsernames, eventBridgeCallbacks);
+        if (isDualBot && this.botSlots[1].mcBot) {
+            this.botSlots[1].eventBridge = createEventBridge(this.botSlots[1].mcBot.bot, 2, this.names, botUsernames, eventBridgeCallbacks);
         }
     }
 
     /** Auto-follow: companion(s) follow the player by default on spawn */
-    private setupAutoFollow(isDualBot: boolean): void {
-        if (!this.playerMcUsername || !this.mcBot) return;
+    private setupAutoFollow(): void {
+        if (!this.playerMcUsername || !this.botSlots[0].mcBot) return;
 
         this.followingPlayer = this.playerMcUsername;
         const playerName = this.playerMcUsername;
-        const botsToFollow = [this.mcBot.bot];
-        if (isDualBot && this.mcBot2) botsToFollow.push(this.mcBot2.bot);
+        const botsToFollow = this.botSlots
+            .filter((s) => s.mcBot)
+            .map((s) => s.mcBot!.bot);
         console.log(`[Bot] Auto-following ${playerName} on spawn (${botsToFollow.length} bot(s))`);
         setTimeout(() => {
             for (const botInstance of botsToFollow) {
@@ -898,7 +905,7 @@ export class BotEngine extends EventEmitter {
                 ).catch((err) => {
                     console.log(`[Bot] Auto-follow failed for ${botInstance.username}, retrying in 2s:`, err);
                     setTimeout(() => {
-                        if (!this.mcBot || this.followingPlayer !== playerName) return;
+                        if (!this.slot(1).mcBot || this.followingPlayer !== playerName) return;
                         void executeAction(
                             botInstance,
                             'mc_follow_player',
@@ -913,7 +920,7 @@ export class BotEngine extends EventEmitter {
 
     /** Auto-resume a chat session after Voxta reconnection */
     private async autoResumeChat(): Promise<void> {
-        if (!this.voxta || !this.activeCharacterId || !this.mcBot) return;
+        if (!this.voxta || !this.activeCharacterId || !this.slot(1).mcBot) return;
 
         try {
             // Wait for re-authentication
@@ -930,11 +937,11 @@ export class BotEngine extends EventEmitter {
             await this.voxta.registerApp();
 
             // Build initial context from current world state
-            const bot = this.mcBot.bot;
+            const bot = this.slot(1).mcBot!.bot;
             let initialContextStrings: string[] = [];
             try {
                 const state = readWorldState(bot, 32);
-                initialContextStrings = buildContextStrings(state, this.names, this.assistantName);
+                initialContextStrings = buildContextStrings(state, this.names, this.botSlots[0].assistantName);
             } catch {
                 // Perception can fail
             }
@@ -961,18 +968,18 @@ export class BotEngine extends EventEmitter {
 
             this.updateStatus({
                 sessionId: this.voxta.sessionId,
-                assistantName: this.assistantName,
+                assistantName: this.botSlots[0].assistantName,
                 currentAction: null,
             });
 
-            this.addChat('system', 'System', `Chat resumed with ${this.assistantName}`);
-            this.toast('success', `Chat resumed with ${this.assistantName}!`);
+            this.addChat('system', 'System', `Chat resumed with ${this.botSlots[0].assistantName}`);
+            this.toast('success', `Chat resumed with ${this.botSlots[0].assistantName}!`);
 
             // Restart perception loop
             const loopCallbacks = this.buildLoopCallbacks();
-            this.perceptionLoop = createPerceptionLoop(
+            this.slot(1).perceptionLoop = createPerceptionLoop(
                 bot, 1, 3000, 32,
-                this.assistantName ?? 'Bot', initialContextStrings, loopCallbacks,
+                this.slot(1).assistantName ?? 'Bot', initialContextStrings, loopCallbacks,
             );
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -985,14 +992,11 @@ export class BotEngine extends EventEmitter {
 
     /** Clear all interval loops — used during reconnection and session teardown */
     private clearAllLoops(): void {
-        if (this.perceptionLoop) { clearInterval(this.perceptionLoop); this.perceptionLoop = null; }
-        if (this.perceptionLoop2) { clearInterval(this.perceptionLoop2); this.perceptionLoop2 = null; }
-        if (this.followWatchdog) { clearInterval(this.followWatchdog); this.followWatchdog = null; }
-        if (this.followWatchdog2) { clearInterval(this.followWatchdog2); this.followWatchdog2 = null; }
-        if (this.mountedSteeringLoop) { clearInterval(this.mountedSteeringLoop); this.mountedSteeringLoop = null; }
-        if (this.mountedSteeringLoop2) { clearInterval(this.mountedSteeringLoop2); this.mountedSteeringLoop2 = null; }
-        if (this.modeScanLoop) { clearInterval(this.modeScanLoop); this.modeScanLoop = null; }
-        if (this.modeScanLoop2) { clearInterval(this.modeScanLoop2); this.modeScanLoop2 = null; }
+        for (const s of this.botSlots) {
+            for (const key of ['perceptionLoop', 'followWatchdog', 'mountedSteeringLoop', 'modeScanLoop'] as const) {
+                if (s[key]) { clearInterval(s[key]); s[key] = null; }
+            }
+        }
         if (this.proximityLoop) { clearInterval(this.proximityLoop); this.proximityLoop = null; }
         if (this.spatialLoop) { clearInterval(this.spatialLoop); this.spatialLoop = null; }
     }
@@ -1000,62 +1004,42 @@ export class BotEngine extends EventEmitter {
     /** Stop the current chat session and MC bot but keep the Voxta connection alive */
     async stopSession(): Promise<void> {
         this.clearAllLoops();
-        this.bot1InRange = true;
-        this.bot2InRange = true;
 
-        if (this.eventBridge) {
-            this.eventBridge.destroy();
-            this.eventBridge = null;
-        }
-        if (this.eventBridge2) {
-            this.eventBridge2.destroy();
-            this.eventBridge2 = null;
-        }
-
-        // Clear SVC voice bridge
+        // Destroy event bridges, stop audio, clear companions, disconnect bots
         this.audioPipeline.setRawAudioCallback(null);
-        if (this.mcBot) {
-            try { sendStopAudio(this.mcBot.bot); } catch { /* bot may already be gone */ }
-        }
-        if (this.mcBot2) {
-            try { sendStopAudio(this.mcBot2.bot); } catch { /* bot may already be gone */ }
-        }
-
-        // Clear companion references before disconnecting
-        if (this.mcBot) this.mcBot.setCompanion(null);
-        if (this.mcBot2) this.mcBot2.setCompanion(null);
-
-        if (this.mcBot) {
-            try {
-                this.mcBot.bot.chat('Goodbye!');
-                this.mcBot.disconnect();
-            } catch {
-                // Ignore disconnect errors
+        for (const s of this.botSlots) {
+            if (s.eventBridge) { s.eventBridge.destroy(); s.eventBridge = null; }
+            if (s.mcBot) {
+                try { sendStopAudio(s.mcBot.bot); } catch { /* bot may already be gone */ }
+                s.mcBot.setCompanion(null);
             }
-            this.mcBot = null;
         }
 
-        if (this.mcBot2) {
+        // Bot 1 says goodbye; bot 2 disconnects silently
+        if (this.botSlots[0].mcBot) {
             try {
-                this.mcBot2.disconnect();
-            } catch {
-                // Ignore disconnect errors
-            }
-            this.mcBot2 = null;
+                this.botSlots[0].mcBot.bot.chat('Goodbye!');
+                this.botSlots[0].mcBot.disconnect();
+            } catch { /* ignore */ }
+        }
+        if (this.botSlots[1].mcBot) {
+            try { this.botSlots[1].mcBot.disconnect(); } catch { /* ignore */ }
+        }
+
+        // Clear all per-slot state
+        for (const s of this.botSlots) {
+            s.mcBot = null;
+            s.assistantName = null;
+            s.flushHuntBatch = null;
+            s.inRange = true;
         }
 
         // End the Voxta chat session but keep the SignalR connection
         if (this.voxta?.sessionId) {
-            try {
-                await this.voxta.endSession();
-            } catch {
-                // Ignore — session may already be closed
-            }
+            try { await this.voxta.endSession(); } catch { /* session may already be closed */ }
         }
 
         // Reset session-related state
-        this.assistantName = null;
-        this.assistantName2 = null;
         this.activeCharacterId = null;
         this.activeCharacterIds = [];
         this.currentReply = '';
@@ -1128,8 +1112,7 @@ export class BotEngine extends EventEmitter {
         if (!this.voxta?.sessionId) return;
         console.log(`[User >>] sendMessage: "${text}"`);
         resetActionFired();
-        this.flushHuntBatch?.();
-        this.flushHuntBatch2?.();
+        for (const s of this.botSlots) s.flushHuntBatch?.();
 
         const name = this.voxtaUserName ?? 'You';
         this.addChat('player', `${name} (text)`, text);
@@ -1155,22 +1138,22 @@ export class BotEngine extends EventEmitter {
             getVoxta: () => this.voxta,
             getVoxtaUrl: () => this.voxtaUrl,
             getVoxtaApiKey: () => this.voxtaApiKey,
-            getAssistantName: () => this.assistantName,
+            getAssistantName: () => this.slot(1).assistantName,
             getSettings: () => this.settings,
             isReplying: () => this.isReplying,
-            getMcBot: () => this.mcBot?.bot ?? null,
+            getMcBot: () => this.slot(1).mcBot?.bot ?? null,
             getNames: () => this.names,
             getFollowingPlayer: () => this.followingPlayer,
             // Multi-bot routing
             getCharacterBotMap: () => this.characterBotMap,
-            getBotBySlot: (slot) => (slot === 2 ? this.mcBot2?.bot ?? null : this.mcBot?.bot ?? null),
-            getAssistantNameBySlot: (slot) => (slot === 2 ? this.assistantName2 : this.assistantName),
+            getBotBySlot: (slot) => this.slot(slot).mcBot?.bot ?? null,
+            getAssistantNameBySlot: (slot) => this.slot(slot).assistantName,
             getLastSpeakingSlot: () => this.lastSpeakingSlot,
             setLastSpeakingSlot: (slot) => { this.lastSpeakingSlot = slot; },
 
             // State mutators
             setAssistantName: (name) => {
-                this.assistantName = name;
+                this.slot(1).assistantName = name;
                 this.updateStatus({ assistantName: name });
             },
             setVoxtaUserName: (name) => {
@@ -1196,11 +1179,7 @@ export class BotEngine extends EventEmitter {
                 this.followingPlayer = player;
             },
             setSkinUrlForSlot: (url, slot) => {
-                if (slot === 2) {
-                    this.mcBot2?.setSkinUrl(url);
-                } else {
-                    this.mcBot?.setSkinUrl(url);
-                }
+                this.slot(slot).mcBot?.setSkinUrl(url);
             },
             // Actions
             addChat: (type, sender, text, badge) => this.addChat(type, sender, text, badge),
@@ -1219,7 +1198,7 @@ export class BotEngine extends EventEmitter {
             emit: (event, ...args) => this.emit(event as BotEngineEvent, ...args),
             mcChatEcho: (text) => {
                 // Echo from the last-speaking bot's slot
-                const echoBot = this.lastSpeakingSlot === 2 ? this.mcBot2 : this.mcBot;
+                const echoBot = this.slot(this.lastSpeakingSlot).mcBot;
                 if (echoBot && this.settings.enableBotChatEcho) {
                     const maxLen = 250;
                     for (let i = 0; i < text.length; i += maxLen) {
