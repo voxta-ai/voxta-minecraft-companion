@@ -62,19 +62,7 @@ export default function App() {
                     <h1>Voxta Minecraft Companion</h1>
                 </div>
                 <div class="header-actions">
-                    <Show
-                        when={status.sessionId !== null}
-                        fallback={
-                            <button
-                                class={`header-btn ${activePopup() === 'connection' ? 'active' : ''}`}
-                                onClick={() => togglePopup('connection')}
-                                title="Connection"
-                            >
-                                <span class="header-btn-icon">🔗</span>
-                                <span class="header-btn-label">Connect</span>
-                            </button>
-                        }
-                    >
+                    <Show when={status.sessionId !== null}>
                         <button
                             class="header-btn header-btn-disconnect"
                             onClick={() => {
@@ -82,10 +70,18 @@ export default function App() {
                             }}
                             title="Stop Session"
                         >
-                            <span class="header-btn-icon">■</span>
+                            <span class="header-btn-icon"><i class="bi bi-stop-fill"></i></span>
                             <span class="header-btn-label">Stop</span>
                         </button>
                     </Show>
+                    <button
+                        class={`header-btn ${activePopup() === 'connection' ? 'active' : ''}`}
+                        onClick={() => togglePopup('connection')}
+                        title="Connection"
+                    >
+                        <span class="header-btn-icon">🔗</span>
+                        <span class="header-btn-label">Connect</span>
+                    </button>
                     <button
                         class={`header-btn ${activePopup() === 'actions' ? 'active' : ''}`}
                         onClick={() => togglePopup('actions')}

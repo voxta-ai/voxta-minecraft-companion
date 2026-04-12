@@ -4,7 +4,7 @@ const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity } from './action-helpers.js';
 import { isPositionFinite, getErrorMessage } from '../utils';
-import { getActionAbort, getHomePosition, clearHome } from './action-state.js';
+import { getActionAbort, getHomePosition, clearHome, setSuppressPickups } from './action-state.js';
 import {
     getVehicle, setVehicle, getClient, getFollowDistance,
     getEntityVehicle, getPassengers, getRegistry,
@@ -172,9 +172,15 @@ export async function goHome(bot: Bot): Promise<string> {
     return `Made it back home safely near my bed`;
 }
 
-export async function collectItems(bot: Bot): Promise<string> {
+export async function collectItems(bot: Bot, itemName?: string | null, range = 32): Promise<string> {
+    // When a specific item is requested, try to find it as a dropped entity or placed block
+    if (itemName) {
+        return collectSpecificItem(bot, itemName);
+    }
+
+    // No item specified — collect all nearby dropped items (original behavior)
     const items = Object.values(bot.entities).filter(
-        (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < 32,
+        (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < range,
     );
 
     if (items.length === 0) return 'Looked around but there are no dropped items nearby';
@@ -198,6 +204,97 @@ export async function collectItems(bot: Bot): Promise<string> {
     }
 
     return `Picked up ${collected} dropped item${collected !== 1 ? 's' : ''} from the ground`;
+}
+
+async function collectSpecificItem(bot: Bot, itemName: string): Promise<string> {
+    const signal = getActionAbort(bot).signal;
+    const normalized = itemName.toLowerCase().replace(/\s+/g, '_');
+    const displayName = normalized.replace(/_/g, ' ');
+
+    // Look for a matching placed block nearby
+    const mcData = require('minecraft-data')(bot.version);
+    const blockData = mcData.blocksByName[normalized];
+    if (!blockData) {
+        return `Could not find any ${displayName} nearby — not on the ground and not a known block type`;
+    }
+
+    const block = bot.findBlock({
+        matching: blockData.id,
+        maxDistance: 32,
+    });
+
+    if (!block) {
+        return `Looked around but there is no ${displayName} nearby`;
+    }
+
+    const pos = block.position;
+    console.log(
+        `[MC Action] Collecting ${displayName}: breaking block at ${pos.x}, ${pos.y}, ${pos.z}`,
+    );
+
+    // Navigate to the block
+    try {
+        await bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2));
+    } catch {
+        return `Found a ${displayName} but could not reach it`;
+    }
+
+    if (signal.aborted) return `Cancelled collecting ${displayName}`;
+
+    // Suppress pickup notes — the action result already reports what was collected
+    setSuppressPickups(bot, true);
+    try {
+        // Break the block
+        try {
+            await bot.dig(block);
+        } catch (err) {
+            const message = getErrorMessage(err);
+            return `Found a ${displayName} but failed to break it: ${message}`;
+        }
+
+        // Wait for the item to drop
+        await new Promise((r) => setTimeout(r, 300));
+
+        // Walk to the dropped item and wait for collection
+        const droppedItem = Object.values(bot.entities).find(
+            (e) =>
+                e.name === 'item' &&
+                (e.position.distanceTo(pos) < 3 || e.position.distanceTo(bot.entity.position) < 4),
+        );
+        if (droppedItem) {
+            const collectPromise = new Promise<void>((resolve) => {
+                const onCollect = (collector: { id: number }): void => {
+                    if (collector.id === bot.entity.id) {
+                        bot.removeListener('playerCollect', onCollect);
+                        resolve();
+                    }
+                };
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                bot.on('playerCollect', onCollect as any);
+                setTimeout(() => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    bot.removeListener('playerCollect', onCollect as any);
+                    resolve();
+                }, 2000);
+            });
+            try {
+                await bot.pathfinder.goto(
+                    new goals.GoalBlock(
+                        Math.floor(droppedItem.position.x),
+                        Math.floor(droppedItem.position.y),
+                        Math.floor(droppedItem.position.z),
+                    ),
+                );
+            } catch {
+                // Item may have been auto-collected already
+            }
+            await collectPromise;
+        }
+    } finally {
+        setSuppressPickups(bot, false);
+    }
+
+    return `Collected 1 ${displayName}`;
 }
 
 export async function goToEntity(bot: Bot, entityName: string | undefined): Promise<string> {

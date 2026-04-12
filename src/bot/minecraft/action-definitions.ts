@@ -196,14 +196,23 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_collect_items',
         description:
-            'Pick up nearby dropped items from the ground. Only use when explicitly told to pick up, collect, or grab items.',
+            'Pick up nearby dropped items from the ground, or break and collect a specific placed block (e.g. crafting_table, furnace, chest, torch). Only use when explicitly told to pick up, collect, or grab items.',
         disabled: false,
         layer: '',
         effect: {},
-        arguments: [],
+        arguments: [
+            {
+                name: 'item_name',
+                type: 'String',
+                description:
+                    'Optional. Name of a specific item or block to collect (e.g. crafting_table, furnace, torch). If placed as a block in the world, it will be broken first. Leave empty to collect all nearby dropped items.',
+                required: false,
+            },
+        ],
         category: 'survival',
         isQuick: false,
         isPhysical: true,
+        isSilentResult: true,
     },
     {
         name: 'mc_eat',

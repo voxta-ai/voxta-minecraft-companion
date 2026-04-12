@@ -1024,12 +1024,8 @@ export class BotEngine extends EventEmitter {
             }
         }
 
-        // Bot 1 says goodbye; bot 2 disconnects silently
         if (this.botSlots[0].mcBot) {
-            try {
-                this.botSlots[0].mcBot.bot.chat('Goodbye!');
-                this.botSlots[0].mcBot.disconnect();
-            } catch { /* ignore */ }
+            try { this.botSlots[0].mcBot.disconnect(); } catch { /* ignore */ }
         }
         if (this.botSlots[1].mcBot) {
             try { this.botSlots[1].mcBot.disconnect(); } catch { /* ignore */ }

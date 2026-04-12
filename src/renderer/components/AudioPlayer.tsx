@@ -104,9 +104,12 @@ export default function AudioPlayer() {
 
         // Track whether the server wants recording enabled (independent of user mute)
         let serverRecordingEnabled = false;
+        // Save the last recording start event so we can start streaming later if unmuted
+        let lastRecordingEvent: RecordingStartEvent | null = null;
 
         const unsubRecordingStart = window.api.onRecordingStart((event: RecordingStartEvent) => {
             serverRecordingEnabled = true;
+            lastRecordingEvent = event;
             if (!micMuted()) {
                 audioInput.handleRecordingRequest(true, event.sessionId, event.voxtaBaseUrl, event.voxtaApiKey);
                 setMicStatus('listening');
@@ -147,10 +150,21 @@ export default function AudioPlayer() {
             if (muted && audioInput.enabled && !audioInput.paused) {
                 audioInput.pauseStreaming();
                 setMicStatus('paused');
-            } else if (!muted && audioInput.enabled && audioInput.paused && serverRecordingEnabled) {
-                // Only resume if server actually wants recording (not during bot speech)
-                audioInput.resumeStreaming();
-                setMicStatus('listening');
+            } else if (!muted && serverRecordingEnabled && lastRecordingEvent) {
+                if (audioInput.enabled && audioInput.paused) {
+                    // Already streaming but paused — resume
+                    audioInput.resumeStreaming();
+                    setMicStatus('listening');
+                } else if (!audioInput.enabled) {
+                    // Was muted when recording started — start streaming now
+                    audioInput.handleRecordingRequest(
+                        true,
+                        lastRecordingEvent.sessionId,
+                        lastRecordingEvent.voxtaBaseUrl,
+                        lastRecordingEvent.voxtaApiKey,
+                    );
+                    setMicStatus('listening');
+                }
             }
         });
 

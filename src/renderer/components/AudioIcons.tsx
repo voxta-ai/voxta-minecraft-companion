@@ -23,13 +23,11 @@ export default function AudioIcons() {
         if (micMuted()) return 'bi-mic-mute-fill';
         switch (micStatus()) {
             case 'active':
-                return 'bi-mic-fill';
             case 'listening':
                 return 'bi-mic-fill';
-            case 'paused':
-                return 'bi-mic';
             default:
-                return 'bi-mic-mute';
+                // 'paused' or 'off' while not muted — outline mic (not mute icon)
+                return 'bi-mic';
         }
     });
 
@@ -40,10 +38,9 @@ export default function AudioIcons() {
                 return 'audio-icon-speaking';
             case 'listening':
                 return 'audio-icon-listening';
-            case 'paused':
-                return 'audio-icon-paused';
             default:
-                return 'audio-icon-disabled';
+                // 'paused' or 'off' while not muted — show as idle, not disabled
+                return 'audio-icon-paused';
         }
     });
 

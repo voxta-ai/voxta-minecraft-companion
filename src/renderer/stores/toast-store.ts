@@ -20,7 +20,11 @@ export function dismissToast(id: string): void {
     setToasts((prev) => prev.filter((t) => t.id !== id));
 }
 
+let initialized = false;
+
 export function initToastStore(): void {
+    if (initialized) return;
+    initialized = true;
     window.api.onToast((toast) => {
         setToasts((prev) => [...prev, toast]);
         const duration = toast.durationMs ?? DEFAULT_DURATION_MS;

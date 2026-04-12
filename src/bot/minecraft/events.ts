@@ -758,7 +758,7 @@ export class McEventBridge {
             const settings = this.callbacks.getSettings();
             if (!settings.enableAutoLook) return;
             if (isActionBusy(this.bot)) return;
-            if (this.getFollowingPlayer()) return; // Pathfinder handles looking during follow
+            if (this.bot.pathfinder.isMoving()) return; // Don't interfere while walking
 
             const nearestPlayer = Object.values(this.bot.entities).find(
                 (e) =>
