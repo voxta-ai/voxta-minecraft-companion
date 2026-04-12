@@ -189,12 +189,12 @@ function findBuildSite(bot: Bot, blueprint: Blueprint): BuildSite | null {
 /** Max Y variation across the footprint before a site is rejected */
 const MAX_GROUND_Y_VARIATION = 2;
 
-/** Breakable vegetation that won't block a build site */
+/** Breakable vegetation and ground cover that won't block a build site */
 const CLEARABLE_BLOCKS = new Set([
     'short_grass', 'tall_grass', 'fern', 'dandelion', 'poppy',
     'dead_bush', 'seagrass', 'sweet_berry_bush', 'azure_bluet',
     'oxeye_daisy', 'cornflower', 'lily_of_the_valley', 'cactus',
-    'sugar_cane', 'bamboo',
+    'sugar_cane', 'bamboo', 'snow',
 ]);
 
 function isClearable(name: string): boolean {
@@ -391,6 +391,29 @@ async function executeBuild(
     let skipped = 0;
     const missingItems: string[] = [];
     const total = blueprint.blocks.length;
+
+    // Pre-clear snow layers and vegetation in the footprint.
+    // Snow layers have boundingBox 'empty' so bot.dig() can fail if called
+    // per-block during placement. Sweeping them first ensures clean ground.
+    for (let x = 0; x < blueprint.width; x++) {
+        for (let z = 0; z < blueprint.depth; z++) {
+            if (signal.aborted) break;
+            for (let y = 0; y < blueprint.height; y++) {
+                const wx = site.originX + x;
+                const wy = site.originY + y;
+                const wz = site.originZ + z;
+                const block = bot.blockAt(new Vec3(wx, wy, wz));
+                if (block && isClearable(block.name)) {
+                    try {
+                        await bot.dig(block);
+                        await delay(100);
+                    } catch {
+                        // Best effort — block may be out of reach, will retry during placement
+                    }
+                }
+            }
+        }
+    }
 
     // Track progress phases for notes
     let lastPhaseNote = '';
