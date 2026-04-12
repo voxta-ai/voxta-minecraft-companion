@@ -199,6 +199,120 @@ function scheduleFollowResume(
     }, FOLLOW_RESUME_DELAY_MS);
 }
 
+/** Mutable state shared between mode scan ticks */
+interface ScanLoopState {
+    huntCooldownUntil: number;
+    patrolPauseUntil: number;
+}
+
+/** Aggro mode tick: attack nearest hostile while following player */
+function tickAggroMode(
+    bot: MineflayerBot,
+    player: Entity | null,
+    batch: ModeBatchState,
+    aggroCooldowns: Record<string, number>,
+    label: string,
+    getAssistantName: () => string,
+    callbacks: MovementCallbacks,
+): void {
+    const target = findNearestHostile(bot, AGGRO_TARGET_RANGE, player, aggroCooldowns);
+    if (!target || getCurrentCombatTarget(bot)) return;
+    const mobName = target.name ?? 'unknown';
+    const dist = target.position.distanceTo(bot.entity.position);
+    console.log(`[${label}] Aggro mode: attacking ${mobName} (${dist.toFixed(1)} blocks)`);
+    setAutoDefending(bot, true);
+    callbacks.addChat('action', 'Action', `${getAssistantName()} fighting ${mobName}!`);
+    void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], callbacks.getNames())
+        .then((result) => {
+            handleCombatResult(result, mobName, 'aggro', batch, label, getAssistantName, callbacks);
+            if (SPLIT_MOBS.includes(mobName)) {
+                aggroCooldowns[mobName] = Date.now() + SPLIT_MOB_COOLDOWN_MS;
+                console.log(`[${label}] Aggro: ${mobName} split cooldown set for 5s`);
+            }
+        })
+        .catch((err) => console.log(`[${label}] Aggro attack failed:`, err))
+        .finally(() => {
+            setAutoDefending(bot, false);
+            scheduleFollowResume(bot, label, callbacks);
+        });
+}
+
+/** Hunt mode tick: attack nearest farm animal while following player */
+function tickHuntMode(
+    bot: MineflayerBot,
+    player: Entity | null,
+    state: ScanLoopState,
+    batch: ModeBatchState,
+    label: string,
+    getAssistantName: () => string,
+    callbacks: MovementCallbacks,
+): void {
+    if (Date.now() < state.huntCooldownUntil) return;
+    const target = findNearestHuntable(bot, HUNT_TARGET_RANGE, player);
+    if (!target || getCurrentCombatTarget(bot)) return;
+    const animalName = target.name ?? 'unknown';
+    const dist = target.position.distanceTo(bot.entity.position);
+    console.log(`[${label}] Hunt mode: targeting ${animalName} (${dist.toFixed(1)} blocks)`);
+    setAutoDefending(bot, true);
+    callbacks.addChat('action', 'Action', `${getAssistantName()} hunting ${animalName}!`);
+    void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: animalName }], callbacks.getNames())
+        .then((result) => {
+            handleCombatResult(result, animalName, 'hunt', batch, label, getAssistantName, callbacks);
+        })
+        .catch((err) => console.log(`[${label}] Hunt attack failed:`, err))
+        .finally(() => {
+            setAutoDefending(bot, false);
+            state.huntCooldownUntil = Date.now() + HUNT_POST_KILL_COOLDOWN_MS;
+            scheduleFollowResume(bot, label, callbacks);
+        });
+}
+
+/** Guard mode tick: patrol area + attack hostiles */
+function tickGuardMode(
+    bot: MineflayerBot,
+    state: ScanLoopState,
+    label: string,
+    getAssistantName: () => string,
+    callbacks: MovementCallbacks,
+): void {
+    const center = getGuardCenter(bot);
+    if (!center) return;
+    const pos = bot.entity.position;
+
+    const target = findNearestHostile(bot, GUARD_TARGET_RANGE, null);
+    if (target && !getCurrentCombatTarget(bot)) {
+        const mobName = target.name ?? 'unknown';
+        const dist = target.position.distanceTo(pos);
+        console.log(`[${label}] Guard mode: engaging ${mobName} (${dist.toFixed(1)} blocks)`);
+        setAutoDefending(bot, true);
+        callbacks.addChat('action', 'Action', `${getAssistantName()} defending area from ${mobName}!`);
+        void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], callbacks.getNames())
+            .then((result) => {
+                callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
+                callbacks.queueNote(`${getAssistantName()}: ${result}`);
+                console.log(`[${label}] Guard attack result: ${result}`);
+            })
+            .catch((err) => console.log(`[${label}] Guard attack failed:`, err))
+            .finally(() => setAutoDefending(bot, false));
+        return;
+    }
+
+    // Patrol: pick a new random point on each tick after pause
+    if (Date.now() < state.patrolPauseUntil) return;
+
+    const distToCenter = Math.sqrt((pos.x - center.x) ** 2 + (pos.z - center.z) ** 2);
+    const angle = Math.random() * Math.PI * 2;
+    const radius = PATROL_MIN_RADIUS + Math.random() * PATROL_MAX_RADIUS;
+    const patrolTarget = {
+        x: center.x + Math.cos(angle) * radius,
+        z: center.z + Math.sin(angle) * radius,
+    };
+    state.patrolPauseUntil = Date.now() + PATROL_PAUSE_MIN_MS + Math.random() * PATROL_PAUSE_RANGE_MS;
+    console.log(`[${label}] Patrol: walking to (${patrolTarget.x.toFixed(0)}, ${patrolTarget.z.toFixed(0)}) — ${distToCenter.toFixed(1)} from center`);
+    const { GoalNear } = require('mineflayer-pathfinder').goals;
+    bot.pathfinder.setGoal(new GoalNear(patrolTarget.x, center.y, patrolTarget.z, 1));
+}
+
 /**
  * Creates the aggro/hunt/guard mode scan loop for a bot.
  * Bot 1 and bot 2 can each have their own independent loop with an isolated state.
@@ -212,125 +326,103 @@ export function createModeScanLoop(
 ): { loop: ReturnType<typeof setInterval>; flush: () => void } {
     const aggroCooldowns: Record<string, number> = {};
     const batch: ModeBatchState = { killCounts: {}, timer: null, modeLabel: 'aggro' };
-
-    let huntCooldownUntil = 0; // Post-kill cooldown to let the bot settle
-    let patrolPauseUntil = 0;
+    const state: ScanLoopState = { huntCooldownUntil: 0, patrolPauseUntil: 0 };
 
     const loop = setInterval(() => {
         if (!isBotActive()) return;
         const mode = getBotMode(bot);
         if (mode === 'passive') return;
         if (isAutoDefending(bot) || isActionBusy(bot)) return;
-        // Don't seek new fights when critically wounded
         if (bot.health > 0 && bot.health <= LOW_HEALTH_THRESHOLD) return;
-
-        const pos = bot.entity.position;
-        if (!isPositionFinite(pos)) return;
+        if (!isPositionFinite(bot.entity.position)) return;
 
         const followingPlayer = callbacks.getFollowingPlayer();
         const player = followingPlayer
             ? findPlayerEntity(bot, followingPlayer, callbacks.getNames()) ?? null
             : null;
 
-        // ---- Aggro mode: attack nearest hostile while following player ----
-        if (mode === 'aggro') {
-            const target = findNearestHostile(bot, AGGRO_TARGET_RANGE, player, aggroCooldowns);
-            if (target && !getCurrentCombatTarget(bot)) {
-                const mobName = target.name ?? 'unknown';
-                const dist = target.position.distanceTo(pos);
-                console.log(`[${label}] Aggro mode: attacking ${mobName} (${dist.toFixed(1)} blocks)`);
-                setAutoDefending(bot, true);
-                callbacks.addChat('action', 'Action', `${getAssistantName()} fighting ${mobName}!`);
-                void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], callbacks.getNames())
-                    .then((result) => {
-                        handleCombatResult(result, mobName, 'aggro', batch, label, getAssistantName, callbacks);
-                        // Set cooldown for split mobs (slimes, magma cubes)
-                        if (SPLIT_MOBS.includes(mobName)) {
-                            aggroCooldowns[mobName] = Date.now() + SPLIT_MOB_COOLDOWN_MS;
-                            console.log(`[${label}] Aggro: ${mobName} split cooldown set for 5s`);
-                        }
-                    })
-                    .catch((err) => console.log(`[${label}] Aggro attack failed:`, err))
-                    .finally(() => {
-                        setAutoDefending(bot, false);
-                        scheduleFollowResume(bot, label, callbacks);
-                    });
-            }
-            return;
-        }
-
-        // ---- Hunt mode: attack nearest farm animal while following player ----
-        if (mode === 'hunt') {
-            if (Date.now() < huntCooldownUntil) return;
-
-            const target = findNearestHuntable(bot, HUNT_TARGET_RANGE, player);
-            if (target && !getCurrentCombatTarget(bot)) {
-                const animalName = target.name ?? 'unknown';
-                const dist = target.position.distanceTo(pos);
-                console.log(`[${label}] Hunt mode: targeting ${animalName} (${dist.toFixed(1)} blocks)`);
-                setAutoDefending(bot, true);
-                callbacks.addChat('action', 'Action', `${getAssistantName()} hunting ${animalName}!`);
-                void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: animalName }], callbacks.getNames())
-                    .then((result) => {
-                        handleCombatResult(result, animalName, 'hunt', batch, label, getAssistantName, callbacks);
-                    })
-                    .catch((err) => console.log(`[${label}] Hunt attack failed:`, err))
-                    .finally(() => {
-                        setAutoDefending(bot, false);
-                        huntCooldownUntil = Date.now() + HUNT_POST_KILL_COOLDOWN_MS;
-                        scheduleFollowResume(bot, label, callbacks);
-                    });
-            }
-            return;
-        }
-
-        // ---- Guard mode: patrol area + attack hostiles ----
-        if (mode === 'guard') {
-            const center = getGuardCenter(bot);
-            if (!center) return;
-
-            const target = findNearestHostile(bot, GUARD_TARGET_RANGE, null);
-            if (target && !getCurrentCombatTarget(bot)) {
-                const mobName = target.name ?? 'unknown';
-                const dist = target.position.distanceTo(pos);
-                console.log(`[${label}] Guard mode: engaging ${mobName} (${dist.toFixed(1)} blocks)`);
-                setAutoDefending(bot, true);
-                callbacks.addChat('action', 'Action', `${getAssistantName()} defending area from ${mobName}!`);
-                void executeAction(bot, 'mc_attack', [{ name: 'entity_name', value: mobName }], callbacks.getNames())
-                    .then((result) => {
-                        callbacks.addChat('note', 'Note', `${getAssistantName()}: ${result}`);
-                        callbacks.queueNote(`${getAssistantName()}: ${result}`);
-                        console.log(`[${label}] Guard attack result: ${result}`);
-                    })
-                    .catch((err) => console.log(`[${label}] Guard attack failed:`, err))
-                    .finally(() => setAutoDefending(bot, false));
-                return;
-            }
-
-            // Patrol: pick a new random point on each tick after pause
-            if (Date.now() < patrolPauseUntil) return;
-
-            const distToCenter = Math.sqrt(
-                (pos.x - center.x) ** 2 + (pos.z - center.z) ** 2,
-            );
-
-            // Pick new patrol point within 8 blocks of center
-            const angle = Math.random() * Math.PI * 2;
-            const radius = PATROL_MIN_RADIUS + Math.random() * PATROL_MAX_RADIUS;
-            const patrolTarget = {
-                x: center.x + Math.cos(angle) * radius,
-                z: center.z + Math.sin(angle) * radius,
-            };
-            patrolPauseUntil = Date.now() + PATROL_PAUSE_MIN_MS + Math.random() * PATROL_PAUSE_RANGE_MS;
-            console.log(`[${label}] Patrol: walking to (${patrolTarget.x.toFixed(0)}, ${patrolTarget.z.toFixed(0)}) — ${distToCenter.toFixed(1)} from center`);
-
-            // Walk to patrol point
-            const { GoalNear } = require('mineflayer-pathfinder').goals;
-            bot.pathfinder.setGoal(new GoalNear(patrolTarget.x, center.y, patrolTarget.z, 1));
-        }
+        if (mode === 'aggro') { tickAggroMode(bot, player, batch, aggroCooldowns, label, getAssistantName, callbacks); return; }
+        if (mode === 'hunt') { tickHuntMode(bot, player, state, batch, label, getAssistantName, callbacks); return; }
+        if (mode === 'guard') { tickGuardMode(bot, state, label, getAssistantName, callbacks); }
     }, MODE_SCAN_INTERVAL_MS);
 
     return { loop, flush: () => flushModeBatch(batch, getAssistantName, callbacks, label) };
+}
+
+/** Compute steering direction with companion avoidance applied */
+function computeSteeringDirection(
+    vPos: { x: number; y: number; z: number; distanceTo: (p: { x: number; y: number; z: number }) => number },
+    targetPos: { x: number; y: number; z: number },
+    vehicleEntity: { attributes?: Record<string, { value?: number }> },
+    companionBot: MineflayerBot | null,
+): { dx: number; dz: number; yaw: number; yawDeg: number; moveStep: number } {
+    let dx = targetPos.x - vPos.x;
+    let dz = targetPos.z - vPos.z;
+
+    if (companionBot) {
+        const compVehicle = getVehicle(companionBot);
+        const compPos = compVehicle ? compVehicle.position : companionBot.entity?.position;
+        if (compPos) {
+            const compDist = vPos.distanceTo(compPos);
+            if (compDist < COMPANION_AVOIDANCE_RANGE) {
+                const pushX = vPos.x - compPos.x;
+                const pushZ = vPos.z - compPos.z;
+                const pushLen = Math.sqrt(pushX * pushX + pushZ * pushZ) || 1;
+                const pushWeight = Math.max(PUSH_WEIGHT_MIN, (COMPANION_AVOIDANCE_RANGE - compDist) / PUSH_WEIGHT_DIVISOR);
+                dx += (pushX / pushLen) * pushWeight;
+                dz += (pushZ / pushLen) * pushWeight;
+            }
+        }
+    }
+
+    const yaw = -Math.atan2(dx, dz);
+    const yawDeg = yaw * (180 / Math.PI);
+
+    let speedAttr = DEFAULT_MOVE_SPEED;
+    if (vehicleEntity.attributes?.['minecraft:generic.movement_speed']) {
+        speedAttr = vehicleEntity.attributes['minecraft:generic.movement_speed'].value ?? DEFAULT_MOVE_SPEED;
+    } else if (vehicleEntity.attributes?.['generic.movementSpeed']) {
+        speedAttr = vehicleEntity.attributes['generic.movementSpeed'].value ?? DEFAULT_MOVE_SPEED;
+    }
+    const blocksPerSec = speedAttr * 100;
+    const moveStep = Math.min(blocksPerSec * (STEER_TICK_MS / 1000), MOVE_STEP_CAP);
+
+    return { dx, dz, yaw, yawDeg, moveStep };
+}
+
+/** Sweep 5 directions to find a clear yaw that avoids obstacles */
+function findClearYaw(
+    bot: MineflayerBot,
+    vPos: { x: number; y: number; z: number },
+    yaw: number,
+    moveStep: number,
+): { moveYaw: number; moveYawDeg: number; foundClear: boolean } {
+    const Vec3 = require('vec3');
+    const isBlocked = (x: number, z: number, baseY: number): boolean => {
+        try {
+            const floorY = Math.floor(baseY);
+            let groundLevel = floorY - 1;
+            for (let y = floorY + 2; y >= floorY - 3; y--) {
+                const b = bot.blockAt(new Vec3(x, y, z));
+                if (b && b.boundingBox === 'block') { groundLevel = y; break; }
+            }
+            if ((groundLevel + 1) - baseY > STEP_UP_HEIGHT_MAX) return true;
+            const standY = groundLevel + 1;
+            for (let dy = 0; dy <= 2; dy++) {
+                const b = bot.blockAt(new Vec3(x, standY + dy, z));
+                if (b && b.boundingBox === 'block') return true;
+            }
+        } catch { /* world not loaded */ }
+        return false;
+    };
+
+    for (const offset of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]) {
+        const tryYaw = yaw + offset;
+        if (!isBlocked(vPos.x + (-Math.sin(tryYaw) * moveStep), vPos.z + (Math.cos(tryYaw) * moveStep), vPos.y)) {
+            return { moveYaw: tryYaw, moveYawDeg: tryYaw * (180 / Math.PI), foundClear: true };
+        }
+    }
+    return { moveYaw: yaw, moveYawDeg: yaw * (180 / Math.PI), foundClear: false };
 }
 
 /**
@@ -346,23 +438,22 @@ export function createMountedSteeringLoop(
 ): ReturnType<typeof setInterval> {
     const mcClient = getClient(bot);
     let lastSteerLog = 0;
-    // Per-bot mounted stop distance — mirrors the on-foot staggered followDistance
     const mountedStopDist = getFollowDistance(bot) === 5 ? 8 : 5;
+
     return setInterval(() => {
         if (!isBotActive() || !callbacks.getFollowingPlayer()) return;
         if (isActionBusy(bot) || callbacks.isAutoDismounting()) return;
         const vehicle = getVehicle(bot);
         if (!vehicle) return;
 
-        const vehicleEntity = vehicle;
-        const vehicleName: string = (vehicleEntity.displayName ?? vehicleEntity.name ?? '').toLowerCase();
-        if (vehicleName.includes('boat')) return; // Boat steering not yet implemented
+        const vehicleName: string = (vehicle.displayName ?? vehicle.name ?? '').toLowerCase();
+        if (vehicleName.includes('boat')) return;
 
         const player = findPlayerEntity(bot, callbacks.getFollowingPlayer()!, callbacks.getNames());
         if (!player) return;
         const playerVehicle = getEntityVehicle(player);
         const targetPos = playerVehicle ? playerVehicle.position : player.position;
-        const vPos = vehicleEntity.position;
+        const vPos = vehicle.position;
         if (!vPos) return;
         const dist = vPos.distanceTo(targetPos);
         if (dist < mountedStopDist) {
@@ -372,79 +463,18 @@ export function createMountedSteeringLoop(
             return;
         }
 
-        let dx = targetPos.x - vPos.x;
-        let dz = targetPos.z - vPos.z;
+        const steering = computeSteeringDirection(vPos, targetPos, vehicle, companionBot);
+        const clear = findClearYaw(bot, vPos, steering.yaw, steering.moveStep);
 
-        // Companion avoidance: if the other bot's horse is nearby, push away
-        if (companionBot) {
-            const compVehicle = getVehicle(companionBot);
-            const compPos = compVehicle ? compVehicle.position : companionBot.entity?.position;
-            if (compPos) {
-                const compDist = vPos.distanceTo(compPos);
-                if (compDist < COMPANION_AVOIDANCE_RANGE) {
-                    // Push direction: away from companion
-                    const pushX = vPos.x - compPos.x;
-                    const pushZ = vPos.z - compPos.z;
-                    const pushLen = Math.sqrt(pushX * pushX + pushZ * pushZ) || 1;
-                    // Stronger push the closer they are (weight: 0.5 at 4 blocks, up to 2.0 at 0 blocks)
-                    const pushWeight = Math.max(PUSH_WEIGHT_MIN, (COMPANION_AVOIDANCE_RANGE - compDist) / PUSH_WEIGHT_DIVISOR);
-                    dx += (pushX / pushLen) * pushWeight;
-                    dz += (pushZ / pushLen) * pushWeight;
-                }
-            }
-        }
-
-        const yaw = -Math.atan2(dx, dz);
-        const yawDeg = yaw * (180 / Math.PI);
-
-        let speedAttr = DEFAULT_MOVE_SPEED;
-        if (vehicleEntity.attributes?.['minecraft:generic.movement_speed']) {
-            speedAttr = vehicleEntity.attributes['minecraft:generic.movement_speed'].value ?? DEFAULT_MOVE_SPEED;
-        } else if (vehicleEntity.attributes?.['generic.movementSpeed']) {
-            speedAttr = vehicleEntity.attributes['generic.movementSpeed'].value ?? DEFAULT_MOVE_SPEED;
-        }
-        const blocksPerSec = speedAttr * 100;
-        const moveStep = Math.min(blocksPerSec * (STEER_TICK_MS / 1000), MOVE_STEP_CAP);
-
-        const Vec3 = require('vec3');
-        const isBlocked = (x: number, z: number, baseY: number): boolean => {
-            try {
-                const floorY = Math.floor(baseY);
-                let groundLevel = floorY - 1;
-                for (let y = floorY + 2; y >= floorY - 3; y--) {
-                    const b = bot.blockAt(new Vec3(x, y, z));
-                    if (b && b.boundingBox === 'block') { groundLevel = y; break; }
-                }
-                if ((groundLevel + 1) - baseY > STEP_UP_HEIGHT_MAX) return true;
-                const standY = groundLevel + 1;
-                for (let dy = 0; dy <= 2; dy++) {
-                    const b = bot.blockAt(new Vec3(x, standY + dy, z));
-                    if (b && b.boundingBox === 'block') return true;
-                }
-            } catch { /* world not loaded */ }
-            return false;
-        };
-
-        let moveYaw = yaw;
-        let moveYawDeg = yawDeg;
-        let foundClear = false;
-        for (const offset of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]) {
-            const tryYaw = yaw + offset;
-            if (!isBlocked(vPos.x + (-Math.sin(tryYaw) * moveStep), vPos.z + (Math.cos(tryYaw) * moveStep), vPos.y)) {
-                moveYaw = tryYaw;
-                moveYawDeg = moveYaw * (180 / Math.PI);
-                foundClear = true;
-                break;
-            }
-        }
-
-        if (!foundClear) {
-            mcClient.write('look', { yaw: yawDeg, pitch: 0, flags: { onGround: true, hasHorizontalCollision: false } });
+        if (!clear.foundClear) {
+            mcClient.write('look', { yaw: steering.yawDeg, pitch: 0, flags: { onGround: true, hasHorizontalCollision: false } });
             return;
         }
 
-        const newX = vPos.x + (-Math.sin(moveYaw) * moveStep);
-        const newZ = vPos.z + (Math.cos(moveYaw) * moveStep);
+        // Calculate destination position and height adjustment
+        const Vec3 = require('vec3');
+        const newX = vPos.x + (-Math.sin(clear.moveYaw) * steering.moveStep);
+        const newZ = vPos.z + (Math.cos(clear.moveYaw) * steering.moveStep);
         let newY = vPos.y;
         let shouldJump = false;
         try {
@@ -460,16 +490,17 @@ export function createMountedSteeringLoop(
             }
         } catch { /* world not loaded */ }
 
-        mcClient.write('look', { yaw: moveYawDeg, pitch: 0, flags: { onGround: true, hasHorizontalCollision: false } });
+        mcClient.write('look', { yaw: clear.moveYawDeg, pitch: 0, flags: { onGround: true, hasHorizontalCollision: false } });
         mcClient.write('player_input', {
             inputs: { forward: true, backward: false, left: false, right: false, jump: shouldJump, shift: false, sprint: false },
         });
-        mcClient.write('vehicle_move', { x: newX, y: newY, z: newZ, yaw: moveYawDeg, pitch: 0, onGround: !shouldJump });
+        mcClient.write('vehicle_move', { x: newX, y: newY, z: newZ, yaw: clear.moveYawDeg, pitch: 0, onGround: !shouldJump });
 
         const now = Date.now();
         if (now - lastSteerLog > STEER_LOG_INTERVAL_MS) {
             lastSteerLog = now;
-            console.log(`[MC Steer] Riding: dist=${dist.toFixed(1)}, speed=${blocksPerSec.toFixed(1)}b/s, step=${moveStep.toFixed(2)}, y=${newY.toFixed(1)}, pos=(${newX.toFixed(1)}, ${newZ.toFixed(1)})`);
+            const blocksPerSec = steering.moveStep / (STEER_TICK_MS / 1000);
+            console.log(`[MC Steer] Riding: dist=${dist.toFixed(1)}, speed=${blocksPerSec.toFixed(1)}b/s, step=${steering.moveStep.toFixed(2)}, y=${newY.toFixed(1)}, pos=(${newX.toFixed(1)}, ${newZ.toFixed(1)})`);
         }
     }, STEER_TICK_MS);
 }

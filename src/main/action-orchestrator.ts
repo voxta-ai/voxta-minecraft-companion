@@ -1,6 +1,6 @@
 import type { Bot } from 'mineflayer';
 import type { NameRegistry } from '../bot/name-registry';
-import type { ActionCategory } from '../bot/minecraft/action-definitions';
+import type { ActionCategory, McAction } from '../bot/minecraft/action-definitions';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, setFishCaughtCallback } from '../bot/minecraft/action-dispatcher';
 import { isActionBusy, getCurrentActivity, setBuildProgressCallback, setCraftProgressCallback } from '../bot/minecraft/actions';
@@ -25,6 +25,14 @@ const ALWAYS_SILENT_PATTERNS = [
     'stopped fighting', 'died while fighting', 'reached the', 'cannot find',
     'failed to eat', 'not edible', 'ate some', 'nothing to eat',
 ];
+
+/** Actions that clear follow state when triggered */
+const FOLLOW_CLEARING_ACTIONS = ['mc_stop', 'mc_go_home', 'mc_go_to'];
+
+/** Actions that should NOT trigger a follow resume after completion */
+const NO_RESUME_ACTIONS = new Set([
+    'mc_none', 'mc_follow_player', 'mc_stop', 'mc_go_home', 'mc_go_to', 'mc_set_mode', 'mc_mount',
+]);
 
 export interface ActionOrchestratorCallbacks {
     getAssistantName(): string;
@@ -86,15 +94,12 @@ export function handleActionMessage(
     }
 
     // Skip AI-generated combat actions only when auto-defense is actively fighting.
-    // We do NOT block based on mode alone — the user may explicitly ask the bot to
-    // attack a specific target (e.g. "kill that pig") even while aggro/hunt/guard is active.
     if (actionDef?.isCombat && isAutoDefending(bot)) {
         console.log(`[Bot] Ignoring ${actionName} — auto-defense is actively fighting`);
         return;
     }
 
     // Reentrance guard: only one real action per user turn.
-    // mc_none is exempt (it's a no-op that doesn't cause feedback loops).
     if (actionName !== 'mc_none' && actionFiredThisTurn) {
         console.log(`[Bot] Ignoring ${actionName} — action already fired this turn`);
         return;
@@ -112,7 +117,36 @@ export function handleActionMessage(
         timingLabel,
     );
 
-    // Track follow state
+    updateFollowState(actionName, action, bot, callbacks);
+    setupLongRunningCallbacks(actionName, action, bot, callbacks);
+
+    void executeAction(bot, actionName, action.arguments, names).then(async (result) => {
+        const botName = callbacks.getAssistantName();
+        callbacks.updateCurrentAction(null);
+
+        // Clear callbacks when done
+        if (actionName === 'mc_fish') setFishCaughtCallback(bot, null);
+        if (actionName === 'mc_build') setBuildProgressCallback(null);
+        if (actionName === 'mc_craft') setCraftProgressCallback(null);
+
+        await maybeResumeFollow(actionName, bot, names, callbacks);
+
+        if (handleQuickActionResult(result, actionName, actionDef, botName, callbacks)) return;
+        if (!result) return; // Aborted actions return empty — nothing to report
+
+        routeActionResult(result, actionName, actionDef, botName, callbacks);
+    });
+}
+
+// ---- Extracted helpers ----
+
+/** Update follow state based on the action being executed */
+function updateFollowState(
+    actionName: string,
+    action: ServerActionMessage,
+    bot: Bot,
+    callbacks: ActionOrchestratorCallbacks,
+): void {
     if (actionName === 'mc_follow_player') {
         const playerArg = action.arguments?.find((a) => a.name.toLowerCase() === 'player_name');
         // Strip LLM type annotations like 'string="Lapiro' → 'Lapiro'
@@ -123,24 +157,29 @@ export function handleActionMessage(
         callbacks.setFollowingPlayer(rawVal || null);
         // AI explicitly chose "follow player" — switch out of guard/hunt so the
         // mode scan doesn't immediately override with a new attack target.
-        // Aggro mode is preserved (bot follows + attacks hostiles, that's expected).
         if (getBotMode(bot) === 'guard' || getBotMode(bot) === 'hunt') {
             const prevMode = getBotMode(bot);
             console.log(`[Bot] mc_follow_player: auto-switching from ${prevMode} to passive`);
             setBotMode(bot, 'passive');
             callbacks.addChat('note', 'Note', `Exited ${prevMode} mode to follow ${rawVal}.`);
         }
-    } else if (actionName === 'mc_stop' || actionName === 'mc_go_home' || actionName === 'mc_go_to') {
+    } else if (FOLLOW_CLEARING_ACTIONS.includes(actionName)) {
         callbacks.setFollowingPlayer(null);
     }
+}
 
-    // Notify AI about long-running actions so it knows what's happening
+/** Notify AI and wire up progress callbacks for long-running actions */
+function setupLongRunningCallbacks(
+    actionName: string,
+    action: ServerActionMessage,
+    bot: Bot,
+    callbacks: ActionOrchestratorCallbacks,
+): void {
     if (actionName === 'mc_fish') {
         const botName = callbacks.getAssistantName();
         const fishMsg = `${botName} is now casting the fishing rod and fishing.`;
         callbacks.addChat('note', 'Note', fishMsg);
         callbacks.queueNote(`${fishMsg} ${botName} is the one holding the rod and waiting for a bite.`);
-        // Set a per-catch callback using the survival voice chance slider
         setFishCaughtCallback(bot, (itemName, count) => {
             const fishBotName = callbacks.getAssistantName();
             const msg = `${fishBotName} caught ${count} ${itemName} while fishing!`;
@@ -156,7 +195,7 @@ export function handleActionMessage(
             }
         });
     }
-    
+
     if (actionName === 'mc_craft') {
         const botName = callbacks.getAssistantName();
         setCraftProgressCallback((progressMsg) => {
@@ -166,7 +205,6 @@ export function handleActionMessage(
         });
     }
 
-    // Notify AI that the bot is heading home to its bed/respawn point
     if (actionName === 'mc_go_home') {
         const botName = callbacks.getAssistantName();
         const msg = `${botName} is heading home to the bed where the respawn point is set.`;
@@ -174,7 +212,6 @@ export function handleActionMessage(
         callbacks.queueNote(msg);
     }
 
-    // Notify AI that the bot started mining
     if (actionName === 'mc_mine_block') {
         const botName = callbacks.getAssistantName();
         const blockArg = action.arguments?.find((a) => a.name === 'block_type')?.value ?? 'blocks';
@@ -185,7 +222,6 @@ export function handleActionMessage(
         callbacks.queueNote(msg);
     }
 
-    // Notify AI that the bot started building + wire up progress callback
     if (actionName === 'mc_build') {
         const botName = callbacks.getAssistantName();
         const structureArg = action.arguments?.find((a) => a.name === 'structure')?.value ?? 'shelter';
@@ -199,138 +235,150 @@ export function handleActionMessage(
             callbacks.queueNote(noteText);
         });
     }
+}
 
-    void executeAction(bot, actionName, action.arguments, names).then(async (result) => {
-        const botName = callbacks.getAssistantName();
-        callbacks.updateCurrentAction(null);
-
-        // Clear fishing callback when done
-        if (actionName === 'mc_fish') setFishCaughtCallback(bot, null);
-        if (actionName === 'mc_build') setBuildProgressCallback(null);
-        if (actionName === 'mc_craft') setCraftProgressCallback(null);
-
-        // Resume the following if we were following before this action (silent — UI only)
-        const followingPlayer = callbacks.getFollowingPlayer();
-        // If the bot is currently mounted, the steering loop handles following —
-        // calling mc_follow_player would auto-dismount it, which is wrong.
-        const isMounted = !!getVehicle(bot);
-        const shouldResume =
-            followingPlayer &&
-            !isMounted &&
-            getBotMode(bot) !== 'guard' &&
-            actionName !== 'mc_none' &&
-            actionName !== 'mc_follow_player' &&
-            actionName !== 'mc_stop' &&
-            actionName !== 'mc_go_home' &&
-            actionName !== 'mc_go_to' &&
-            actionName !== 'mc_set_mode' &&
-            actionName !== 'mc_mount';
-        console.log(
-            `[Bot] Action done: ${actionName}, followingPlayer: ${followingPlayer}, shouldResume: ${!!shouldResume}`,
+/** Resume following the player after a task action completes */
+async function maybeResumeFollow(
+    actionName: string,
+    bot: Bot,
+    names: NameRegistry,
+    callbacks: ActionOrchestratorCallbacks,
+): Promise<void> {
+    const followingPlayer = callbacks.getFollowingPlayer();
+    const isMounted = !!getVehicle(bot);
+    const shouldResume =
+        followingPlayer &&
+        !isMounted &&
+        getBotMode(bot) !== 'guard' &&
+        !NO_RESUME_ACTIONS.has(actionName);
+    console.log(
+        `[Bot] Action done: ${actionName}, followingPlayer: ${followingPlayer}, shouldResume: ${!!shouldResume}`,
+    );
+    if (actionName === 'mc_follow_player') {
+        console.log(`[Bot] Pathfinder goal after follow: ${!!bot.pathfinder.goal}`);
+    }
+    if (shouldResume) {
+        if (actionName === 'mc_go_to_entity') {
+            await new Promise((r) => setTimeout(r, GO_TO_ENTITY_LINGER_MS));
+        }
+        const resumeResult = await executeAction(
+            bot,
+            'mc_follow_player',
+            [{ name: 'player_name', value: followingPlayer ?? '' }],
+            names,
         );
-        if (actionName === 'mc_follow_player') {
-            console.log(`[Bot] Pathfinder goal after follow: ${!!bot.pathfinder.goal}`);
-        }
-        if (shouldResume) {
-            // Linger at the entity for 3s before returning to the player
-            if (actionName === 'mc_go_to_entity') {
-                await new Promise((r) => setTimeout(r, GO_TO_ENTITY_LINGER_MS));
-            }
-            const resumeResult = await executeAction(
-                bot,
-                'mc_follow_player',
-                [{ name: 'player_name', value: followingPlayer ?? '' }],
-                names,
-            );
-            console.log(`[Bot] Resumed following: ${resumeResult}`);
-        }
+        console.log(`[Bot] Resumed following: ${resumeResult}`);
+    }
+}
 
-        if (actionDef?.isQuick) {
-            if (!result) return;
-            const isQuickFailure = FAILURE_KEYWORDS.some((kw) => result.toLowerCase().includes(kw));
-            if (isQuickFailure) {
-                // Quick action failed — AI must know so it doesn't hallucinate success
-                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-                callbacks.queueNote(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`);
-            } else {
-                // Quick action succeeded — show in chat only, no AI note needed
-                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-            }
-            return;
-        }
-        if (!result) return; // Aborted actions return empty — nothing to report
+/** Handle quick action results — returns true if handled (caller should return early) */
+function handleQuickActionResult(
+    result: string,
+    actionName: string,
+    actionDef: McAction | undefined,
+    botName: string,
+    callbacks: ActionOrchestratorCallbacks,
+): boolean {
+    if (!actionDef?.isQuick) return false;
+    if (!result) return true;
+    const isQuickFailure = FAILURE_KEYWORDS.some((kw) => result.toLowerCase().includes(kw));
+    if (isQuickFailure) {
+        callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+        callbacks.queueNote(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`);
+    } else {
+        callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+    }
+    return true;
+}
 
-        // Detect action failures — these must always trigger an AI reply
-        // so the AI acknowledges the error instead of hallucinating success
-        const isFailure = FAILURE_KEYWORDS.some((kw) => result.toLowerCase().includes(kw));
-        const hasTrades = result.includes('Their trades:');
-        const voxta = callbacks.getVoxta();
-        const timing = callbacks.getSettings().actionInferenceTiming;
+/** Route a completed action result: decide if it's voiced, silent, or queued */
+function routeActionResult(
+    result: string,
+    actionName: string,
+    actionDef: McAction | undefined,
+    botName: string,
+    callbacks: ActionOrchestratorCallbacks,
+): void {
+    const isFailure = FAILURE_KEYWORDS.some((kw) => result.toLowerCase().includes(kw));
+    const hasTrades = result.includes('Their trades:');
+    const voxta = callbacks.getVoxta();
+    const timing = callbacks.getSettings().actionInferenceTiming;
 
-        // Transactional actions (give, toss, store, equip) — the AI already announced
-        // them in its reply, so the result is always a silent note, never a voiced event.
-        if (actionDef?.isSilentResult && !isFailure) {
-            callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-            callbacks.queueNote(`${botName}: ${result}`);
-            return;
-        }
+    // Transactional actions (give, toss, store, equip) — silent note unless failed
+    if (actionDef?.isSilentResult && !isFailure) {
+        callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+        callbacks.queueNote(`${botName}: ${result}`);
+        return;
+    }
 
-        // Noise that should never trigger a voiced reply — always a silent note:
-        // - "nowhere in sight" = target not found or too far
-        // - "No entity name provided" / "No player name provided" = AI sent empty param
-        if (ALWAYS_SILENT_PATTERNS.some((p) => result.toLowerCase().includes(p))) {
-            callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-            callbacks.queueNote(`${botName}: ${result}`);
-            return;
-        }
+    // Noise that should never trigger a voiced reply
+    if (ALWAYS_SILENT_PATTERNS.some((p) => result.toLowerCase().includes(p))) {
+        callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+        callbacks.queueNote(`${botName}: ${result}`);
+        return;
+    }
 
-        if (timing === 'user') {
-            // With user action inference, the server generates a reply simultaneously.
-            const noteText = `[ACTION ${isFailure ? 'FAILED' : 'COMPLETE'}: ${actionName}] ${botName}: ${result}`;
+    if (timing === 'user') {
+        routeUserTimingResult(result, actionName, actionDef, botName, isFailure, hasTrades, callbacks);
+    } else if (isFailure && !callbacks.isReplying()) {
+        callbacks.addChat('event', 'Event', `${botName}: ${result}`);
+        console.log(`[Bot >>] event (failure): "${result.substring(0, LOG_PREVIEW_LENGTH)}"`);
+        void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
+    } else {
+        routeAfterTimingResult(result, actionName, actionDef, botName, hasTrades, voxta, callbacks);
+    }
+}
 
-            // Apply voice chance — if it passes, queue an event to trigger a
-            // follow-up voiced reply once the current reply finishes.
-            // Only send ONE of note or event, never both (avoids duplicate in LLM context).
-            const alwaysVoiced = isFailure || hasTrades;
-            const voiceChance = alwaysVoiced ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
-            const roll = Math.random() * 100;
-            if (roll < voiceChance) {
-                callbacks.addChat('event', 'Event', `${botName}: ${result}`);
-                callbacks.queueEvent(noteText);
-            } else {
-                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-                callbacks.sendNoteNow(noteText);
-            }
-        } else if (isFailure && !callbacks.isReplying()) {
-            // Failures always voiced — AI must acknowledge what went wrong
-            // Disable action inference so hints like "kill spiders" don't auto-trigger actions
-            callbacks.addChat('event', 'Event', `${botName}: ${result}`);
-            console.log(`[Bot >>] event (failure): "${result.substring(0, LOG_PREVIEW_LENGTH)}"`);
-            void voxta?.sendEvent(`[ACTION FAILED: ${actionName}] ${botName}: ${result}`, false);
-        } else {
-            // Wall builds are quick defensive placements — always a silent note.
-            // Shelter and watchtower are significant constructions — always voiced.
-            if (actionName === 'mc_build' && result.toLowerCase().includes('wall')) {
-                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-                callbacks.queueNote(`${botName}: ${result}`);
-                return;
-            }
-            // Voice chance roll — like an Elite Dangerous probability system
-            const alwaysVoiced = hasTrades || actionName === 'mc_build';
-            const voiceChance = alwaysVoiced ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
-            const roll = Math.random() * 100;
-            if (roll < voiceChance && !callbacks.isReplying()) {
-                // Voiced: send it as an event so the AI replies about the result
-                callbacks.addChat('event', 'Event', `${botName}: ${result}`);
-                console.log(`[Bot >>] event (action result): "${result.substring(0, LOG_PREVIEW_LENGTH)}"`);
-                void voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
-            } else {
-                // Silent: AI sees it but stays quiet — single note, no duplicate
-                callbacks.addChat('note', 'Note', `${botName}: ${result}`);
-                callbacks.queueNote(`${botName}: ${result}`);
-            }
-        }
-    });
+/** Route result when actionInferenceTiming is 'user' */
+function routeUserTimingResult(
+    result: string,
+    actionName: string,
+    actionDef: McAction | undefined,
+    botName: string,
+    isFailure: boolean,
+    hasTrades: boolean,
+    callbacks: ActionOrchestratorCallbacks,
+): void {
+    const noteText = `[ACTION ${isFailure ? 'FAILED' : 'COMPLETE'}: ${actionName}] ${botName}: ${result}`;
+    const alwaysVoiced = isFailure || hasTrades;
+    const voiceChance = alwaysVoiced ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
+    const roll = Math.random() * 100;
+    if (roll < voiceChance) {
+        callbacks.addChat('event', 'Event', `${botName}: ${result}`);
+        callbacks.queueEvent(noteText);
+    } else {
+        callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+        callbacks.sendNoteNow(noteText);
+    }
+}
+
+/** Route result when actionInferenceTiming is 'after' (default) */
+function routeAfterTimingResult(
+    result: string,
+    actionName: string,
+    actionDef: McAction | undefined,
+    botName: string,
+    hasTrades: boolean,
+    voxta: VoxtaClient | null,
+    callbacks: ActionOrchestratorCallbacks,
+): void {
+    // Wall builds are quick defensive placements — always a silent note.
+    if (actionName === 'mc_build' && result.toLowerCase().includes('wall')) {
+        callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+        callbacks.queueNote(`${botName}: ${result}`);
+        return;
+    }
+    const alwaysVoiced = hasTrades || actionName === 'mc_build';
+    const voiceChance = alwaysVoiced ? 100 : getVoiceChance(callbacks.getSettings(), actionDef?.category);
+    const roll = Math.random() * 100;
+    if (roll < voiceChance && !callbacks.isReplying()) {
+        callbacks.addChat('event', 'Event', `${botName}: ${result}`);
+        console.log(`[Bot >>] event (action result): "${result.substring(0, LOG_PREVIEW_LENGTH)}"`);
+        void voxta?.sendEvent(`[ACTION COMPLETE: ${actionName}] ${botName}: ${result}`);
+    } else {
+        callbacks.addChat('note', 'Note', `${botName}: ${result}`);
+        callbacks.queueNote(`${botName}: ${result}`);
+    }
 }
 
 /** Get the voice chance (0-100) for an action category */
