@@ -74,6 +74,14 @@
     margin-bottom: 3px;
 }
 
+.chat-time {
+    font-weight: 400;
+    font-size: 10px;
+    text-transform: none;
+    opacity: 0.5;
+    margin-left: 6px;
+}
+
 /* Player messages — right-aligned blue */
 .chat-msg.player {
     background: linear-gradient(135deg, #1a3a6b, #1e3a5f);

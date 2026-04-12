@@ -29,6 +29,7 @@ export interface MessageHandlerContext {
     getMcBot(): Bot | null;
     getNames(): NameRegistry;
     getFollowingPlayer(): string | null;
+    getVoxtaUserName(): string | null;
     // Multi-bot routing
     getCharacterBotMap(): Map<string, 1 | 2>;
     getBotBySlot(slot: 1 | 2): Bot | null;
