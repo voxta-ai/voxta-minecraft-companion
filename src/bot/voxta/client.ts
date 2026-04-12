@@ -5,6 +5,7 @@ import type {
     ClientMessage,
     ClientStartChatMessage,
     ContextDefinition,
+    GenerateConstraintRequest,
     ScenarioAction,
     ServerMessage,
     ServerWelcomeMessage,
@@ -263,7 +264,7 @@ export class VoxtaClient {
     }
 
     /** Send an event that triggers the AI to reply, not shown as a user message */
-    async sendEvent(text: string, doActionInference = true): Promise<void> {
+    async sendEvent(text: string, doActionInference = true, constraints?: GenerateConstraintRequest): Promise<void> {
         if (!this._sessionId) return;
         await this.send({
             $type: 'send',
@@ -272,6 +273,7 @@ export class VoxtaClient {
             doReply: true,
             doUserActionInference: false,
             doCharacterActionInference: doActionInference,
+            ...(constraints ? { generateConstraintRequest: constraints } : {}),
         });
     }
 
