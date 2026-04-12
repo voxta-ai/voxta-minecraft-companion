@@ -3,27 +3,8 @@ import type { Accessor } from 'solid-js';
 import { serverState } from '../../stores/server-store';
 import { addToast } from '../../stores/toast-store';
 import type { WorldInfo, WorldBackup } from '../../../shared/ipc-types';
-
-function formatWorldSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
-function formatBackupDate(timestamp: number): string {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-}
-
-function sanitizeWorldName(name: string): string {
-    return name.trim().replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
-}
+import { formatWorldSize, sanitizeWorldName } from './world-utils';
+import WorldBackupList from './WorldBackupList';
 
 interface WorldsSectionProps {
     worlds: Accessor<WorldInfo[]>;
@@ -421,74 +402,17 @@ export default function WorldsSection(props: WorldsSectionProps) {
                             </div>
                             {/* Backup list */}
                             <Show when={expandedBackups() === world.name}>
-                                <div class="world-backup-list" onClick={(e) => e.stopPropagation()}>
-                                    <div class="world-backup-header">
-                                        <i class="bi bi-clock-history"></i> Backups
-                                    </div>
-                                    <Show
-                                        when={backups().length > 0}
-                                        fallback={<div class="world-backup-empty">No backups yet</div>}
-                                    >
-                                        <For each={backups()}>
-                                            {(backup) => (
-                                                <div class="world-backup-row">
-                                                    <Show
-                                                        when={restoringBackup() !== backup.id && deletingBackup() !== backup.id}
-                                                        fallback={
-                                                            <div class="world-backup-confirm">
-                                                                <span class="world-backup-confirm-text">
-                                                                    {restoringBackup() === backup.id ? 'Restore this backup?' : 'Delete this backup?'}
-                                                                </span>
-                                                                <button
-                                                                    class={`world-backup-confirm-btn ${restoringBackup() === backup.id ? 'world-backup-restore-btn' : 'world-backup-delete-confirm-btn'}`}
-                                                                    onClick={() => {
-                                                                        if (restoringBackup() === backup.id) void handleRestoreBackup(backup.id);
-                                                                        else void handleDeleteBackup(backup.id, world.name);
-                                                                    }}
-                                                                    disabled={worldBusy()}
-                                                                >
-                                                                    {worldBusy() ? '...' : restoringBackup() === backup.id ? 'Restore' : 'Delete'}
-                                                                </button>
-                                                                <button
-                                                                    class="world-backup-cancel-btn"
-                                                                    onClick={() => { setRestoringBackup(null); setDeletingBackup(null); }}
-                                                                    disabled={worldBusy()}
-                                                                >
-                                                                    Cancel
-                                                                </button>
-                                                            </div>
-                                                        }
-                                                    >
-                                                        <div class="world-backup-info">
-                                                            <span class="world-backup-date">{formatBackupDate(backup.timestamp)}</span>
-                                                            <span class="world-backup-size">{formatWorldSize(backup.sizeBytes)}</span>
-                                                        </div>
-                                                        <div class="world-backup-actions">
-                                                            <Show when={serverState() !== 'running' && serverState() !== 'starting'}>
-                                                                <button
-                                                                    class="world-backup-action"
-                                                                    onClick={() => setRestoringBackup(backup.id)}
-                                                                    disabled={worldBusy()}
-                                                                    title="Restore this backup"
-                                                                >
-                                                                    <i class="bi bi-arrow-counterclockwise"></i>
-                                                                </button>
-                                                            </Show>
-                                                            <button
-                                                                class="world-backup-action world-backup-action-delete"
-                                                                onClick={() => setDeletingBackup(backup.id)}
-                                                                disabled={worldBusy()}
-                                                                title="Delete backup"
-                                                            >
-                                                                <i class="bi bi-trash3"></i>
-                                                            </button>
-                                                        </div>
-                                                    </Show>
-                                                </div>
-                                            )}
-                                        </For>
-                                    </Show>
-                                </div>
+                                <WorldBackupList
+                                    backups={backups}
+                                    worldName={world.name}
+                                    worldBusy={worldBusy}
+                                    restoringBackup={restoringBackup}
+                                    setRestoringBackup={setRestoringBackup}
+                                    deletingBackup={deletingBackup}
+                                    setDeletingBackup={setDeletingBackup}
+                                    onRestore={(id) => void handleRestoreBackup(id)}
+                                    onDelete={(id, name) => void handleDeleteBackup(id, name)}
+                                />
                             </Show>
                         </>)}
                     </For>
