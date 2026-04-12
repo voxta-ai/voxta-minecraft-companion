@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 import type { ToolCategory } from '../game-data';
 import { getToolCategory, getBestTool, getToolIfStrongEnough } from './action-helpers.js';
 import { getActionAbort, setSuppressPickups } from './action-state.js';
+import { collectItems } from './movement.js';
 import { getErrorMessage } from '../utils';
 
 // ---- Minimal type for minecraft-data (loaded dynamically at runtime) ----
@@ -526,44 +527,50 @@ export async function mineBlock(
             // Brief pause to let items fall and auto-collect
             await new Promise((r) => setTimeout(r, 300));
 
-            // Walk to nearby dropped items (check near bot AND near block — items
-            // from upper tree blocks fall to ground level, far from block position)
-            const droppedItem = Object.values(bot.entities).find(
-                (e) =>
-                    e.name === 'item' &&
-                    (e.position.distanceTo(block.position) < 3 || e.position.distanceTo(bot.entity.position) < 4),
-            );
-            if (droppedItem) {
-                // Wait for playerCollect or timeout
-                const collectPromise = new Promise<void>((resolve) => {
-                    const onCollect = (collector: { id: number }): void => {
-                        if (collector.id === bot.entity.id) {
-                            bot.removeListener('playerCollect', onCollect);
-                            resolve();
-                        }
-                    };
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    bot.on('playerCollect', onCollect as any);
-                    // Timeout — don't wait forever
-                    setTimeout(() => {
+            // For trees, collect dropped items every 5 logs instead of per-block
+            if (ctx.isTreeBlock && dug % 5 === 0) {
+                await collectItems(bot, null, 10);
+            }
+
+            if (!ctx.isTreeBlock) {
+                // Walk to nearby dropped items for non-tree blocks
+                const droppedItem = Object.values(bot.entities).find(
+                    (e) =>
+                        e.name === 'item' &&
+                        (e.position.distanceTo(block.position) < 3 || e.position.distanceTo(bot.entity.position) < 4),
+                );
+                if (droppedItem) {
+                    // Wait for playerCollect or timeout
+                    const collectPromise = new Promise<void>((resolve) => {
+                        const onCollect = (collector: { id: number }): void => {
+                            if (collector.id === bot.entity.id) {
+                                bot.removeListener('playerCollect', onCollect);
+                                resolve();
+                            }
+                        };
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        bot.removeListener('playerCollect', onCollect as any);
-                        resolve();
-                    }, 2000);
-                });
-                // Walk to the item drop
-                try {
-                    await bot.pathfinder.goto(
-                        new goals.GoalBlock(
-                            Math.floor(droppedItem.position.x),
-                            Math.floor(droppedItem.position.y),
-                            Math.floor(droppedItem.position.z),
-                        ),
-                    );
-                } catch {
-                    // Item may have been auto-collected already
+                        bot.on('playerCollect', onCollect as any);
+                        // Timeout — don't wait forever
+                        setTimeout(() => {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            bot.removeListener('playerCollect', onCollect as any);
+                            resolve();
+                        }, 2000);
+                    });
+                    // Walk to the item drop
+                    try {
+                        await bot.pathfinder.goto(
+                            new goals.GoalBlock(
+                                Math.floor(droppedItem.position.x),
+                                Math.floor(droppedItem.position.y),
+                                Math.floor(droppedItem.position.z),
+                            ),
+                        );
+                    } catch {
+                        // Item may have been auto-collected already
+                    }
+                    await collectPromise;
                 }
-                await collectPromise;
             }
 
             console.log(`[MC Action] Dug ${block.name} (collected ${countInventory() - startCount}/${maxCount})`);
@@ -583,8 +590,14 @@ export async function mineBlock(
         }
     }
 
-    // Wait for straggler items to be auto-collected (still suppressed)
-    await new Promise((r) => setTimeout(r, 2000));
+    // Collect dropped items after mining
+    if (ctx.isTreeBlock && dug > 0 && !signal.aborted) {
+        // Trees: logs pile up at the base — sweep them up in one pass
+        await collectItems(bot, null, 10);
+    } else {
+        // Non-trees: wait briefly for straggler items to auto-collect
+        await new Promise((r) => setTimeout(r, 2000));
+    }
 
     } finally {
         setSuppressPickups(bot, false);

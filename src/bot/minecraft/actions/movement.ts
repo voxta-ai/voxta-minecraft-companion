@@ -172,7 +172,7 @@ export async function goHome(bot: Bot): Promise<string> {
     return `Made it back home safely near my bed`;
 }
 
-export async function collectItems(bot: Bot, itemName?: string | null): Promise<string> {
+export async function collectItems(bot: Bot, itemName?: string | null, range = 32): Promise<string> {
     // When a specific item is requested, try to find it as a dropped entity or placed block
     if (itemName) {
         return collectSpecificItem(bot, itemName);
@@ -180,7 +180,7 @@ export async function collectItems(bot: Bot, itemName?: string | null): Promise<
 
     // No item specified — collect all nearby dropped items (original behavior)
     const items = Object.values(bot.entities).filter(
-        (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < 32,
+        (e) => e.name === 'item' && e.position.distanceTo(bot.entity.position) < range,
     );
 
     if (items.length === 0) return 'Looked around but there are no dropped items nearby';
