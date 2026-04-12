@@ -578,7 +578,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
         const playerList = state.nearbyPlayers
             .map((p) => {
                 const voxtaName = names.resolveToVoxta(p.name);
-                const holding = p.heldItem ? `, holding ${p.heldItem}` : '';
+                const holding = p.heldItem ? `, holding ${p.heldItem}` : ', empty hands';
                 return `${voxtaName} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z}${holding})`;
             })
             .join(', ');

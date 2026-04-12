@@ -262,13 +262,13 @@ describe('buildContextStrings', () => {
             expect(playerLine).toContain('holding Diamond Sword');
         });
 
-        it('omits held item when player holds nothing', () => {
+        it('shows empty hands when player holds nothing', () => {
             const state = createWorldState({
                 nearbyPlayers: [{ name: 'Steve', type: 'player', distance: 3.0, position: { x: 103, y: 64, z: -200 }, heldItem: null }],
             });
             const lines = buildContextStrings(state, names, 'Bot');
             const playerLine = lines.find((l) => l.includes('Nearby players'));
-            expect(playerLine).not.toContain('holding');
+            expect(playerLine).toContain('empty hands');
         });
 
         it('lists nearby mobs', () => {
