@@ -1192,7 +1192,6 @@ export class BotEngine extends EventEmitter {
             getMcBot: () => this.slot(1).mcBot?.bot ?? null,
             getNames: () => this.names,
             getFollowingPlayer: () => this.followingPlayer,
-            getVoxtaUserName: () => this.voxtaUserName,
             // Multi-bot routing
             getCharacterBotMap: () => this.characterBotMap,
             getBotBySlot: (slot) => this.slot(slot).mcBot?.bot ?? null,
