@@ -39,9 +39,36 @@ export function isHostileEntity(e: Entity): boolean {
 }
 
 // ---- Timing constants ----
-const DAMAGE_CONSOLIDATION_MS = 3000; // Accumulate damage hits before sending one note
-const PICKUP_FLUSH_MS = 3000;         // Batch pickup notifications before sending
-const AUTO_EAT_THRESHOLD = 14;        // Eat when food drops below this (20 = full)
+const DAMAGE_CONSOLIDATION_MS = 3000;  // Accumulate damage hits before sending one note
+const PICKUP_FLUSH_MS = 3000;          // Batch pickup notifications before sending
+const AUTO_EAT_THRESHOLD = 14;         // Eat when food drops below this (20 = full)
+const AUTO_EAT_RETRY_DELAY_MS = 2000;  // Retry auto-eat after this delay
+const AUTO_EAT_INITIAL_DELAY_MS = 5000; // Check food on spawn after this delay
+
+// ---- Distance/range constants ----
+const SWING_TRACKING_DIST = 6;         // Arm-swing attribution range (blocks)
+const HOSTILE_MOB_CHECK_DIST = 28;     // Max distance for attacker attribution
+const ATTACKER_Y_RANGE = 16;           // Vertical range for hostile mob search
+const SWING_ATTACKER_WINDOW_MS = 1500; // How long a swing stays valid for attribution
+const PLAYER_PROTECTION_DIST = 16;     // Distance to protect nearby players
+const PLAYER_PROTECTION_COOLDOWN_MS = 15_000;
+const COMPANION_ASSIST_MELEE_RANGE = 4; // Player-to-mob distance for assist detection
+const COMPANION_ASSIST_HIT_WINDOW_MS = 5000;
+const COMPANION_ASSIST_HIT_THRESHOLD = 2; // Hits before joining fight
+const PROXIMITY_SCAN_MELEE_RANGE = 2.5; // Close-range auto-defense trigger
+const PROXIMITY_SCAN_Y_RANGE = 2;
+const PROXIMITY_SCAN_INTERVAL_MS = 1000;
+const AUTO_LOOK_RANGE = 50;            // Look at nearest player within this range
+const AUTO_LOOK_INTERVAL_MS = 1000;
+const PICKUP_CHECK_INTERVAL_MS = 500;
+const ATTACKER_RECENT_WINDOW_MS = 2000; // How recently an attacker must have hit for auto-defense
+const ATTACKER_SOURCE_WINDOW_MS = 5000; // How recently an attacker is valid as damage source
+
+// ---- Inventory constants ----
+const INVENTORY_MAX_SLOTS = 36;        // 9 hotbar + 27 main
+const MC_MAX_HEALTH = 20;
+const OXYGEN_NEAR_DROWNING = 100;      // Oxygen below this = "drowning" damage source
+const EYE_HEIGHT = 1.6;               // Player/bot eye level offset
 
 // ---- MC Event Bridge ----
 
@@ -185,7 +212,7 @@ export class McEventBridge {
             this.deathCause = killer;
             this.lastAttacker = null;
             this.lastKnownAttacker = null;
-            this.lastHealth = 20;
+            this.lastHealth = MC_MAX_HEALTH;
             this.pendingDamage = 0;
             if (this.damageTimer) {
                 clearTimeout(this.damageTimer);
@@ -230,7 +257,7 @@ export class McEventBridge {
     private registerSwingTracking(): void {
         this.on('entitySwingArm', ((entity: Entity) => {
             if (entity.id === this.bot.entity.id) return;
-            if (entity.position.distanceTo(this.bot.entity.position) < 6) {
+            if (entity.position.distanceTo(this.bot.entity.position) < SWING_TRACKING_DIST) {
                 const mcName = entity.username ?? entity.displayName ?? entity.name ?? 'something';
                 this.lastSwingAttacker = this.names.resolveToVoxta(mcName);
                 this.lastSwingTime = Date.now();
@@ -250,7 +277,7 @@ export class McEventBridge {
             for (const e of Object.values(this.bot.entities)) {
                 if (e === this.bot.entity || !isHostileEntity(e)) continue;
                 const d = e.position.distanceTo(this.bot.entity.position);
-                if (d < 28 && Math.abs(e.position.y - this.bot.entity.position.y) < 16 && d < hostileDist) {
+                if (d < HOSTILE_MOB_CHECK_DIST && Math.abs(e.position.y - this.bot.entity.position.y) < ATTACKER_Y_RANGE && d < hostileDist) {
                     // Skip mobs behind solid walls — they aren't the real attacker
                     if (!hasLineOfSight(this.bot, e)) continue;
                     hostileMob = e;
@@ -263,7 +290,7 @@ export class McEventBridge {
                 this.lastAttackerTime = Date.now();
                 this.lastKnownAttacker = this.lastAttacker; // Persist for death handler
                 this.lastSwingAttacker = null; // Clear swing — mob takes priority
-            } else if (this.lastSwingAttacker && Date.now() - this.lastSwingTime < 1500) {
+            } else if (this.lastSwingAttacker && Date.now() - this.lastSwingTime < SWING_ATTACKER_WINDOW_MS) {
                 // Priority 2: Player PvP — only if no hostile mob is nearby
                 // Skip if the swing came from the player we're following — they're
                 // fighting alongside us and their arm swings aren't aimed at us
@@ -301,7 +328,7 @@ export class McEventBridge {
                 let targetName: string | null = null;
                 if (hostileMob) {
                     targetName = hostileMob.name ?? 'unknown';
-                } else if (this.lastAttacker && Date.now() - this.lastAttackerTime < 2000) {
+                } else if (this.lastAttacker && Date.now() - this.lastAttackerTime < ATTACKER_RECENT_WINDOW_MS) {
                     targetName = this.names.resolveToMc(this.lastAttacker);
                 }
                 // Never attack the player we're following
@@ -330,11 +357,11 @@ export class McEventBridge {
 
             // Cooldown — don't spam protection events
             const now = Date.now();
-            if (now - this.lastProtectTime < 15_000) return;
+            if (now - this.lastProtectTime < PLAYER_PROTECTION_COOLDOWN_MS) return;
 
             // Only protect if the bot is within 16 blocks of the player
             const distToPlayer = entity.position.distanceTo(this.bot.entity.position);
-            if (distToPlayer > 16) return;
+            if (distToPlayer > PLAYER_PROTECTION_DIST) return;
 
             // Find the hostile mob near the player that is likely attacking them
             const attacker = Object.values(this.bot.entities).find(
@@ -342,8 +369,8 @@ export class McEventBridge {
                     e !== this.bot.entity &&
                     e.id !== entity.id &&
                     isHostileEntity(e) &&
-                    e.position.distanceTo(entity.position) < 16 &&
-                    Math.abs(e.position.y - entity.position.y) < 16, // High for flying mobs (phantoms)
+                    e.position.distanceTo(entity.position) < PLAYER_PROTECTION_DIST &&
+                    Math.abs(e.position.y - entity.position.y) < ATTACKER_Y_RANGE, // High for flying mobs (phantoms)
             );
             if (!attacker) return;
 
@@ -386,12 +413,12 @@ export class McEventBridge {
 
             // Is the player within melee range of the hurt mob? (4 blocks = sword reach + margin)
             const playerToMob = playerEntity.position.distanceTo(entity.position);
-            if (playerToMob > 4) return;
+            if (playerToMob > COMPANION_ASSIST_MELEE_RANGE) return;
 
             // Track hits per mob entity ID
             const now = Date.now();
             const entry = this.playerAssistHits.get(entity.id);
-            if (entry && now - entry.lastHit < 5000) {
+            if (entry && now - entry.lastHit < COMPANION_ASSIST_HIT_WINDOW_MS) {
                 entry.count++;
                 entry.lastHit = now;
             } else {
@@ -399,7 +426,7 @@ export class McEventBridge {
             }
 
             const current = this.playerAssistHits.get(entity.id);
-            if (!current || current.count < 2) return;
+            if (!current || current.count < COMPANION_ASSIST_HIT_THRESHOLD) return;
 
             // Player hit this mob 2+ times — join the fight!
             this.playerAssistHits.delete(entity.id);
@@ -429,15 +456,15 @@ export class McEventBridge {
                     e !== this.bot.entity &&
                     isHostileEntity(e) &&
                     !NEUTRAL_HOSTILE_MOBS.has(e.name ?? '') &&
-                    e.position.distanceTo(pos) < 2.5 &&
-                    Math.abs(e.position.y - pos.y) < 2,
+                    e.position.distanceTo(pos) < PROXIMITY_SCAN_MELEE_RANGE &&
+                    Math.abs(e.position.y - pos.y) < PROXIMITY_SCAN_Y_RANGE,
             );
             if (!threat) return;
 
             const mobName = threat.name ?? 'unknown';
             console.log(`[Bot] Proximity defense: ${mobName} is right next to us, attacking!`);
             this.startAutoDefense(mobName);
-        }, 1000);
+        }, PROXIMITY_SCAN_INTERVAL_MS);
     }
 
     // ---- Auto-eat when hunger drops ----
@@ -487,7 +514,7 @@ export class McEventBridge {
                     isAutoEating = false;
                     // Still hungry? Eat again after a short delay
                     if (this.bot.food < AUTO_EAT_THRESHOLD) {
-                        setTimeout(() => tryAutoEat(), 2000);
+                        setTimeout(() => tryAutoEat(), AUTO_EAT_RETRY_DELAY_MS);
                     }
                 }
             })();
@@ -497,7 +524,7 @@ export class McEventBridge {
         this.on('health', (() => tryAutoEat()) as (...args: never[]) => void);
 
         // Also check on spawn (health event doesn't fire for initial values)
-        setTimeout(() => tryAutoEat(), 5000);
+        setTimeout(() => tryAutoEat(), AUTO_EAT_INITIAL_DELAY_MS);
     }
 
     // ---- Inventory tracking: pickup batching, tool breaks, inventory full ----
@@ -597,22 +624,21 @@ export class McEventBridge {
                 // ---- Inventory full detection ----
                 // Minecraft inventory has 36 slots (9 hotbar + 27 main)
                 const usedSlots = this.bot.inventory.items().length;
-                const maxSlots = 36;
-                if (usedSlots >= maxSlots && !inventoryFullNotified) {
+                if (usedSlots >= INVENTORY_MAX_SLOTS && !inventoryFullNotified) {
                     inventoryFullNotified = true;
                     this.callbacks.onChat(
                         'note',
                         'Note',
-                        `${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`,
+                        `${botName}'s inventory is full (${usedSlots}/${INVENTORY_MAX_SLOTS} slots). Should drop or store unwanted items.`,
                     );
                     this.callbacks.onNote(
-                        `${botName}'s inventory is full (${usedSlots}/${maxSlots} slots). Should drop or store unwanted items.`,
+                        `${botName}'s inventory is full (${usedSlots}/${INVENTORY_MAX_SLOTS} slots). Should drop or store unwanted items.`,
                     );
-                } else if (usedSlots < maxSlots) {
+                } else if (usedSlots < INVENTORY_MAX_SLOTS) {
                     // Reset so we can notify again the next time it fills up
                     inventoryFullNotified = false;
                 }
-            }, 500);
+            }, PICKUP_CHECK_INTERVAL_MS);
         };
         startPickupCheck();
         this.pickupCheckTimer = pickupCheckTimer;
@@ -688,22 +714,22 @@ export class McEventBridge {
     private getDamageSource(): string {
         // Check environmental causes first — these are unambiguous
         if (this.bot.food === 0) return 'starvation (no food)';
-        if (isInWater(this.bot.entity) && (this.bot.oxygenLevel ?? 20) <= 0) return 'drowning';
-        if (isInWater(this.bot.entity) && (this.bot.oxygenLevel ?? 400) < 100) return 'drowning (underwater)';
+        if (isInWater(this.bot.entity) && (this.bot.oxygenLevel ?? MC_MAX_HEALTH) <= 0) return 'drowning';
+        if (isInWater(this.bot.entity) && (this.bot.oxygenLevel ?? 400) < OXYGEN_NEAR_DROWNING) return 'drowning (underwater)';
         if (isInLava(this.bot.entity)) return 'lava';
         const fireMeta = this.bot.entity as unknown as Record<string, unknown>;
         if (fireMeta['isInFire'] || fireMeta['onFire']) return 'fire';
         if (this.bot.entity.position.y < -60) return 'falling into the void';
 
         // Then check for a recent attacker (mob or player hit)
-        if (this.lastAttacker && Date.now() - this.lastAttackerTime < 5_000) {
+        if (this.lastAttacker && Date.now() - this.lastAttackerTime < ATTACKER_SOURCE_WINDOW_MS) {
             return this.lastAttacker;
         }
 
         if (!this.bot.entity.onGround) return 'fall damage';
         // Check if inside a block (suffocation)
         try {
-            const headBlock = this.bot.blockAt(this.bot.entity.position.offset(0, 1.6, 0));
+            const headBlock = this.bot.blockAt(this.bot.entity.position.offset(0, EYE_HEIGHT, 0));
             if (headBlock && headBlock.name !== 'air' && headBlock.name !== 'cave_air' && headBlock.name !== 'water') {
                 return 'suffocation';
             }
@@ -738,12 +764,12 @@ export class McEventBridge {
                 (e) =>
                     e.type === 'player' &&
                     e !== this.bot.entity &&
-                    e.position.distanceTo(this.bot.entity.position) < 50,
+                    e.position.distanceTo(this.bot.entity.position) < AUTO_LOOK_RANGE,
             );
             if (nearestPlayer) {
-                void this.bot.lookAt(nearestPlayer.position.offset(0, 1.6, 0));
+                void this.bot.lookAt(nearestPlayer.position.offset(0, EYE_HEIGHT, 0));
             }
-        }, 1000);
+        }, AUTO_LOOK_INTERVAL_MS);
     }
 
     /** Remove all event listeners and stop loops. Call on disconnect. */

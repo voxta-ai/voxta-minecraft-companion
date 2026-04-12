@@ -65,6 +65,8 @@ const AUTH_TIMEOUT_MS = 15000;   // Max wait for Voxta authentication
 const AUTH_POLL_MS = 200;        // Polling interval during auth wait
 const SESSION_TIMEOUT_MS = 15000; // Max wait for chat session to start
 const SESSION_POLL_MS = 200;     // Polling interval during session wait
+const LOG_PREVIEW_LENGTH = 80;   // Truncation length for log messages
+const CONTEXT_KEY_BOT1 = 'minecraft-bot1';
 
 type BotEngineEvent =
     | 'status-changed'
@@ -206,10 +208,10 @@ export class BotEngine extends EventEmitter {
     /** Queue a note — sent immediately if AI is idle, queued if AI is speaking */
     private queueNote(text: string): void {
         if (this.isReplying) {
-            console.log(`[Bot >>] note (queued): "${text.substring(0, 80)}"`);
+            console.log(`[Bot >>] note (queued): "${text.substring(0, LOG_PREVIEW_LENGTH)}"`);
             this.pendingNotes.push(text);
         } else {
-            console.log(`[Bot >>] note: "${text.substring(0, 80)}"`);
+            console.log(`[Bot >>] note: "${text.substring(0, LOG_PREVIEW_LENGTH)}"`);
             void this.voxta?.sendNote(text);
         }
     }
@@ -219,7 +221,7 @@ export class BotEngine extends EventEmitter {
         if (!this.voxta || this.pendingNotes.length === 0) return;
         console.log(`[Bot >>] flushing ${this.pendingNotes.length} queued note(s)`);
         for (const note of this.pendingNotes) {
-            console.log(`[Bot >>] note (flushed): "${note.substring(0, 80)}"`);
+            console.log(`[Bot >>] note (flushed): "${note.substring(0, LOG_PREVIEW_LENGTH)}"`);
             void this.voxta.sendNote(note);
         }
         this.pendingNotes = [];
@@ -230,7 +232,7 @@ export class BotEngine extends EventEmitter {
         if (!this.voxta || this.pendingEvents.length === 0) return;
         // Only send the most recent event to avoid spamming multiple replies
         const event = this.pendingEvents[this.pendingEvents.length - 1];
-        console.log(`[Bot >>] event (deferred): "${event.substring(0, 80)}"`);
+        console.log(`[Bot >>] event (deferred): "${event.substring(0, LOG_PREVIEW_LENGTH)}"`);
         void this.voxta.sendEvent(event);
         this.pendingEvents = [];
     }
@@ -266,7 +268,7 @@ export class BotEngine extends EventEmitter {
     private pushActionsToVoxta(): void {
         if (!this.voxta?.sessionId) return;
         void this.voxta.updateContext(
-            'minecraft-bot1',
+            CONTEXT_KEY_BOT1,
             [
                 {
                     text: 'The user is playing Minecraft. You are their AI companion bot inside the game world. You can see the world around you and perform actions.',
@@ -780,7 +782,7 @@ export class BotEngine extends EventEmitter {
             uiConfig.chatId ?? undefined,
             uiConfig.scenarioId ?? undefined,
             {
-                contextKey: 'minecraft-bot1',
+                contextKey: CONTEXT_KEY_BOT1,
                 contexts: initialContextStrings.map((text) => ({ text })),
                 actions: this.getEnabledActions(),
             },
@@ -1191,7 +1193,7 @@ export class BotEngine extends EventEmitter {
                 if (this.isReplying) {
                     this.pendingEvents.push(text);
                 } else {
-                    console.log(`[Bot >>] event (immediate, reply done): "${text.substring(0, 80)}"`);
+                    console.log(`[Bot >>] event (immediate, reply done): "${text.substring(0, LOG_PREVIEW_LENGTH)}"`);
                     void this.voxta?.sendEvent(text);
                 }
             },

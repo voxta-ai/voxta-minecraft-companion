@@ -6,6 +6,32 @@ import { getCurrentActivity, getBotMode, getHomePosition } from './actions/actio
 import { getVehicle, isInWater, isInLava } from './mineflayer-types';
 import { isPositionFinite, normalizeEffects } from './utils';
 
+// ---- Perception constants ----
+const MOB_DETECTION_Y_MIN = -2;       // Below bot for mob scanning
+const MOB_DETECTION_Y_MAX = 10;       // Above bot — flying mobs (phantoms)
+const DEFAULT_BIOME_TEMP = 0.5;       // Temperate fallback
+const NOTABLE_BLOCKS_RADIUS = 8;      // Scan radius for utility blocks
+const NOTABLE_BLOCKS_Y_MIN = -2;
+const NOTABLE_BLOCKS_Y_MAX = 3;
+const ORE_SCAN_RADIUS = 16;           // Wider radius for resource awareness
+const ORE_SCAN_Y_MIN = -3;
+const ORE_SCAN_Y_MAX = 3;
+const ROOF_CHECK_MAX_Y = 6;           // How high to look for a roof above bot
+const CAVE_BLOCK_RATIO_THRESHOLD = 0.6; // Fraction of natural stone to count as cave
+const SNOW_TEMP_THRESHOLD = 0.15;     // Below this biome temp → "Snowing" instead of "Raining"
+const EYE_HEIGHT_RATIO = 0.85;        // Bot eye position as fraction of entity height
+const ENTITY_CENTER_RATIO = 0.5;      // Target center for LOS checks
+const MIN_LOS_DISTANCE = 1;           // Below this, LOS is always true
+const LOS_STEP_SIZE = 0.5;            // Ray-cast increment in blocks
+const MC_MAX_HEALTH = 20;             // Minecraft max health/food
+const MOVEMENT_SPRINT_THRESHOLD = 0.15;
+const MOVEMENT_WALK_THRESHOLD = 0.05;
+const FALL_VELOCITY_THRESHOLD = -0.1;
+const JUMP_VELOCITY_THRESHOLD = 0.1;
+const NEARBY_MOBS_DISPLAY_LIMIT = 10;
+const TICKS_PER_MC_HOUR = 1000;       // Each 1000 ticks = 1 in-game hour
+const MC_TIME_OFFSET_MINUTES = 360;   // tick 0 = 6:00 AM = 360 minutes
+
 export interface WorldState {
     position: { x: number; y: number; z: number } | null;
     health: number;
@@ -84,7 +110,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
             if (eName === 'item' || eName === 'unknown') continue;
             // Asymmetric Y: 10 above (flying mobs) but only 2 below (avoid sensing underground caves)
             const yDiff = entity.position.y - pos.y;
-            if (yDiff >= -2 && yDiff <= 10) {
+            if (yDiff >= MOB_DETECTION_Y_MIN && yDiff <= MOB_DETECTION_Y_MAX) {
                 nearbyMobs.push(entry);
             }
         }
@@ -103,12 +129,12 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     // Biome — prismarine-biome often returns an empty name, so fall back to ID lookup
     let biome = 'unknown';
-    let biomeTemperature = 0.5; // default to temperate
+    let biomeTemperature = DEFAULT_BIOME_TEMP; // default to temperate
     try {
         const block = bot.blockAt(pos);
         if (block?.biome) {
             const b = block.biome as { id?: number; displayName?: string; name?: string; temperature?: number };
-            biomeTemperature = b.temperature ?? 0.5;
+            biomeTemperature = b.temperature ?? DEFAULT_BIOME_TEMP;
             let raw = b.displayName || b.name || '';
             // If the name is empty, but we have an ID, look it up via minecraft-data
             if (!raw && b.id != null) {
@@ -193,7 +219,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     let hasRoof = false;
     try {
-        for (let dy = 1; dy <= 6; dy++) {
+        for (let dy = 1; dy <= ROOF_CHECK_MAX_Y; dy++) {
             const above = bot.blockAt(pos.offset(0, dy, 0));
             if (above && above.name !== 'air' && above.name !== 'cave_air') {
                 hasRoof = true;
@@ -219,10 +245,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     let caveBlockCount = 0;
     let solidWallCount = 0;
     try {
-        const searchRadius = 8;
-        for (let dx = -searchRadius; dx <= searchRadius; dx++) {
-            for (let dy = -2; dy <= 3; dy++) {
-                for (let dz = -searchRadius; dz <= searchRadius; dz++) {
+        for (let dx = -NOTABLE_BLOCKS_RADIUS; dx <= NOTABLE_BLOCKS_RADIUS; dx++) {
+            for (let dy = NOTABLE_BLOCKS_Y_MIN; dy <= NOTABLE_BLOCKS_Y_MAX; dy++) {
+                for (let dz = -NOTABLE_BLOCKS_RADIUS; dz <= NOTABLE_BLOCKS_RADIUS; dz++) {
                     const block = bot.blockAt(pos.offset(dx, dy, dz));
                     if (!block) continue;
 
@@ -248,10 +273,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     // Scan for ore blocks at a wider radius — ores on surfaces are resource opportunities
     const oreCounts = new Map<string, number>();
     try {
-        const oreRadius = 16;
-        for (let dx = -oreRadius; dx <= oreRadius; dx++) {
-            for (let dy = -3; dy <= 3; dy++) {
-                for (let dz = -oreRadius; dz <= oreRadius; dz++) {
+        for (let dx = -ORE_SCAN_RADIUS; dx <= ORE_SCAN_RADIUS; dx++) {
+            for (let dy = ORE_SCAN_Y_MIN; dy <= ORE_SCAN_Y_MAX; dy++) {
+                for (let dz = -ORE_SCAN_RADIUS; dz <= ORE_SCAN_RADIUS; dz++) {
                     const block = bot.blockAt(pos.offset(dx, dy, dz));
                     if (!block) continue;
                     const oreLabel = ORE_BLOCKS[block.name];
@@ -277,7 +301,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     // Determine if we're in a cave: roof is present AND most surrounding solid
     // blocks are natural stone/deepslate rather than player-placed materials
-    const isCave = hasRoof && solidWallCount > 0 && (caveBlockCount / solidWallCount) > 0.6;
+    const isCave = hasRoof && solidWallCount > 0 && (caveBlockCount / solidWallCount) > CAVE_BLOCK_RATIO_THRESHOLD;
 
     let shelter = 'outdoors';
     if (hasRoof && isCave && shelterBlockLabels.length > 0) {
@@ -306,16 +330,16 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         movement = 'in lava';
     } else if (isInWater(bot.entity)) {
         movement = 'swimming';
-    } else if (!bot.entity.onGround && bot.entity.velocity.y < -0.1) {
+    } else if (!bot.entity.onGround && bot.entity.velocity.y < FALL_VELOCITY_THRESHOLD) {
         movement = 'falling';
-    } else if (!bot.entity.onGround && bot.entity.velocity.y > 0.1) {
+    } else if (!bot.entity.onGround && bot.entity.velocity.y > JUMP_VELOCITY_THRESHOLD) {
         movement = 'jumping';
     } else {
         const vel = bot.entity.velocity;
         const speed = Math.sqrt(vel.x * vel.x + vel.z * vel.z);
-        if (speed > 0.15) {
+        if (speed > MOVEMENT_SPRINT_THRESHOLD) {
             movement = 'sprinting';
-        } else if (speed > 0.05) {
+        } else if (speed > MOVEMENT_WALK_THRESHOLD) {
             movement = 'walking';
         }
     }
@@ -353,7 +377,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         botMode: getBotMode(bot),
         homePosition: getHomePosition(bot),
         movement,
-        oxygenLevel: bot.oxygenLevel ?? 20,
+        oxygenLevel: bot.oxygenLevel ?? MC_MAX_HEALTH,
         isSleeping: bot.isSleeping,
         activeEffects: readActiveEffects(bot),
         riding,
@@ -404,8 +428,8 @@ function toRoman(n: number): string {
 /** Convert Minecraft ticks (0-24000) to human-readable time like "7:30 AM" */
 function ticksToTime(ticks: number): string {
     // MC tick 0 = 6:00 AM, tick 6000 = noon, tick 12000 = 6:00 PM, tick 18000 = midnight
-    const mcMinutes = (ticks / 1000) * 60; // each 1000 ticks = 1 hour
-    const totalMinutes = Math.floor(mcMinutes) + 360; // offset: tick 0 = 6:00 AM (360 min)
+    const mcMinutes = (ticks / TICKS_PER_MC_HOUR) * 60;
+    const totalMinutes = Math.floor(mcMinutes) + MC_TIME_OFFSET_MINUTES;
     const hours24 = Math.floor(totalMinutes / 60) % 24;
     const minutes = totalMinutes % 60;
     const period = hours24 >= 12 ? 'PM' : 'AM';
@@ -427,9 +451,9 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     );
 
     lines.push(
-        `${who}'s Health: ${state.health}/20 | ${who}'s Food: ${state.food}/20 | ` +
+        `${who}'s Health: ${state.health}/${MC_MAX_HEALTH} | ${who}'s Food: ${state.food}/${MC_MAX_HEALTH} | ` +
             `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${timeStr}) | ` +
-            `Weather: ${state.isRaining ? (state.biomeTemperature < 0.15 ? 'Snowing' : 'Raining') : 'Clear'} | ` +
+            `Weather: ${state.isRaining ? (state.biomeTemperature < SNOW_TEMP_THRESHOLD ? 'Snowing' : 'Raining') : 'Clear'} | ` +
             `Location: ${state.shelter}`,
     );
 
@@ -499,10 +523,10 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     }
 
     if (state.health <= 4) {
-        warnings.push(`CRITICAL: Very low health (${state.health}/20)! In danger of dying.`);
+        warnings.push(`CRITICAL: Very low health (${state.health}/${MC_MAX_HEALTH})! In danger of dying.`);
     } else if (state.health <= 10) {
-        warnings.push(`WARNING: Low health (${state.health}/20). Eating food helps regenerate health.`);
-    } else if (state.health < 20 && state.food >= 18) {
+        warnings.push(`WARNING: Low health (${state.health}/${MC_MAX_HEALTH}). Eating food helps regenerate health.`);
+    } else if (state.health < MC_MAX_HEALTH && state.food >= 18) {
         warnings.push('Health regenerating from food.');
     }
 
@@ -537,7 +561,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
 
     if (state.nearbyMobs.length > 0) {
         const mobList = state.nearbyMobs
-            .slice(0, 10)
+            .slice(0, NEARBY_MOBS_DISPLAY_LIMIT)
             .map((m) => `${m.name} (${m.distance}m)`)
             .join(', ');
         lines.push(`Nearby mobs: ${mobList}`);
@@ -565,15 +589,15 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
  * Returns false if a solid wall is in the way.
  */
 export function hasLineOfSight(bot: Bot, target: Entity): boolean {
-    const eyePos = bot.entity.position.offset(0, bot.entity.height * 0.85, 0);
-    const targetPos = target.position.offset(0, (target.height ?? 1) * 0.5, 0);
+    const eyePos = bot.entity.position.offset(0, bot.entity.height * EYE_HEIGHT_RATIO, 0);
+    const targetPos = target.position.offset(0, (target.height ?? 1) * ENTITY_CENTER_RATIO, 0);
     const dx = targetPos.x - eyePos.x;
     const dy = targetPos.y - eyePos.y;
     const dz = targetPos.z - eyePos.z;
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-    if (dist < 1) return true; // Too close to have a wall between
+    if (dist < MIN_LOS_DISTANCE) return true; // Too close to have a wall between
 
-    const steps = Math.ceil(dist / 0.5);
+    const steps = Math.ceil(dist / LOS_STEP_SIZE);
     const sx = dx / steps;
     const sy = dy / steps;
     const sz = dz / steps;
