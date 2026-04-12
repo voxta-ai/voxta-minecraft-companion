@@ -1,6 +1,7 @@
 import type { Bot } from 'mineflayer';
 import { COOKABLE_ITEMS, FUEL_ITEMS } from '../game-data';
 import { findAndReachBlock } from './action-helpers.js';
+import { getErrorMessage } from '../utils';
 
 export async function cookFood(bot: Bot, itemName: string | undefined): Promise<string> {
     const items = bot.inventory.items();
@@ -87,7 +88,7 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
         if (totalTaken === 0) return `Put ${cookCount} ${rawItem.name.replace(/_/g, ' ')} in the furnace but it is still cooking`;
         return `Cooked up ${totalTaken} ${cookedName.replace(/_/g, ' ')}`;
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to cook: ${message}`;
     }
 }

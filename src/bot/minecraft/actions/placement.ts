@@ -2,6 +2,7 @@ import type { Bot } from 'mineflayer';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import { setSuppressPickups } from './action-state.js';
+import { getErrorMessage } from '../utils';
 
 /**
  * Place a block from inventory onto the ground.
@@ -76,9 +77,8 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
             setTimeout(() => setSuppressPickups(bot, false), 200);
             return `Placed down ${displayName}`;
         } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = getErrorMessage(err);
             console.log(`[MC Action] placeBlock: failed ${label}: ${msg}`);
-            continue; // Try next position
         }
     }
 

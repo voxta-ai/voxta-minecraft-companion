@@ -1,5 +1,6 @@
 import type { Bot } from 'mineflayer';
 import { getActionAbort, getOnFishCaught } from './action-state.js';
+import { getErrorMessage } from '../utils';
 
 export async function fishAction(bot: Bot, countStr: string | undefined): Promise<string> {
     // Find and equip a fishing rod
@@ -121,7 +122,7 @@ export async function fishAction(bot: Bot, countStr: string | undefined): Promis
             catchResult = 'caught';
         } catch (err) {
             const elapsed = ((Date.now() - castTime) / 1000).toFixed(1);
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = getErrorMessage(err);
             console.log(`[Fish] bot.fish() failed after ${elapsed}s — ${msg}`);
             if (msg === 'aborted' || signal.aborted) {
                 catchResult = 'aborted';

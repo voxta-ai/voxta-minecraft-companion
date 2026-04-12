@@ -2,6 +2,7 @@ import type { Bot } from 'mineflayer';
 import { BED_BLOCKS } from '../game-data';
 import { findAndReachBlock } from './action-helpers.js';
 import { saveHome } from './action-state.js';
+import { getErrorMessage } from '../utils';
 
 function findAndReachBed(bot: Bot) {
     return findAndReachBlock(
@@ -23,7 +24,7 @@ export async function sleepInBed(bot: Bot): Promise<string> {
         saveHome(bot, bedBlock);
         return 'Climbed into bed and fell asleep (home set here)';
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
 
         // Can't sleep but can still set spawn point by tapping the bed
         if (message.includes('not night') || message.includes('occupied') || message.includes('monsters')) {
@@ -53,7 +54,7 @@ export async function setHomeBed(bot: Bot): Promise<string> {
         saveHome(bot, bedBlock);
         return 'Remembered this bed as home';
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to set home: ${message}`;
     }
 }

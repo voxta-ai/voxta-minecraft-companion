@@ -1,5 +1,6 @@
 import type { Bot } from 'mineflayer';
 import { findAndReachBlock } from './action-helpers.js';
+import { getErrorMessage } from '../utils';
 
 /** Find a nearby chest/barrel and walk to it. Returns the block or an error message. */
 function findAndReachChest(bot: Bot) {
@@ -50,7 +51,7 @@ export async function storeItem(bot: Bot, itemName: string | undefined, countStr
             return `Put ${count} ${item.name.replace(/_/g, ' ')} into the chest`;
         }
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to store items: ${message}`;
     }
 }
@@ -78,7 +79,7 @@ export async function takeItem(bot: Bot, itemName: string | undefined, countStr:
         container.close();
         return `Took ${count} ${item.name.replace(/_/g, ' ')} from the chest`;
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to take items: ${message}`;
     }
 }
@@ -157,7 +158,7 @@ async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: st
             if (parts.length === 0) return `Opened the ${block.name.replace(/_/g, ' ')} — it is empty`;
             return `Opened the ${block.name.replace(/_/g, ' ')} and found: ${parts.join(', ')}`;
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = getErrorMessage(err);
             return `Failed to inspect ${label}: ${message}`;
         }
     }
@@ -171,7 +172,7 @@ async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: st
         const list = items.map((i) => `${i.count}x ${(i.displayName ?? i.name).replace(/_/g, ' ')}`).join(', ');
         return `Opened a ${label} and found: ${list}`;
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to inspect ${label}: ${message}`;
     }
 }

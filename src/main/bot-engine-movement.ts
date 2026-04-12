@@ -1,6 +1,7 @@
 import type { Bot as MineflayerBot } from 'mineflayer';
 import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../bot/name-registry';
+import { isPositionFinite } from '../bot/minecraft/utils';
 import {
     isAutoDefending,
     isActionBusy,
@@ -199,7 +200,7 @@ export function createModeScanLoop(
         if (bot.health > 0 && bot.health <= LOW_HEALTH_THRESHOLD) return;
 
         const pos = bot.entity.position;
-        if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
+        if (!isPositionFinite(pos)) return;
 
         const followingPlayer = callbacks.getFollowingPlayer();
         const player = followingPlayer
@@ -503,7 +504,7 @@ export function createFollowWatchdog(
         }
 
         const pos = bot.entity.position;
-        if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) return;
+        if (!isPositionFinite(pos)) return;
 
         const player = findPlayerEntity(bot, followingPlayer, callbacks.getNames());
         if (!player) return;

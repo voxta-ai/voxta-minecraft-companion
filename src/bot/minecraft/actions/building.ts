@@ -8,6 +8,7 @@ import { getBlueprint, getAvailableBlueprints, WALL_MATERIALS, ROOF_MATERIALS } 
 import type { Blueprint, BlockRole } from '../blueprints/index.js';
 import { getActionAbort, setSuppressPickups } from './action-state.js';
 import type { NameRegistry } from '../../name-registry.js';
+import { getErrorMessage } from '../utils';
 
 // Delay between block placements to avoid server rate limiting
 const PLACE_DELAY_MS = 200;
@@ -434,7 +435,7 @@ async function executeBuild(
             try {
                 await bot.pathfinder.goto(new goals.GoalNear(wx, wy, wz, 3));
             } catch (err) {
-                console.log(`[MC Build] Can't reach (${wx}, ${wy}, ${wz}): ${err instanceof Error ? err.message : String(err)}`);
+                console.log(`[MC Build] Can't reach (${wx}, ${wy}, ${wz}): ${getErrorMessage(err)}`);
                 skipped++;
                 continue;
             }
@@ -490,7 +491,7 @@ async function executeBuild(
             }
         } catch (err) {
             bot.setControlState('sneak', false);
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = getErrorMessage(err);
             console.log(`[MC Build] placeBlock failed at (${wx}, ${wy}, ${wz}): ${msg}`);
 
             // Retry once

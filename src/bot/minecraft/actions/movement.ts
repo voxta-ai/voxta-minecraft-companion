@@ -3,6 +3,7 @@ import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity } from './action-helpers.js';
+import { isPositionFinite, getErrorMessage } from '../utils';
 import { getActionAbort, getHomePosition, clearHome } from './action-state.js';
 import {
     getVehicle, setVehicle, getClient, getFollowDistance,
@@ -17,7 +18,7 @@ export async function followPlayer(bot: Bot, playerName: string | undefined, nam
 
     // Guard: bot position can be NaN after combat/respawn
     const pos = bot.entity.position;
-    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) {
+    if (!isPositionFinite(pos)) {
         return 'Cannot follow right now — position not available, try again in a moment';
     }
 
@@ -88,7 +89,7 @@ export function resumeFollowPlayer(bot: Bot, playerName: string, names: NameRegi
     // compute a path from NaN coordinates. Schedule a retry instead.
     // The NaN recovery in bot.ts will fix the position on the next physics tick.
     const pos = bot.entity.position;
-    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.z)) {
+    if (!isPositionFinite(pos)) {
         if (retryCount >= 5) {
             console.log(`[MC Action] Bot position still NaN after ${retryCount} retries, giving up`);
             return 'Cannot resume following — position unavailable';
@@ -391,7 +392,7 @@ export async function mountEntity(bot: Bot, entityName: string | undefined): Pro
         }
         return `Tried to mount the ${displayName} but it didn't work — it may not be tamed or saddled`;
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to mount ${displayName}: ${message}`;
     }
 }

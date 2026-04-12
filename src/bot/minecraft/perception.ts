@@ -4,9 +4,10 @@ import type { NameRegistry } from '../name-registry';
 import { BED_BLOCKS } from './game-data';
 import { getCurrentActivity, getBotMode, getHomePosition } from './actions/action-state.js';
 import { getVehicle, isInWater, isInLava } from './mineflayer-types';
+import { isPositionFinite, normalizeEffects } from './utils';
 
 export interface WorldState {
-    position: { x: number; y: number; z: number };
+    position: { x: number; y: number; z: number } | null;
     health: number;
     food: number;
     experience: { level: number; points: number };
@@ -46,7 +47,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     // Guard: bot position can go NaN after combat/respawn — skip entity
     // scanning entirely so NaN doesn't propagate to distances and context.
-    const positionValid = Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z);
+    const positionValid = isPositionFinite(pos);
 
     // Nearby entities
     const nearbyPlayers: NearbyEntity[] = [];
@@ -320,11 +321,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     }
 
     return {
-        position: {
-            x: positionValid ? Math.round(pos.x) : 0,
-            y: positionValid ? Math.round(pos.y) : 0,
-            z: positionValid ? Math.round(pos.z) : 0,
-        },
+        position: positionValid
+            ? { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) }
+            : null,
         health: Math.round(bot.health * 10) / 10,
         food: bot.food,
         experience: {
@@ -378,10 +377,7 @@ const EFFECT_NAMES: Record<number, string> = {
 /** Read active potion/status effects from the bot entity */
 function readActiveEffects(bot: Bot): string[] {
     const raw = bot.entity.effects;
-    if (!raw) return [];
-
-    // effects may be an array or an object keyed by effect ID
-    const effects: Array<{ id: number; amplifier: number; duration: number }> = Array.isArray(raw) ? raw : Object.values(raw);
+    const effects = normalizeEffects(raw) as Array<{ id: number; amplifier: number; duration: number }>;
     if (effects.length === 0) return [];
 
     return effects.map((e) => {
@@ -422,8 +418,11 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     const who = characterName ?? 'Bot';
     const timeStr = ticksToTime(state.timeOfDay);
 
+    const posStr = state.position
+        ? `${state.position.x}, ${state.position.y}, ${state.position.z}`
+        : 'unknown';
     lines.push(
-        `${who}'s position: ${state.position.x}, ${state.position.y}, ${state.position.z} | ` +
+        `${who}'s position: ${posStr} | ` +
             `Game Mode: ${state.gameMode} | Biome: ${state.biome} | Dimension: ${state.dimension}`,
     );
 
@@ -454,7 +453,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
 
     // Home status
     const home = state.homePosition;
-    if (home) {
+    if (home && state.position) {
         const dx = state.position.x - home.x;
         const dz = state.position.z - home.z;
         const homeDist = Math.round(Math.sqrt(dx * dx + dz * dz));
