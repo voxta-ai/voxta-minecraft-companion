@@ -1204,6 +1204,7 @@ export class BotEngine extends EventEmitter {
                 this.slot(1).assistantName = name;
                 this.updateStatus({ assistantName: name });
             },
+            getVoxtaUserName: () => this.voxtaUserName,
             setVoxtaUserName: (name) => {
                 this.voxtaUserName = name;
             },
