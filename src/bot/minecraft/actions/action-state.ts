@@ -13,6 +13,7 @@ interface BotStateData {
     currentActivity: string | null;
     currentCombatTarget: string | null;
     autoDefending: boolean;
+    autoEating: boolean;
     botMode: BotMode;
     guardCenter: { x: number; y: number; z: number } | null;
     onFishCaught: ((itemName: string, count: number) => void) | null;
@@ -32,6 +33,7 @@ function getBotState(bot: Bot): BotStateData {
             currentActivity: null,
             currentCombatTarget: null,
             autoDefending: false,
+            autoEating: false,
             botMode: 'passive',
             guardCenter: null,
             onFishCaught: null,
@@ -95,6 +97,15 @@ export function isAutoDefending(bot: Bot): boolean {
 }
 export function setAutoDefending(bot: Bot, value: boolean): void {
     getBotState(bot).autoDefending = value;
+}
+
+// Auto-eating flag — when true, the auto-eat system is consuming food.
+// AI-generated mc_eat actions should be skipped to avoid consume() race.
+export function isAutoEating(bot: Bot): boolean {
+    return getBotState(bot).autoEating;
+}
+export function setAutoEating(bot: Bot, value: boolean): void {
+    getBotState(bot).autoEating = value;
 }
 
 // ---- Behavior mode ----

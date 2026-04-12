@@ -56,6 +56,13 @@ export interface ActionInvocationArgument {
     value: string;
 }
 
+export interface GenerateConstraintRequest {
+    maxNewTokens?: number;
+    maxSentences?: number;
+    allowMultipleLines?: boolean;
+    includeChatHistory?: boolean;
+}
+
 // ---- Client → Server messages ----
 
 export interface ClientAuthenticateMessage {
@@ -114,6 +121,7 @@ export interface ClientSendMessage {
     doReply?: boolean;
     doUserActionInference?: boolean;
     doCharacterActionInference?: boolean;
+    generateConstraintRequest?: GenerateConstraintRequest;
 }
 
 export interface ClientUpdateContextMessage {

@@ -156,6 +156,10 @@ export class ServerManager extends EventEmitter {
         // Write eula.txt every time to ensure it's accepted
         await fs.writeFile(path.join(this.serverDir, 'eula.txt'), 'eula=true\n');
 
+        // Kill orphaned Java processes from a previous crash, then remove stale lock files
+        await this.killOrphanedJava();
+        await this.cleanStaleLocks();
+
         // Ensure voice bridge plugin is up to date
         await this.installVoiceBridge();
 
@@ -218,7 +222,14 @@ export class ServerManager extends EventEmitter {
     }
 
     stop(): void {
-        if (!this.childProcess || this.state === 'stopping' || this.state === 'idle') return;
+        if (this.state === 'stopping' || this.state === 'idle') return;
+
+        // If the process already exited (crash/error), just reset state
+        if (!this.childProcess) {
+            this.setState('idle');
+            this.error = undefined;
+            return;
+        }
 
         this.setState('stopping');
         this.emitConsoleLine('Sending stop command...', 'info');
@@ -381,6 +392,67 @@ export class ServerManager extends EventEmitter {
             });
         } else {
             this.childProcess.kill('SIGKILL');
+        }
+    }
+
+    /** Kill orphaned Java processes left by a previous server crash (Windows only) */
+    private async killOrphanedJava(): Promise<void> {
+        if (process.platform !== 'win32') return;
+
+        return new Promise<void>((resolve) => {
+            // Find java.exe processes whose command line references our paper.jar
+            exec(
+                'wmic process where "name=\'java.exe\' and CommandLine like \'%paper.jar%\'" get ProcessId /FORMAT:LIST',
+                (err, stdout) => {
+                    if (err || !stdout.trim()) {
+                        resolve();
+                        return;
+                    }
+                    const pids = [...stdout.matchAll(/ProcessId=(\d+)/g)].map((m) => m[1]);
+                    if (pids.length === 0) {
+                        resolve();
+                        return;
+                    }
+                    console.log(`[Server] Killing ${pids.length} orphaned Java process(es): ${pids.join(', ')}`);
+                    this.emitConsoleLine(`Killing ${pids.length} orphaned Java process(es) from previous crash`, 'warn');
+                    let remaining = pids.length;
+                    for (const pid of pids) {
+                        exec(`taskkill /F /T /PID ${pid}`, () => {
+                            if (--remaining === 0) {
+                                // Brief delay for the OS to release file handles
+                                setTimeout(resolve, 1000);
+                            }
+                        });
+                    }
+                },
+            );
+        });
+    }
+
+    /** Remove stale session.lock files from world directories left by crashed server processes */
+    private async cleanStaleLocks(): Promise<void> {
+        try {
+            const entries = await fs.readdir(this.serverDir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (!entry.isDirectory()) continue;
+                const lockFile = path.join(this.serverDir, entry.name, 'session.lock');
+                try {
+                    await fs.access(lockFile);
+                    // Lock file exists — try to delete it
+                    try {
+                        await fs.unlink(lockFile);
+                        console.log(`[Server] Removed stale lock: ${entry.name}/session.lock`);
+                    } catch (unlinkErr) {
+                        const msg = unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr);
+                        console.warn(`[Server] Could not remove lock ${entry.name}/session.lock: ${msg}`);
+                        this.emitConsoleLine(`Warning: could not remove ${entry.name}/session.lock — a Java process may still be running`, 'warn');
+                    }
+                } catch {
+                    // Lock file doesn't exist — nothing to clean
+                }
+            }
+        } catch {
+            // Server dir doesn't exist or can't be read — ignore
         }
     }
 

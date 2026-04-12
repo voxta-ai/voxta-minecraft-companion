@@ -4,7 +4,7 @@ import type { NameRegistry } from '../name-registry';
 import type { McSettings } from '../../shared/ipc-types';
 import type { ChatMessage } from '../../shared/ipc-types';
 import { isActionBusy, getCurrentActivity } from './actions';
-import { isPickupSuppressed, setAutoDefending, isAutoDefending, getBotMode, getCurrentCombatTarget } from './actions/action-state.js';
+import { isPickupSuppressed, setAutoDefending, isAutoDefending, isAutoEating, setAutoEating, getBotMode, getCurrentCombatTarget } from './actions/action-state.js';
 import { hasLineOfSight } from './perception';
 import { FOOD_ITEMS, NEUTRAL_HOSTILE_MOBS, LOW_HEALTH_THRESHOLD } from './game-data';
 import { getEntityKind, isInWater, isInLava } from './mineflayer-types';
@@ -470,10 +470,8 @@ export class McEventBridge {
     // ---- Auto-eat when hunger drops ----
 
     private registerAutoEat(): void {
-        let isAutoEating = false;
-
         const tryAutoEat = (): void => {
-            if (isAutoEating) return;
+            if (isAutoEating(this.bot)) return;
             if (this.bot.food >= AUTO_EAT_THRESHOLD) return;
 
             // Find the best food in inventory
@@ -484,7 +482,7 @@ export class McEventBridge {
             const foodItem = foodItems[0];
             if (!foodItem) return; // no food available
 
-            isAutoEating = true;
+            setAutoEating(this.bot, true);
             const prevHeldItem = this.bot.heldItem;
 
             console.log(`[MC] Auto-eating ${foodItem.displayName ?? foodItem.name} (hunger: ${this.bot.food}/20)`);
@@ -511,7 +509,7 @@ export class McEventBridge {
                 } catch (err) {
                     console.warn(`[MC] Auto-eat failed:`, err);
                 } finally {
-                    isAutoEating = false;
+                    setAutoEating(this.bot, false);
                     // Still hungry? Eat again after a short delay
                     if (this.bot.food < AUTO_EAT_THRESHOLD) {
                         setTimeout(() => tryAutoEat(), AUTO_EAT_RETRY_DELAY_MS);

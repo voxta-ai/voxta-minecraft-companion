@@ -232,6 +232,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
         category: 'survival',
         isQuick: false,
         isPhysical: true,
+        isSilentResult: true,
     },
     {
         name: 'mc_none',

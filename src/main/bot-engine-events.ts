@@ -34,6 +34,9 @@ export interface EventBridgeCallbacks {
 
 // ---- Extracted callback handlers ----
 
+/** Short reply constraints for urgent combat reactions */
+const URGENT_CONSTRAINTS = { maxNewTokens: 30, maxSentences: 1 };
+
 /** Handle urgent events: interrupt current speech, then send immediately */
 function handleUrgentEvent(
     text: string,
@@ -49,7 +52,7 @@ function handleUrgentEvent(
     callbacks.setIsReplying(false);
     callbacks.setCurrentReply('');
     console.log(`[${label} >>] event (urgent): "${text.substring(0, LOG_PREVIEW_LENGTH)}"`);
-    void callbacks.getVoxta()?.sendEvent(text);
+    void callbacks.getVoxta()?.sendEvent(text, true, URGENT_CONSTRAINTS);
 }
 
 /** Handle player chat from MC: interrupt if speaking, then forward to Voxta */
@@ -104,10 +107,14 @@ async function handleAutoDefense(
         const isNoise = result.startsWith('Already fighting')
             || result.startsWith('Stopped fighting')
             || result.startsWith('Died while fighting');
+        // When aggro/hunt/guard mode is active, those systems report kills via
+        // their own batched handleCombatResult — skip here to avoid duplicates
+        const mode = getBotMode(botInstance);
+        const modeHandlesReporting = mode !== 'passive';
         if (!result) {
             callbacks.addChat('note', 'Note', 'Creeper exploded nearby');
             callbacks.queueNote('Creeper exploded nearby');
-        } else if (!isNoise) {
+        } else if (!isNoise && !modeHandlesReporting) {
             callbacks.addChat('note', 'Note', `${botName}: ${result}`);
             callbacks.queueNote(`${botName}: ${result}`);
         }
