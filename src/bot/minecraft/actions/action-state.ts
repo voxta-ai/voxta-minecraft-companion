@@ -14,6 +14,7 @@ interface BotStateData {
     currentCombatTarget: string | null;
     autoDefending: boolean;
     autoEating: boolean;
+    autoTorching: boolean;
     botMode: BotMode;
     guardCenter: { x: number; y: number; z: number } | null;
     onFishCaught: ((itemName: string, count: number) => void) | null;
@@ -34,6 +35,7 @@ function getBotState(bot: Bot): BotStateData {
             currentCombatTarget: null,
             autoDefending: false,
             autoEating: false,
+            autoTorching: false,
             botMode: 'passive',
             guardCenter: null,
             onFishCaught: null,
@@ -106,6 +108,14 @@ export function isAutoEating(bot: Bot): boolean {
 }
 export function setAutoEating(bot: Bot, value: boolean): void {
     getBotState(bot).autoEating = value;
+}
+
+// Auto-torching flag — when true, the bot is crafting/equipping torches for nighttime.
+export function isAutoTorching(bot: Bot): boolean {
+    return getBotState(bot).autoTorching;
+}
+export function setAutoTorching(bot: Bot, value: boolean): void {
+    getBotState(bot).autoTorching = value;
 }
 
 // ---- Behavior mode ----

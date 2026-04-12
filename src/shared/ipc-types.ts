@@ -99,6 +99,7 @@ export interface McSettings {
     enableBotChatEcho: boolean;
     enableAutoLook: boolean;
     enableAutoDefense: boolean;
+    enableAutoTorch: boolean;
     visionMode: VisionMode;
     actionInferenceTiming: ActionInferenceTiming;
 
@@ -134,6 +135,7 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableBotChatEcho: true,
     enableAutoLook: true,
     enableAutoDefense: true,
+    enableAutoTorch: true,
     visionMode: 'off',
     actionInferenceTiming: 'afterChar',
 
