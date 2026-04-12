@@ -4,6 +4,7 @@ import type { NameRegistry } from '../name-registry';
 import { BED_BLOCKS } from './game-data';
 import { getCurrentActivity, getBotMode, getHomePosition } from './actions/action-state.js';
 import { getVehicle, isInWater, isInLava } from './mineflayer-types';
+import { isPositionFinite, normalizeEffects } from './utils';
 
 export interface WorldState {
     position: { x: number; y: number; z: number } | null;
@@ -46,7 +47,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
 
     // Guard: bot position can go NaN after combat/respawn — skip entity
     // scanning entirely so NaN doesn't propagate to distances and context.
-    const positionValid = Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z);
+    const positionValid = isPositionFinite(pos);
 
     // Nearby entities
     const nearbyPlayers: NearbyEntity[] = [];
@@ -376,10 +377,7 @@ const EFFECT_NAMES: Record<number, string> = {
 /** Read active potion/status effects from the bot entity */
 function readActiveEffects(bot: Bot): string[] {
     const raw = bot.entity.effects;
-    if (!raw) return [];
-
-    // effects may be an array or an object keyed by effect ID
-    const effects: Array<{ id: number; amplifier: number; duration: number }> = Array.isArray(raw) ? raw : Object.values(raw);
+    const effects = normalizeEffects(raw) as Array<{ id: number; amplifier: number; duration: number }>;
     if (effects.length === 0) return [];
 
     return effects.map((e) => {

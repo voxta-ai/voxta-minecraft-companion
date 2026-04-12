@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import { CRAFT_ALIASES } from '../game-data';
 import { setSuppressPickups } from './action-state.js';
+import { getErrorMessage } from '../utils';
 
 // Delay between crafting steps to avoid Paper's place_recipe rate limiter
 // (default: 5 packets per 4 seconds). Each bot.craft() fires multiple packets.
@@ -201,7 +202,7 @@ async function autoCraftWithPrereqs(
                 allSteps.push(`${gained} ${displayName}`);
                 return { success: true, crafted: gained, steps: allSteps, missing: [] };
             } catch (err) {
-                const message = err instanceof Error ? err.message : String(err);
+                const message = getErrorMessage(err);
                 return { success: false, crafted: 0, steps: allSteps, missing: [`${displayName}: ${message}`] };
             }
         }
@@ -562,9 +563,8 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
                         }
                         break;
                     } catch (err) {
-                        const msg = err instanceof Error ? err.message : String(err);
+                        const msg = getErrorMessage(err);
                         console.log(`[MC Craft] Place attempt failed: ${msg}`);
-                        continue;
                     }
                 }
             }
@@ -677,7 +677,7 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
                 console.log('[MC Craft] Picked up placed crafting table');
             }
         } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = getErrorMessage(err);
             console.warn(`[MC Craft] Failed to pick up crafting table: ${msg}`);
         }
     }

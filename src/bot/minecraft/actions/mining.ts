@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 import type { ToolCategory } from '../game-data';
 import { getToolCategory, getBestTool, getToolIfStrongEnough } from './action-helpers.js';
 import { getActionAbort, setSuppressPickups } from './action-state.js';
+import { getErrorMessage } from '../utils';
 
 // ---- Minimal type for minecraft-data (loaded dynamically at runtime) ----
 
@@ -221,7 +222,7 @@ async function validateAndEquipTool(
             await bot.equip(tool.item as number, 'hand');
             console.log(`[MC Action] Equipped ${tool.name}`);
         } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
+            const msg = getErrorMessage(err);
             console.error(`[MC Action] Failed to equip ${tool.name}:`, msg);
         }
     } else {
@@ -563,7 +564,7 @@ export async function mineBlock(
             // If we were canceled by a new action, exit cleanly without
             // touching pathfinder (the new action owns it now)
             if (signal.aborted) break;
-            const message = err instanceof Error ? err.message : String(err);
+            const message = getErrorMessage(err);
             console.warn(`[MC Action] Skipping block at ${posKey}: ${message}`);
             ctx.failedPositions.add(posKey);
         }

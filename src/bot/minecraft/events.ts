@@ -8,6 +8,7 @@ import { isPickupSuppressed, setAutoDefending, isAutoDefending, getBotMode, getC
 import { hasLineOfSight } from './perception';
 import { FOOD_ITEMS, NEUTRAL_HOSTILE_MOBS, LOW_HEALTH_THRESHOLD } from './game-data';
 import { getEntityKind, isInWater, isInLava } from './mineflayer-types';
+import { isPositionFinite, normalizeEffects } from './utils';
 
 // ---- Callback interface ----
 
@@ -420,7 +421,7 @@ export class McEventBridge {
             if (this.bot.health <= LOW_HEALTH_THRESHOLD) return;
 
             const pos = this.bot.entity.position;
-            if (!Number.isFinite(pos.x)) return;
+            if (!isPositionFinite(pos)) return;
 
             // Find any hostile mob within 2.5 blocks (excluding neutral-hostile)
             const threat = Object.values(this.bot.entities).find(
@@ -714,10 +715,7 @@ export class McEventBridge {
 
     /** Check for harmful status effects (Poison, Wither) that deal damage over time */
     private getHarmfulEffects(): string[] {
-        const raw = this.bot.entity.effects;
-        if (!raw) return [];
-
-        const effects: Array<{ id: number }> = Array.isArray(raw) ? raw : Object.values(raw);
+        const effects = normalizeEffects(this.bot.entity.effects);
         const HARMFUL_EFFECTS: Record<number, string> = {
             19: 'Poison',
             20: 'Wither',

@@ -6,6 +6,7 @@ import type { NameRegistry } from '../../name-registry';
 import { FOOD_ITEMS, ITEM_ALIASES } from '../game-data';
 import { findPlayerEntity, getEquipSlot } from './action-helpers.js';
 import { setSuppressPickups } from './action-state.js';
+import { getErrorMessage } from '../utils';
 import { fishAction } from './fishing.js';
 
 /** Find an inventory item by name — resolves AI aliases, then tries exact → partial matching */
@@ -69,7 +70,7 @@ export async function equipItem(bot: Bot, itemName: string | undefined): Promise
         setTimeout(() => {
             setSuppressPickups(bot, false);
         }, 200);
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to equip ${item.name}: ${message}`;
     }
 }
@@ -114,7 +115,7 @@ export async function eatFood(bot: Bot, foodName: string | undefined): Promise<s
         }
         return `Ate some ${foodItem.displayName ?? foodItem.name} and feels better`;
     } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to eat ${foodItem.name}: ${message}`;
     }
 }
@@ -162,7 +163,7 @@ export async function giveItem(
         return `Handed ${actualCount} ${item.displayName ?? itemName} over to ${displayName}`;
     } catch (err) {
         setTimeout(() => setSuppressPickups(bot, false), 600);
-        const message = err instanceof Error ? err.message : String(err);
+        const message = getErrorMessage(err);
         return `Failed to give ${itemName}: ${message}`;
     }
 }
