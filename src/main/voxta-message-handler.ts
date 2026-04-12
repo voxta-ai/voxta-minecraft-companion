@@ -38,6 +38,7 @@ export interface MessageHandlerContext {
 
     // State mutators
     setAssistantName(name: string | null): void;
+    getVoxtaUserName(): string | null;
     setVoxtaUserName(name: string | null): void;
     setDefaultAssistantId(id: string | null): void;
     setCharacters(chars: CharacterInfo[]): void;
@@ -362,7 +363,7 @@ function handleSpeechRecognitionEnd(message: ServerMessage, ctx: MessageHandlerC
     ctx.emit('speech-partial', '');
     if (text) {
         resetActionFired();
-        ctx.addChat('player', `You (voice)`, text);
+        ctx.addChat('player', `${ctx.getVoxtaUserName() ?? 'You'} (voice)`, text);
         void ctx.getVoxta()?.sendMessage(text);
     }
 }

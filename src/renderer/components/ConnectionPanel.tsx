@@ -75,15 +75,9 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     );
     const [mcVersion, setMcVersion] = createSignal(saved.mcVersion ?? '');
     const [mcUsername, setMcUsername] = createSignal(saved.mcUsername ?? '');
-    const [playerMcName, setPlayerMcName] = createSignal(saved.playerMcUsername ?? '');
     const [secondMcUsername, setSecondMcUsername] = createSignal(saved.secondMcUsername ?? '');
     const [showAdvanced, setShowAdvanced] = createSignal(false);
     const [launching, setLaunching] = createSignal(false);
-
-    // Track whether the user manually edited the name fields
-    const [userEditedBotName, setUserEditedBotName] = createSignal(false);
-    const [userEditedBotName2, setUserEditedBotName2] = createSignal(false);
-    const [userEditedPlayerName, setUserEditedPlayerName] = createSignal(false);
 
     // MC-only filter state (toggled by CharacterSelector, read here for ChatList)
     const [mcOnly, setMcOnly] = createSignal(saved.mcOnly ?? false);
@@ -117,17 +111,10 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         }
     });
 
-    // Autofill player name from Voxta user profile (one-time, unless user edited)
-    createEffect(() => {
-        if (voxtaInfo.userName && !userEditedPlayerName()) {
-            setPlayerMcName(voxtaInfo.userName);
-        }
-    });
-
-    // Autofill bot names when the character changes (unless user edited)
+    // Sync MC bot usernames from selected Voxta characters
     createEffect(() => {
         const charId = selectedCharacterId();
-        if (charId && !userEditedBotName()) {
+        if (charId) {
             const character = voxtaInfo.characters.find((c) => c.id === charId);
             if (character) setMcUsername(character.name);
         }
@@ -135,7 +122,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
     createEffect(() => {
         const charId2 = selectedCharacterId2();
-        if (charId2 && !userEditedBotName2()) {
+        if (charId2) {
             const character = voxtaInfo.characters.find((c) => c.id === charId2);
             if (character) setSecondMcUsername(character.name);
         }
@@ -167,7 +154,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcPort: parseInt(mcPort(), 10) || managedServerPort(),
             mcUsername: mcUsername(),
             mcVersion: mcVersion(),
-            playerMcUsername: playerMcName(),
+            playerMcUsername: '',
             characterId: charId,
             secondCharacterId: selectedCharacterId2() || undefined,
             secondMcUsername: secondMcUsername() || undefined,
@@ -182,7 +169,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             mcUsername: mcUsername(),
             secondMcUsername: secondMcUsername(),
             mcVersion: mcVersion(),
-            playerMcUsername: playerMcName(),
+            playerMcUsername: '',
             voxtaUrl: voxtaUrl().trim(),
             voxtaApiKey: apiKey().trim(),
             lastCharacterId: charId,
@@ -201,9 +188,6 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         setSelectedCharacterId(null);
         setSelectedCharacterId2(null);
         setSelectedScenarioId(null);
-        setUserEditedBotName(false);
-        setUserEditedBotName2(false);
-        setUserEditedPlayerName(false);
         setSelectedChatId(null);
         setScenarios([]);
         await disconnect();
@@ -260,8 +244,6 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                             setSelectedCharacterId={setSelectedCharacterId}
                             selectedCharacterId2={selectedCharacterId2}
                             setSelectedCharacterId2={setSelectedCharacterId2}
-                            onCharacterChange={() => setUserEditedBotName(false)}
-                            onCharacter2Change={() => setUserEditedBotName2(false)}
                             onMcOnlyChange={(checked) => setMcOnly(checked)}
                             onScenariosLoaded={(list) => setScenarios(list)}
                         />
@@ -278,48 +260,6 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                             mcOnly={mcOnly}
                         />
 
-                        <div class="field">
-                            <label>Bot 1 Username</label>
-                            <input
-                                type="text"
-                                value={mcUsername()}
-                                onInput={(e) => {
-                                    setMcUsername(e.currentTarget.value);
-                                    setUserEditedBotName(true);
-                                }}
-                                placeholder="Character name"
-                            />
-                            <span class="field-hint">The primary bot's name in Minecraft</span>
-                        </div>
-
-                        <div class="field">
-                            <label>Bot 2 Username (Optional)</label>
-                            <input
-                                type="text"
-                                value={secondMcUsername()}
-                                onInput={(e) => {
-                                    setSecondMcUsername(e.currentTarget.value);
-                                    setUserEditedBotName2(true);
-                                }}
-                                placeholder="Second character name..."
-                                disabled={!selectedCharacterId2()}
-                            />
-                            <span class="field-hint">The second bot's name in Minecraft</span>
-                        </div>
-
-                        <div class="field">
-                            <label>Your Voxta Name</label>
-                            <input
-                                type="text"
-                                value={playerMcName()}
-                                onInput={(e) => {
-                                    setPlayerMcName(e.currentTarget.value);
-                                    setUserEditedPlayerName(true);
-                                }}
-                                placeholder="Your name"
-                            />
-                            <span class="field-hint">Auto-filled from your Voxta profile</span>
-                        </div>
                         <button
                             class="advanced-toggle"
                             onClick={() => setShowAdvanced(!showAdvanced())}

@@ -21,8 +21,8 @@ export interface McEventCallbacks {
     onEvent(text: string): void;
     /** Send an urgent event — interrupts current speech and forces an immediate short reply */
     onUrgentEvent(text: string): void;
-    /** Send a player chat message — treated as a regular user message (triggers action inference) */
-    onPlayerChat(text: string): void;
+    /** Send a player chat message — user messages trigger action inference, other players are sent as events */
+    onPlayerChat(mcUsername: string, text: string): void;
     /** Get the current settings */
     getSettings(): McSettings;
     /** Get the assistant's display name */
@@ -681,7 +681,7 @@ export class McEventBridge {
             const voxtaName = this.names.resolveToVoxta(username);
             const resolvedMsg = this.names.resolveNamesInText(message);
             this.callbacks.onChat('player', voxtaName, resolvedMsg);
-            this.callbacks.onPlayerChat(resolvedMsg);
+            this.callbacks.onPlayerChat(username, resolvedMsg);
         }) as (...args: never[]) => void);
 
         this.on('whisper', ((username: string, message: string) => {
@@ -691,7 +691,7 @@ export class McEventBridge {
             const voxtaName = this.names.resolveToVoxta(username);
             const resolvedMsg = this.names.resolveNamesInText(message);
             this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
-            this.callbacks.onPlayerChat(resolvedMsg);
+            this.callbacks.onPlayerChat(username, resolvedMsg);
         }) as (...args: never[]) => void);
     }
 

@@ -387,6 +387,7 @@ export class BotEngine extends EventEmitter {
         return {
             getVoxta: () => this.voxta,
             getSettings: () => this.settings,
+            getPlayerMcUsername: () => this.playerMcUsername,
             getFollowingPlayer: () => this.followingPlayer,
             isReplying: () => this.isReplying,
             getAssistantName: (slot) => this.slot(slot).assistantName,
@@ -583,6 +584,12 @@ export class BotEngine extends EventEmitter {
 
         // 5. Auto-follow player on spawn
         this.setupAutoFollow();
+
+        // 6. Late player detection — if the player wasn't online when the bot spawned,
+        //    detect them when they join and register names + set override
+        if (!this.playerMcUsername) {
+            this.setupLatePlayerDetection(this.botSlots[0].mcBot!.bot, config, uiConfig);
+        }
     }
 
     private resetSessionState(): void {
@@ -927,6 +934,42 @@ export class BotEngine extends EventEmitter {
         }, 1000);
     }
 
+    /**
+     * When the player wasn't online at bot spawn, listen for them to join
+     * and register names + set UserNameOverride + auto-follow.
+     */
+    private setupLatePlayerDetection(
+        bot: MineflayerBot,
+        config: CompanionConfig,
+        uiConfig: BotConfig,
+    ): void {
+        const botUsernames = new Set([
+            config.mc.username,
+            ...(uiConfig.secondMcUsername ? [uiConfig.secondMcUsername] : []),
+        ]);
+
+        const onPlayerJoined = (player: { username: string }) => {
+            if (botUsernames.has(player.username)) return;
+            if (this.playerMcUsername) return; // Already detected
+
+            this.playerMcUsername = player.username;
+            this.addChat('system', 'System', `Detected player (late join): ${this.playerMcUsername}`);
+
+            // Register in name registry
+            if (this.voxtaUserName) {
+                this.names.register(this.voxtaUserName, this.playerMcUsername);
+            }
+
+            // Auto-follow the late-joining player
+            this.setupAutoFollow();
+
+            // One-shot — remove listener after detection
+            bot.removeListener('playerJoined', onPlayerJoined);
+        };
+
+        bot.on('playerJoined', onPlayerJoined);
+    }
+
     /** Auto-resume a chat session after Voxta reconnection */
     private async autoResumeChat(): Promise<void> {
         if (!this.voxta || !this.activeCharacterId || !this.slot(1).mcBot) return;
@@ -1161,6 +1204,7 @@ export class BotEngine extends EventEmitter {
                 this.slot(1).assistantName = name;
                 this.updateStatus({ assistantName: name });
             },
+            getVoxtaUserName: () => this.voxtaUserName,
             setVoxtaUserName: (name) => {
                 this.voxtaUserName = name;
             },
