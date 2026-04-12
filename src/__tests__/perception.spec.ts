@@ -17,6 +17,7 @@ function createWorldState(overrides: Partial<WorldState> = {}): WorldState {
         timeOfDay: 6000, // noon
         isDay: true,
         isRaining: false,
+        isThundering: false,
         heldItem: null,
         armor: [],
         nearbyPlayers: [],
@@ -82,27 +83,53 @@ describe('buildContextStrings', () => {
         it('shows Day at noon (tick 6000)', () => {
             const state = createWorldState({ timeOfDay: 6000, isDay: true });
             const lines = buildContextStrings(state, names, 'Bot');
-            expect(lines[1]).toContain('Day');
+            expect(lines[1]).toContain('Midday');
             expect(lines[1]).toContain('12:00 PM');
         });
 
-        it('shows Night at midnight (tick 18000)', () => {
+        it('shows Midnight at tick 18000', () => {
             const state = createWorldState({ timeOfDay: 18000, isDay: false });
             const lines = buildContextStrings(state, names, 'Bot');
-            expect(lines[1]).toContain('Night');
+            expect(lines[1]).toContain('Midnight');
             expect(lines[1]).toContain('12:00 AM');
         });
 
-        it('shows morning time at tick 0 (6:00 AM)', () => {
+        it('shows Dawn at tick 0 (6:00 AM)', () => {
             const state = createWorldState({ timeOfDay: 0, isDay: true });
             const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines[1]).toContain('Dawn');
             expect(lines[1]).toContain('6:00 AM');
         });
 
-        it('shows evening time at tick 12000 (6:00 PM)', () => {
+        it('shows Dusk at tick 12000 (6:00 PM)', () => {
             const state = createWorldState({ timeOfDay: 12000, isDay: false });
             const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines[1]).toContain('Dusk');
             expect(lines[1]).toContain('6:00 PM');
+        });
+
+        it('shows Morning at tick 2000', () => {
+            const state = createWorldState({ timeOfDay: 2000, isDay: true });
+            const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines[1]).toContain('Morning');
+        });
+
+        it('shows Afternoon at tick 8000', () => {
+            const state = createWorldState({ timeOfDay: 8000, isDay: true });
+            const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines[1]).toContain('Afternoon');
+        });
+
+        it('shows Night at tick 14000', () => {
+            const state = createWorldState({ timeOfDay: 14000, isDay: false });
+            const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines[1]).toContain('Night');
+        });
+
+        it('shows Late Night at tick 20000', () => {
+            const state = createWorldState({ timeOfDay: 20000, isDay: false });
+            const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines[1]).toContain('Late Night');
         });
     });
 
@@ -123,6 +150,18 @@ describe('buildContextStrings', () => {
             const state = createWorldState({ isRaining: true, biomeTemperature: 0.0 });
             const lines = buildContextStrings(state, names, 'Bot');
             expect(lines[1]).toContain('Snowing');
+        });
+
+        it('shows Thunderstorm when thundering in warm biome', () => {
+            const state = createWorldState({ isRaining: true, isThundering: true, biomeTemperature: 0.8 });
+            const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines[1]).toContain('Thunderstorm');
+        });
+
+        it('shows Blizzard when thundering in cold biome', () => {
+            const state = createWorldState({ isRaining: true, isThundering: true, biomeTemperature: 0.0 });
+            const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines[1]).toContain('Blizzard');
         });
     });
 

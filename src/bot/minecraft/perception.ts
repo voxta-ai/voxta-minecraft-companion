@@ -44,6 +44,7 @@ export interface WorldState {
     timeOfDay: number;
     isDay: boolean;
     isRaining: boolean;
+    isThundering: boolean;
     heldItem: string | null;
     armor: string[]; // Equipped armor pieces
     nearbyPlayers: NearbyEntity[];
@@ -361,6 +362,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         timeOfDay: bot.time.timeOfDay,
         isDay: bot.time.isDay,
         isRaining: bot.isRaining,
+        isThundering: bot.thunderState > 0,
         heldItem: bot.heldItem?.name ?? null,
         armor: [
             bot.inventory.slots[5]?.name, // head
@@ -425,6 +427,27 @@ function toRoman(n: number): string {
     return String(n);
 }
 
+/** Map tick ranges to natural time-of-day periods */
+function getTimePeriod(ticks: number): string {
+    // MC ticks: 0 = 6:00 AM, 6000 = noon, 12000 = 6:00 PM, 18000 = midnight
+    if (ticks < 1000) return 'Dawn';           // 6:00 – 7:00 AM
+    if (ticks < 5000) return 'Morning';         // 7:00 – 11:00 AM
+    if (ticks < 7000) return 'Midday';          // 11:00 AM – 1:00 PM
+    if (ticks < 11000) return 'Afternoon';      // 1:00 – 5:00 PM
+    if (ticks < 13000) return 'Dusk';           // 5:00 – 7:00 PM
+    if (ticks < 17000) return 'Night';          // 7:00 – 11:00 PM
+    if (ticks < 19000) return 'Midnight';       // 11:00 PM – 1:00 AM
+    return 'Late Night';                        // 1:00 – 6:00 AM
+}
+
+/** Build a human-readable weather string from world state */
+function getWeatherString(state: WorldState): string {
+    if (!state.isRaining) return 'Clear';
+    const isSnow = state.biomeTemperature < SNOW_TEMP_THRESHOLD;
+    if (state.isThundering) return isSnow ? 'Blizzard' : 'Thunderstorm';
+    return isSnow ? 'Snowing' : 'Raining';
+}
+
 /** Convert Minecraft ticks (0-24000) to human-readable time like "7:30 AM" */
 function ticksToTime(ticks: number): string {
     // MC tick 0 = 6:00 AM, tick 6000 = noon, tick 12000 = 6:00 PM, tick 18000 = midnight
@@ -452,8 +475,8 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
 
     lines.push(
         `${who}'s Health: ${state.health}/${MC_MAX_HEALTH} | ${who}'s Food: ${state.food}/${MC_MAX_HEALTH} | ` +
-            `Level: ${state.experience.level} | Time: ${state.isDay ? 'Day' : 'Night'} (${timeStr}) | ` +
-            `Weather: ${state.isRaining ? (state.biomeTemperature < SNOW_TEMP_THRESHOLD ? 'Snowing' : 'Raining') : 'Clear'} | ` +
+            `Level: ${state.experience.level} | Time: ${getTimePeriod(state.timeOfDay)} (${timeStr}) | ` +
+            `Weather: ${getWeatherString(state)} | ` +
             `Location: ${state.shelter}`,
     );
 
