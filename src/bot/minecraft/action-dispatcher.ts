@@ -181,9 +181,11 @@ function dispatchResourceAction(
         case 'mc_fish':
             setCurrentActivity(bot, 'fishing');
             return fishAction(bot, getArg(args, 'count'));
-        case 'mc_collect_items':
-            setCurrentActivity(bot, 'collecting nearby items');
-            return collectItems(bot);
+        case 'mc_collect_items': {
+            const itemArg = getArg(args, 'item_name');
+            setCurrentActivity(bot, itemArg ? `collecting ${itemArg}` : 'collecting nearby items');
+            return collectItems(bot, itemArg);
+        }
         default:
             return null;
     }
