@@ -543,18 +543,44 @@ export class BotEngine extends EventEmitter {
     // ---- Phase 2: Launch MC bot + start chat ----
 
     async launchBot(uiConfig: BotConfig): Promise<void> {
-        if (!this.voxta) {
-            throw new Error('Must connect to Voxta first');
-        }
+        if (!this.voxta) throw new Error('Must connect to Voxta first');
 
-        // Reset session state from any previous chat
+        this.resetSessionState();
+        const config = this.buildCompanionConfig(uiConfig);
+
+        // 1. Connect Minecraft bots
+        if (!await this.connectPrimaryBot(config, uiConfig)) return;
+        const isDualBot = !!(uiConfig.secondMcUsername && uiConfig.secondCharacterId);
+        if (isDualBot) await this.connectSecondaryBot(config, uiConfig);
+
+        // 2. Auto-dismount from previous session + resolve characters/names
+        void this.autoDismountOnSpawn(this.mcBot!.bot);
+        this.resolvePlayersAndNames(this.mcBot!.bot, uiConfig, config, isDualBot);
+
+        // 3. Read initial world state and start Voxta chat
+        const initialContextStrings = this.readInitialWorldContext(this.mcBot!.bot, config);
+        await this.startVoxtaChat(uiConfig, isDualBot, initialContextStrings);
+
+        // 4. Start all loops and register event bridges
+        this.startAllLoops(this.mcBot!.bot, config, isDualBot, initialContextStrings);
+        this.registerEventBridges(this.mcBot!.bot, config, isDualBot, uiConfig);
+
+        // 5. Auto-follow player on spawn
+        this.setupAutoFollow(isDualBot);
+    }
+
+    private resetSessionState(): void {
         this.followingPlayer = null;
         this.isReplying = false;
         this.currentReply = '';
         this.pendingNotes = [];
         this.pendingEvents = [];
+    }
 
-        const config: CompanionConfig = {
+    private buildCompanionConfig(uiConfig: BotConfig): CompanionConfig {
+        this.playerMcUsername = uiConfig.playerMcUsername || null;
+        this.activeScenarioId = uiConfig.scenarioId;
+        return {
             mc: {
                 host: uiConfig.mcHost,
                 port: uiConfig.mcPort,
@@ -572,112 +598,102 @@ export class BotEngine extends EventEmitter {
                 entityRange: uiConfig.entityRange,
             },
         };
-        this.playerMcUsername = uiConfig.playerMcUsername || null;
-        this.activeScenarioId = uiConfig.scenarioId;
+    }
 
-        // ---- 1. Connect Minecraft bots ----
+    /** Connect the primary MC bot. Returns false if connection failed (caller should abort). */
+    private async connectPrimaryBot(config: CompanionConfig, uiConfig: BotConfig): Promise<boolean> {
         this.updateStatus({ mc: 'connecting' });
         this.addChat('system', 'System', `Connecting to MC ${config.mc.host}:${config.mc.port}...`);
-
         try {
             this.mcBot = createMinecraftBot(config);
             await this.mcBot.connect();
             initHomePosition(this.mcBot.bot, config.mc.host, config.mc.port);
             loadCustomBlueprints();
-
-            // Register plugin channel for SVC voice bridge
             this.setupPluginChannel(this.mcBot.bot, uiConfig.playerMcUsername);
-
             this.updateStatus({ mc: 'connected' });
             this.addChat('system', 'System', `Minecraft bot spawned as ${config.mc.username}`);
             this.toast('success', `Bot "${config.mc.username}" joined the Minecraft server!`);
+            return true;
         } catch (err) {
             const message = humanizeError(err, 'Minecraft connection');
             this.updateStatus({ mc: 'error' });
             this.addChat('system', 'System', `MC connection failed: ${message}`);
             this.toast('error', message);
+            return false;
+        }
+    }
+
+    /** Connect the optional second MC bot and wire dual-bot spacing. Non-fatal on failure. */
+    private async connectSecondaryBot(config: CompanionConfig, uiConfig: BotConfig): Promise<void> {
+        this.updateStatus({ mc2: 'connecting' });
+        const config2: CompanionConfig = {
+            ...config,
+            mc: { ...config.mc, username: uiConfig.secondMcUsername! },
+        };
+        try {
+            this.mcBot2 = createMinecraftBot(config2);
+            await this.mcBot2.connect();
+            initHomePosition(this.mcBot2.bot, config2.mc.host, config2.mc.port);
+            this.setupPluginChannel(this.mcBot2.bot, uiConfig.playerMcUsername);
+            this.updateStatus({ mc2: 'connected' });
+            this.addChat('system', 'System', `Minecraft bot 2 spawned as ${config2.mc.username}`);
+            this.toast('success', `Bot "${config2.mc.username}" joined the Minecraft server!`);
+        } catch (err) {
+            const message = humanizeError(err, 'Minecraft connection (bot 2)');
+            this.updateStatus({ mc2: 'error' });
+            this.addChat('system', 'System', `MC bot 2 connection failed: ${message}`);
+            this.toast('error', message);
+            // Continue with single-bot mode — don't abort the whole session
+            this.mcBot2 = null;
             return;
         }
 
-        // ---- Optional: connect second bot in parallel ----
-        const isDualBot = !!(uiConfig.secondMcUsername && uiConfig.secondCharacterId);
-        if (isDualBot) {
-            this.updateStatus({ mc2: 'connecting' });
-            const config2: CompanionConfig = {
-                ...config,
-                mc: { ...config.mc, username: uiConfig.secondMcUsername! },
-            };
+        // Wire dual-bot spacing: each bot's pathfinder treats the other as
+        // high-cost terrain. Bot 1 at 3 blocks, bot 2 at 5 — natural spacing.
+        this.mcBot!.setCompanion(this.mcBot2.bot);
+        this.mcBot2.setCompanion(this.mcBot!.bot);
+        setFollowDistance(this.mcBot!.bot, 3);
+        setFollowDistance(this.mcBot2.bot, 5);
+    }
+
+    /** Fire-and-forget: dismount if the MC server remembers a vehicle from previous session */
+    private async autoDismountOnSpawn(bot: MineflayerBot): Promise<void> {
+        await new Promise((r) => setTimeout(r, 3000));
+        const v = getVehicle(bot);
+        console.log(`[MC] Auto-dismount check: vehicle=${v ? 'yes (id=' + v.id + ')' : 'no'}`);
+        if (!v) return;
+
+        this.autoDismounting = true;
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            const vehicle = getVehicle(bot);
+            if (!vehicle) {
+                console.log(`[MC] Auto-dismount: vehicle cleared (attempt ${attempt})`);
+                break;
+            }
+            console.log(`[MC] Auto-dismount attempt ${attempt}/3...`);
             try {
-                this.mcBot2 = createMinecraftBot(config2);
-                await this.mcBot2.connect();
-                initHomePosition(this.mcBot2.bot, config2.mc.host, config2.mc.port);
-
-                // Register plugin channel for SVC voice bridge (bot 2)
-                this.setupPluginChannel(this.mcBot2.bot, uiConfig.playerMcUsername);
-
-                this.updateStatus({ mc2: 'connected' });
-                this.addChat('system', 'System', `Minecraft bot 2 spawned as ${config2.mc.username}`);
-                this.toast('success', `Bot "${config2.mc.username}" joined the Minecraft server!`);
+                await dismountEntity(bot);
+                console.log('[MC] Auto-dismount complete');
+                break;
             } catch (err) {
-                const message = humanizeError(err, 'Minecraft connection (bot 2)');
-                this.updateStatus({ mc2: 'error' });
-                this.addChat('system', 'System', `MC bot 2 connection failed: ${message}`);
-                this.toast('error', message);
-                // Continue with single-bot mode — don't abort the whole session
-                this.mcBot2 = null;
+                console.log(`[MC] Auto-dismount attempt ${attempt} failed:`, err);
+                await new Promise((r) => setTimeout(r, 1000));
             }
         }
-
-        // ---- Wire up dual-bot spacing ----
-        // Each bot's pathfinder treats the other as high-cost terrain (exclusion zone)
-        // and uses a different follow distance to prevent overlapping.
-        if (isDualBot && this.mcBot2) {
-            this.mcBot.setCompanion(this.mcBot2.bot);
-            this.mcBot2.setCompanion(this.mcBot.bot);
-            // Bot 1 follows at 3 blocks, bot 2 at 5 — creates natural spacing layers
-            setFollowDistance(this.mcBot.bot, 3);
-            setFollowDistance(this.mcBot2.bot, 5);
-        }
-
-        // ---- 2. Start chat with a selected character ----
-        const bot = this.mcBot.bot;
-
-        // Auto-dismount: the MC server may remember the bot was riding from a previous session.
-        // bot.vehicle isn't set yet at connect() — the set_passengers packet arrives async.
-        // Retry up to 3 times — spawn-mounted entities need the server to fully load.
         this.autoDismounting = false;
-        const autoDismount = async (): Promise<void> => {
-            await new Promise((r) => setTimeout(r, 3000));
-            const v = getVehicle(bot);
-            console.log(`[MC] Auto-dismount check: vehicle=${v ? 'yes (id=' + v.id + ')' : 'no'}`);
-            if (!v) return;
+    }
 
-            this.autoDismounting = true;
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                const vehicle = getVehicle(bot);
-                if (!vehicle) {
-                    console.log(`[MC] Auto-dismount: vehicle cleared (attempt ${attempt})`);
-                    break;
-                }
-                console.log(`[MC] Auto-dismount attempt ${attempt}/3...`);
-                try {
-                    await dismountEntity(bot);
-                    console.log('[MC] Auto-dismount complete');
-                    break;
-                } catch (err) {
-                    console.log(`[MC] Auto-dismount attempt ${attempt} failed:`, err);
-                    await new Promise((r) => setTimeout(r, 1000));
-                }
-            }
-            this.autoDismounting = false;
-        };
-        void autoDismount();
-
+    /** Resolve character names, auto-detect player username, and populate the name registry */
+    private resolvePlayersAndNames(
+        bot: MineflayerBot,
+        uiConfig: BotConfig,
+        config: CompanionConfig,
+        isDualBot: boolean,
+    ): void {
         const character = this.characters.find((c) => c.id === uiConfig.characterId);
         this.assistantName = character?.name ?? 'AI';
         this.activeCharacterId = uiConfig.characterId;
 
-        // Resolve second character name if dual-bot mode is active
         if (isDualBot && uiConfig.secondCharacterId) {
             const char2 = this.characters.find((c) => c.id === uiConfig.secondCharacterId);
             this.assistantName2 = char2?.name ?? 'AI2';
@@ -712,16 +728,14 @@ export class BotEngine extends EventEmitter {
         if (this.assistantName2 && uiConfig.secondMcUsername) {
             this.names.register(this.assistantName2, uiConfig.secondMcUsername);
         }
+    }
 
-        // Read initial world state BEFORE starting chat — the server processes
-        // context from the startChat message before generating the greeting
-        const assistantName1 = this.assistantName;
-        let initialContextStrings: string[] = [];
+    /** Read initial world state for chat context. Returns labeled context strings. */
+    private readInitialWorldContext(bot: MineflayerBot, config: CompanionConfig): string[] {
         try {
             const initialState = readWorldState(bot, config.perception.entityRange);
-            const rawStrings = buildContextStrings(initialState, this.names, assistantName1);
-            // Label each context block with the bot's character name
-            initialContextStrings = rawStrings.map((s) => `[${assistantName1}] ${s}`);
+            const rawStrings = buildContextStrings(initialState, this.names, this.assistantName);
+            const contextStrings = rawStrings.map((s) => `[${this.assistantName}] ${s}`);
             this.updateStatus({
                 position: initialState.position
                     ? {
@@ -733,19 +747,27 @@ export class BotEngine extends EventEmitter {
                 health: initialState.health,
                 food: initialState.food,
             });
+            return contextStrings;
         } catch (err) {
             // Perception can fail during initial chunk loading
             console.error('[Perception] Initial context failed:', err);
+            return [];
         }
+    }
 
-        // Build the character IDs array (1 or 2 IDs depending on dual-bot mode)
+    /** Start a Voxta chat session and wait for the session ID */
+    private async startVoxtaChat(
+        uiConfig: BotConfig,
+        isDualBot: boolean,
+        initialContextStrings: string[],
+    ): Promise<void> {
         const characterIds = [uiConfig.characterId];
         if (isDualBot && uiConfig.secondCharacterId) {
             characterIds.push(uiConfig.secondCharacterId);
         }
         this.activeCharacterIds = characterIds;
 
-        await this.voxta.startChat(
+        await this.voxta!.startChat(
             characterIds,
             uiConfig.chatId ?? undefined,
             uiConfig.scenarioId ?? undefined,
@@ -757,12 +779,12 @@ export class BotEngine extends EventEmitter {
         );
 
         const chatStart = Date.now();
-        while (!this.voxta.sessionId && Date.now() - chatStart < SESSION_TIMEOUT_MS) {
+        while (!this.voxta!.sessionId && Date.now() - chatStart < SESSION_TIMEOUT_MS) {
             await new Promise((r) => setTimeout(r, SESSION_POLL_MS));
         }
 
         this.updateStatus({
-            sessionId: this.voxta.sessionId,
+            sessionId: this.voxta!.sessionId,
             assistantName: this.assistantName,
             assistantName2: this.assistantName2,
         });
@@ -771,18 +793,25 @@ export class BotEngine extends EventEmitter {
             ? `Chat started with ${this.assistantName} & ${this.assistantName2}`
             : `Chat started with ${this.assistantName}`;
         this.addChat('system', 'System', sessionMsg);
+    }
 
-        // ---- Start all loops using extracted factories ----
+    /** Create and wire up all perception, movement, spatial, and mode scan loops */
+    private startAllLoops(
+        bot: MineflayerBot,
+        config: CompanionConfig,
+        isDualBot: boolean,
+        initialContextStrings: string[],
+    ): void {
         const loopCallbacks = this.buildLoopCallbacks();
         const movementCallbacks = this.buildMovementCallbacks();
 
-        // Perception loop — bot 1
+        // Perception — bot 1
         this.perceptionLoop = createPerceptionLoop(
             bot, 1, config.perception.intervalMs, config.perception.entityRange,
-            assistantName1 ?? 'Bot', initialContextStrings, loopCallbacks,
+            this.assistantName ?? 'Bot', initialContextStrings, loopCallbacks,
         );
 
-        // Perception loop — bot 2 (dual-bot mode only)
+        // Perception — bot 2
         if (isDualBot && this.mcBot2) {
             this.perceptionLoop2 = createPerceptionLoop(
                 this.mcBot2.bot, 2, config.perception.intervalMs, config.perception.entityRange,
@@ -790,10 +819,10 @@ export class BotEngine extends EventEmitter {
             );
         }
 
-        // Spatial audio position loop
+        // Spatial audio
         this.spatialLoop = createSpatialLoop(loopCallbacks);
 
-        // Mounted steering + Follow watchdog
+        // Mounted steering + Follow watchdog — bot 1
         this.mountedSteeringLoop = createMountedSteeringLoop(
             bot, () => !!this.mcBot,
             isDualBot && this.mcBot2 ? this.mcBot2.bot : null,
@@ -801,7 +830,7 @@ export class BotEngine extends EventEmitter {
         );
         this.followWatchdog = createFollowWatchdog(bot, () => !!this.mcBot, 'Bot', movementCallbacks);
 
-        // Same loops for bot 2 (dual-bot mode)
+        // Same for bot 2
         if (isDualBot && this.mcBot2) {
             this.mountedSteeringLoop2 = createMountedSteeringLoop(
                 this.mcBot2.bot, () => !!this.mcBot2, bot,
@@ -816,7 +845,7 @@ export class BotEngine extends EventEmitter {
             this.flushHuntBatch2 = flushBatch2;
         }
 
-        // Mode scan loop (aggro + hunt + guard/patrol)
+        // Mode scan loop — bot 1
         const { loop: scanLoop1, flush: flushBatch1 } = createModeScanLoop(
             bot, () => !!this.mcBot, 'Bot', () => this.assistantName ?? 'Bot',
             movementCallbacks,
@@ -828,8 +857,15 @@ export class BotEngine extends EventEmitter {
         this.bot1InRange = true;
         this.bot2InRange = true;
         this.proximityLoop = createProximityLoop(isDualBot, loopCallbacks);
+    }
 
-        // ---- 3. Register MC event bridges ----
+    /** Create MC event bridges for bot 1 (and bot 2 if dual-bot mode) */
+    private registerEventBridges(
+        bot: MineflayerBot,
+        config: CompanionConfig,
+        isDualBot: boolean,
+        uiConfig: BotConfig,
+    ): void {
         const eventBridgeCallbacks = this.buildEventBridgeCallbacks();
         const botUsernames = new Set([
             config.mc.username,
@@ -841,37 +877,38 @@ export class BotEngine extends EventEmitter {
         if (isDualBot && this.mcBot2) {
             this.eventBridge2 = createEventBridge(this.mcBot2.bot, 2, this.names, botUsernames, eventBridgeCallbacks);
         }
+    }
 
-        // Auto-follow: companion(s) should follow the player by default on spawn
-        // Small delay to let pathfinder initialize after bot spawn
-        if (this.playerMcUsername) {
-            this.followingPlayer = this.playerMcUsername;
-            const playerName = this.playerMcUsername;
-            const botsToFollow = [this.mcBot.bot];
-            if (isDualBot && this.mcBot2) botsToFollow.push(this.mcBot2.bot);
-            console.log(`[Bot] Auto-following ${playerName} on spawn (${botsToFollow.length} bot(s))`);
-            setTimeout(() => {
-                for (const botInstance of botsToFollow) {
-                    executeAction(
-                        botInstance,
-                        'mc_follow_player',
-                        [{ name: 'player_name', value: playerName }],
-                        this.names,
-                    ).catch((err) => {
-                        console.log(`[Bot] Auto-follow failed for ${botInstance.username}, retrying in 2s:`, err);
-                        setTimeout(() => {
-                            if (!this.mcBot || this.followingPlayer !== playerName) return;
-                            void executeAction(
-                                botInstance,
-                                'mc_follow_player',
-                                [{ name: 'player_name', value: playerName }],
-                                this.names,
-                            );
-                        }, 2000);
-                    });
-                }
-            }, 1000);
-        }
+    /** Auto-follow: companion(s) follow the player by default on spawn */
+    private setupAutoFollow(isDualBot: boolean): void {
+        if (!this.playerMcUsername || !this.mcBot) return;
+
+        this.followingPlayer = this.playerMcUsername;
+        const playerName = this.playerMcUsername;
+        const botsToFollow = [this.mcBot.bot];
+        if (isDualBot && this.mcBot2) botsToFollow.push(this.mcBot2.bot);
+        console.log(`[Bot] Auto-following ${playerName} on spawn (${botsToFollow.length} bot(s))`);
+        setTimeout(() => {
+            for (const botInstance of botsToFollow) {
+                executeAction(
+                    botInstance,
+                    'mc_follow_player',
+                    [{ name: 'player_name', value: playerName }],
+                    this.names,
+                ).catch((err) => {
+                    console.log(`[Bot] Auto-follow failed for ${botInstance.username}, retrying in 2s:`, err);
+                    setTimeout(() => {
+                        if (!this.mcBot || this.followingPlayer !== playerName) return;
+                        void executeAction(
+                            botInstance,
+                            'mc_follow_player',
+                            [{ name: 'player_name', value: playerName }],
+                            this.names,
+                        );
+                    }, 2000);
+                });
+            }
+        }, 1000);
     }
 
     /** Auto-resume a chat session after Voxta reconnection */
