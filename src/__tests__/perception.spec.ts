@@ -245,7 +245,7 @@ describe('buildContextStrings', () => {
             const playerNames = new NameRegistry();
             playerNames.register('Lapiro', 'Emptyngton');
             const state = createWorldState({
-                nearbyPlayers: [{ name: 'Emptyngton', type: 'player', distance: 5.2, position: { x: 105, y: 64, z: -195 } }],
+                nearbyPlayers: [{ name: 'Emptyngton', type: 'player', distance: 5.2, position: { x: 105, y: 64, z: -195 }, heldItem: null }],
             });
             const lines = buildContextStrings(state, playerNames, 'Bot');
             const playerLine = lines.find((l) => l.includes('Nearby players'));
@@ -253,11 +253,29 @@ describe('buildContextStrings', () => {
             expect(playerLine).toContain('5.2m');
         });
 
+        it('shows held item for nearby players', () => {
+            const state = createWorldState({
+                nearbyPlayers: [{ name: 'Steve', type: 'player', distance: 3.0, position: { x: 103, y: 64, z: -200 }, heldItem: 'Diamond Sword' }],
+            });
+            const lines = buildContextStrings(state, names, 'Bot');
+            const playerLine = lines.find((l) => l.includes('Nearby players'));
+            expect(playerLine).toContain('holding Diamond Sword');
+        });
+
+        it('omits held item when player holds nothing', () => {
+            const state = createWorldState({
+                nearbyPlayers: [{ name: 'Steve', type: 'player', distance: 3.0, position: { x: 103, y: 64, z: -200 }, heldItem: null }],
+            });
+            const lines = buildContextStrings(state, names, 'Bot');
+            const playerLine = lines.find((l) => l.includes('Nearby players'));
+            expect(playerLine).not.toContain('holding');
+        });
+
         it('lists nearby mobs', () => {
             const state = createWorldState({
                 nearbyMobs: [
-                    { name: 'Zombie', type: 'hostile', distance: 8.0, position: { x: 108, y: 64, z: -200 } },
-                    { name: 'Cow', type: 'animal', distance: 12.5, position: { x: 112, y: 64, z: -188 } },
+                    { name: 'Zombie', type: 'hostile', distance: 8.0, position: { x: 108, y: 64, z: -200 }, heldItem: null },
+                    { name: 'Cow', type: 'animal', distance: 12.5, position: { x: 112, y: 64, z: -188 }, heldItem: null },
                 ],
             });
             const lines = buildContextStrings(state, names, 'Bot');
@@ -274,7 +292,7 @@ describe('buildContextStrings', () => {
 
         it('limits mob list to 10 entries', () => {
             const mobs = Array.from({ length: 15 }, (_, i) => ({
-                name: `Zombie${i}`, type: 'hostile', distance: i + 1, position: { x: 100 + i, y: 64, z: -200 },
+                name: `Zombie${i}`, type: 'hostile', distance: i + 1, position: { x: 100 + i, y: 64, z: -200 }, heldItem: null,
             }));
             const state = createWorldState({ nearbyMobs: mobs });
             const lines = buildContextStrings(state, names, 'Bot');
