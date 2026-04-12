@@ -8,8 +8,6 @@ interface CharacterSelectorProps {
     setSelectedCharacterId: (id: string | null) => void;
     selectedCharacterId2: () => string | null;
     setSelectedCharacterId2: (id: string | null) => void;
-    onCharacterChange: () => void;
-    onCharacter2Change: () => void;
     onScenariosLoaded: (scenarios: ScenarioInfo[]) => void;
     onMcOnlyChange: (checked: boolean) => void;
 }
@@ -126,7 +124,6 @@ export default function CharacterSelector(props: CharacterSelectorProps) {
                     value={props.selectedCharacterId()}
                     onChange={(val) => {
                         props.setSelectedCharacterId(val);
-                        props.onCharacterChange();
                     }}
                     placeholder="Select a character..."
                 />
@@ -147,7 +144,6 @@ export default function CharacterSelector(props: CharacterSelectorProps) {
                     value={props.selectedCharacterId2() ?? ''}
                     onChange={(val) => {
                         props.setSelectedCharacterId2(val || null);
-                        props.onCharacter2Change();
                     }}
                     placeholder="Select a second character..."
                 />

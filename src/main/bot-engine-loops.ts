@@ -58,9 +58,7 @@ export function createPerceptionLoop(
         try {
             const state = readWorldState(bot, entityRange);
             const rawStrings = buildContextStrings(state, callbacks.getNames(), assistantName);
-            const contextStrings = slot === 1
-                ? rawStrings.map((s) => `[${assistantName}] ${s}`)
-                : rawStrings.map((s) => `[${assistantName}] ${s}`);
+            const contextStrings = rawStrings.map((s) => `[${assistantName}] ${s}`);
 
             const contextHash = contextStrings.join('|');
 
