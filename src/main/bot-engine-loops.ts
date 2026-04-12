@@ -56,17 +56,10 @@ export function createPerceptionLoop(
 
             const contextHash = contextStrings.join('|');
 
-            // Only update position if it's valid (perception returns 0,0,0 when bot pos is NaN)
-            const posValid = state.position.x !== 0 || state.position.y !== 0 || state.position.z !== 0;
+            // Only update position if valid (null = bot pos was NaN during respawn/combat)
             callbacks.updateStatus({
-                ...(posValid
-                    ? {
-                          [statusPositionKey]: {
-                              x: Math.round(state.position.x),
-                              y: Math.round(state.position.y),
-                              z: Math.round(state.position.z),
-                          },
-                      }
+                ...(state.position
+                    ? { [statusPositionKey]: state.position }
                     : {}),
                 [statusHealthKey]: state.health,
                 [statusFoodKey]: state.food,

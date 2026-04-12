@@ -6,7 +6,7 @@ import { getCurrentActivity, getBotMode, getHomePosition } from './actions/actio
 import { getVehicle, isInWater, isInLava } from './mineflayer-types';
 
 export interface WorldState {
-    position: { x: number; y: number; z: number };
+    position: { x: number; y: number; z: number } | null;
     health: number;
     food: number;
     experience: { level: number; points: number };
@@ -320,11 +320,9 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
     }
 
     return {
-        position: {
-            x: positionValid ? Math.round(pos.x) : 0,
-            y: positionValid ? Math.round(pos.y) : 0,
-            z: positionValid ? Math.round(pos.z) : 0,
-        },
+        position: positionValid
+            ? { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) }
+            : null,
         health: Math.round(bot.health * 10) / 10,
         food: bot.food,
         experience: {
@@ -422,8 +420,11 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     const who = characterName ?? 'Bot';
     const timeStr = ticksToTime(state.timeOfDay);
 
+    const posStr = state.position
+        ? `${state.position.x}, ${state.position.y}, ${state.position.z}`
+        : 'unknown';
     lines.push(
-        `${who}'s position: ${state.position.x}, ${state.position.y}, ${state.position.z} | ` +
+        `${who}'s position: ${posStr} | ` +
             `Game Mode: ${state.gameMode} | Biome: ${state.biome} | Dimension: ${state.dimension}`,
     );
 
@@ -454,7 +455,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
 
     // Home status
     const home = state.homePosition;
-    if (home) {
+    if (home && state.position) {
         const dx = state.position.x - home.x;
         const dz = state.position.z - home.z;
         const homeDist = Math.round(Math.sqrt(dx * dx + dz * dz));
