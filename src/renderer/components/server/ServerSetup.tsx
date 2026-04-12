@@ -1,6 +1,7 @@
 import { Show, For } from 'solid-js';
 import type { Accessor } from 'solid-js';
 import { setupProgress, isSettingUp } from '../../stores/server-store';
+import SetupProgressBar from '../SetupProgressBar';
 
 interface ServerSetupProps {
     availableVersions: Accessor<string[]>;
@@ -56,19 +57,7 @@ export default function ServerSetup(props: ServerSetupProps) {
                 </div>
             </div>
             <Show when={setupProgress()}>
-                <div class="server-setup-progress">
-                    <div class="server-setup-progress-label">{setupProgress()?.label}</div>
-                    <div class="server-setup-progress-bar">
-                        <div
-                            class="server-setup-progress-fill"
-                            style={{
-                                width: setupProgress()?.bytesTotal
-                                    ? `${Math.round(((setupProgress()?.bytesDownloaded ?? 0) / (setupProgress()?.bytesTotal ?? 1)) * 100)}%`
-                                    : `${Math.round(((setupProgress()?.step ?? 0) / (setupProgress()?.totalSteps ?? 1)) * 100)}%`,
-                            }}
-                        />
-                    </div>
-                </div>
+                <SetupProgressBar progress={setupProgress} />
             </Show>
             <button
                 class="btn btn-connect server-setup-btn"
