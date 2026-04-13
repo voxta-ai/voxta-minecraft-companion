@@ -201,8 +201,16 @@ function VisionModeSelector() {
 
 // ── Audio effects section ────────────────────────────────────
 
+import previewWav1 from '../assets/audio-samples/preview-1.wav';
+import previewWav2 from '../assets/audio-samples/preview-2.wav';
+import previewWav3 from '../assets/audio-samples/preview-3.wav';
+import previewWav4 from '../assets/audio-samples/preview-4.wav';
+
+const PREVIEW_SAMPLES = [previewWav1, previewWav2, previewWav3, previewWav4];
+
 function AudioEffects() {
-    const [testing, setTesting] = createSignal(false);
+    const [playingIndex, setPlayingIndex] = createSignal(-1);
+
     // Lazy-init a dedicated engine for test previews
     let testEngine: import('../services/SpatialAudioEngine').SpatialAudioEngine | null = null;
 
@@ -215,15 +223,16 @@ function AudioEffects() {
         return testEngine;
     };
 
-    const handleTestVoice = async (): Promise<void> => {
-        setTesting(true);
+    const playSample = async (index: number): Promise<void> => {
+        setPlayingIndex(index);
         try {
             const engine = await getTestEngine();
-            await engine.playTestVoice();
+            const { onEnded } = await engine.playChunk(PREVIEW_SAMPLES[index]);
+            await onEnded;
         } catch (err) {
             console.error('[Audio] Test voice failed:', err);
         } finally {
-            setTesting(false);
+            setPlayingIndex(-1);
         }
     };
 
@@ -351,15 +360,21 @@ function AudioEffects() {
                 </SettingCard>
             </Show>
 
-            {/* Test button */}
-            <SettingCard name="Preview" description="Play a test tone through the effects chain">
-                <button
-                    class="btn-test-voice"
-                    disabled={testing()}
-                    onClick={handleTestVoice}
-                >
-                    {testing() ? '...' : '🔊 Test'}
-                </button>
+            {/* Preview buttons */}
+            <SettingCard name="Preview" description="Play a voice sample through the effects chain">
+                <div class="preview-buttons">
+                    <For each={PREVIEW_SAMPLES}>
+                        {(_, i) => (
+                            <button
+                                class="btn-test-voice"
+                                disabled={playingIndex() !== -1}
+                                onClick={() => playSample(i())}
+                            >
+                                {playingIndex() === i() ? '...' : `${i() + 1}`}
+                            </button>
+                        )}
+                    </For>
+                </div>
             </SettingCard>
         </div>
     );
