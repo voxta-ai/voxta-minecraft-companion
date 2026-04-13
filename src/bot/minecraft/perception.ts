@@ -564,9 +564,7 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
         lines.push(`${who}'s active effects: ${state.activeEffects.join(', ')}`);
     }
 
-    if (state.heldItem) {
-        lines.push(`${who} is holding: ${state.heldItem}`);
-    }
+    lines.push(`${who} is holding: ${state.heldItem ?? 'nothing (empty hands)'}`);
 
     if (state.armor.length > 0) {
         lines.push(`${who}'s armor: ${state.armor.map((a) => a.replace(/_/g, ' ')).join(', ')}`);
@@ -578,11 +576,19 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
         const playerList = state.nearbyPlayers
             .map((p) => {
                 const voxtaName = names.resolveToVoxta(p.name);
-                const holding = p.heldItem ? `, holding ${p.heldItem}` : ', empty hands';
-                return `${voxtaName} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z}${holding})`;
+                return `${voxtaName} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z})`;
             })
             .join(', ');
         lines.push(`Nearby players: ${playerList}`);
+
+        for (const p of state.nearbyPlayers) {
+            const voxtaName = names.resolveToVoxta(p.name);
+            if (p.heldItem) {
+                lines.push(`${who} can see ${voxtaName} is holding: ${p.heldItem}`);
+            } else {
+                lines.push(`${who} can see ${voxtaName} has empty hands`);
+            }
+        }
     }
 
     if (state.nearbyMobs.length > 0) {
