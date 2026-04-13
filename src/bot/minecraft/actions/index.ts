@@ -21,8 +21,8 @@ export {
 } from './action-state.js';
 
 // Helpers (re-exported for consumers that need them directly)
-export { getArg, findNearestPlayer, raycastFromPlayer } from './action-helpers.js';
-export type { RaycastHit } from './action-helpers.js';
+export { getArg, findNearestPlayer, raycastFromPlayer, findEntityInCrosshair } from './action-helpers.js';
+export type { RaycastHit, EntityCrosshairHit } from './action-helpers.js';
 
 // Action implementations
 export { followPlayer, resumeFollowPlayer, goTo, goHome, collectItems, goToEntity, mountEntity, dismountEntity } from './movement.js';

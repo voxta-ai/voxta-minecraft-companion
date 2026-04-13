@@ -222,6 +222,67 @@ export function raycastFromPlayer(bot: Bot, player: Entity, maxRange = DEFAULT_R
     return null;
 }
 
+export interface EntityCrosshairHit {
+    /** The entity the player is looking at */
+    entity: Entity;
+    /** Distance from the player to the entity */
+    distance: number;
+}
+
+/**
+ * Find the entity closest to the player's crosshair (look direction).
+ * Uses point-to-ray perpendicular distance — no stepping needed.
+ * Only returns entities within the hitbox threshold of the ray.
+ */
+export function findEntityInCrosshair(
+    bot: Bot,
+    player: Entity,
+    maxRange = DEFAULT_RAY_RANGE,
+    hitboxThreshold = 1.5,
+): EntityCrosshairHit | null {
+    const eyePos = player.position.offset(0, PLAYER_EYE_HEIGHT, 0);
+    const yaw = player.yaw ?? 0;
+    const pitch = player.pitch ?? 0;
+
+    const dirX = -Math.sin(yaw) * Math.cos(pitch);
+    const dirY = Math.sin(pitch);
+    const dirZ = -Math.cos(yaw) * Math.cos(pitch);
+
+    let bestHit: EntityCrosshairHit | null = null;
+    let bestAlongDist = Infinity;
+
+    for (const entity of Object.values(bot.entities)) {
+        if (entity === bot.entity || entity === player) continue;
+        if (entity.type === 'orb' || entity.type === 'projectile' || entity.type === 'object' || entity.type === 'global') continue;
+        const eName = (entity.displayName ?? entity.name ?? '').toLowerCase();
+        if (eName === 'item' || eName === 'unknown' || !eName) continue;
+
+        // Vector from eye to entity center
+        const entityCenter = entity.position.offset(0, (entity.height ?? 1) * 0.5, 0);
+        const toX = entityCenter.x - eyePos.x;
+        const toY = entityCenter.y - eyePos.y;
+        const toZ = entityCenter.z - eyePos.z;
+
+        // Project onto ray direction (dot product)
+        const alongDist = toX * dirX + toY * dirY + toZ * dirZ;
+        if (alongDist <= 0) continue; // Behind the player
+        if (alongDist > maxRange) continue; // Too far
+
+        // Perpendicular distance from entity center to the ray line
+        const totalDistSq = toX * toX + toY * toY + toZ * toZ;
+        const perpDistSq = totalDistSq - alongDist * alongDist;
+        if (perpDistSq > hitboxThreshold * hitboxThreshold) continue; // Too far from crosshair
+
+        // Pick the closest entity along the ray
+        if (alongDist < bestAlongDist) {
+            bestAlongDist = alongDist;
+            bestHit = { entity, distance: Math.round(alongDist * 10) / 10 };
+        }
+    }
+
+    return bestHit;
+}
+
 // ---- Block interaction helpers ----
 
 /** Find a nearby block matching the predicate and navigate to it.
