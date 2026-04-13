@@ -33,6 +33,7 @@ function createWorldState(overrides: Partial<WorldState> = {}): WorldState {
         isSleeping: false,
         activeEffects: [],
         riding: null,
+        playerLookingAt: null,
         ...overrides,
     };
 }

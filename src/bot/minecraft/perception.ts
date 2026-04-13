@@ -3,6 +3,7 @@ import type { Entity } from 'prismarine-entity';
 import type { NameRegistry } from '../name-registry';
 import { BED_BLOCKS } from './game-data';
 import { getCurrentActivity, getBotMode, getHomePosition } from './actions/action-state.js';
+import { findNearestPlayer, findEntityInCrosshair } from './actions/action-helpers.js';
 import { getVehicle, isInWater, isInLava } from './mineflayer-types';
 import { isPositionFinite, normalizeEffects } from './utils';
 
@@ -60,6 +61,7 @@ export interface WorldState {
     isSleeping: boolean;
     activeEffects: string[]; // e.g. ["Poison II (0:15)", "Slowness (1:30)"]
     riding: string | null; // Name of entity being ridden, or null
+    playerLookingAt: { name: string; distance: number } | null;
 }
 
 export interface NearbyEntity {
@@ -347,6 +349,21 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         }
     }
 
+    // Detect what entity the nearest player is looking at (mobs/animals only)
+    let playerLookingAt: WorldState['playerLookingAt'] = null;
+    if (positionValid) {
+        const nearestPlayer = findNearestPlayer(bot);
+        if (nearestPlayer) {
+            const crosshairHit = findEntityInCrosshair(bot, nearestPlayer);
+            if (crosshairHit) {
+                playerLookingAt = {
+                    name: crosshairHit.entity.displayName ?? crosshairHit.entity.name ?? 'unknown',
+                    distance: crosshairHit.distance,
+                };
+            }
+        }
+    }
+
     return {
         position: positionValid
             ? { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z) }
@@ -385,6 +402,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         isSleeping: bot.isSleeping,
         activeEffects: readActiveEffects(bot),
         riding,
+        playerLookingAt,
     };
 }
 
@@ -588,6 +606,12 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
             } else {
                 lines.push(`${who} can see ${voxtaName} has empty hands`);
             }
+        }
+
+        // What the player is looking at
+        if (state.playerLookingAt) {
+            const voxtaName = names.resolveToVoxta(state.nearbyPlayers[0]?.name ?? 'Player');
+            lines.push(`${voxtaName} spotted: ${state.playerLookingAt.name} (${state.playerLookingAt.distance} blocks away)`);
         }
     }
 
