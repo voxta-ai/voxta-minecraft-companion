@@ -15,6 +15,7 @@ function getContextIcon(text: string): string {
     if (text.includes('oxygen:') || text.includes('drowning')) return '💨';
     if (text.includes('CRITICAL:') || text.includes('WARNING:')) return '⚠️';
     if (text.includes('Note:')) return '💡';
+    if (text.includes('can see')) return '👁️';
     if (text.includes('is holding:')) return '🤚';
     if (text.includes('armor:')) return '🛡️';
     if (text.includes('Nearby players:')) return '👤';
@@ -33,6 +34,7 @@ function getContextLabel(text: string): string {
     if (text.includes('oxygen:') || text.includes('drowning')) return 'Oxygen';
     if (text.includes('CRITICAL:') || text.includes('WARNING:')) return 'Alert';
     if (text.includes('Note:')) return 'Note';
+    if (text.includes('can see')) return 'Player Observation';
     if (text.includes('is holding:')) return 'Held Item';
     if (text.includes('armor:')) return 'Armor';
     if (text.includes('Nearby players:')) return 'Players';
