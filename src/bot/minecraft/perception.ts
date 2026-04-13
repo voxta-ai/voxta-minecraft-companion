@@ -17,8 +17,9 @@ const NOTABLE_BLOCKS_Y_MAX = 3;
 const ORE_SCAN_RADIUS = 16;           // Wider radius for resource awareness
 const ORE_SCAN_Y_MIN = -3;
 const ORE_SCAN_Y_MAX = 3;
-const ROOF_CHECK_MAX_Y = 6;           // How high to look for a roof above bot
+const ROOF_CHECK_MAX_Y = 24;          // How high to look for a roof above bot
 const CAVE_BLOCK_RATIO_THRESHOLD = 0.6; // Fraction of natural stone to count as cave
+const CAVE_NO_ROOF_RATIO_THRESHOLD = 0.8; // High ratio = cave even without visible roof
 const SNOW_TEMP_THRESHOLD = 0.15;     // Below this biome temp → "Snowing" instead of "Raining"
 const EYE_HEIGHT_RATIO = 0.85;        // Bot eye position as fraction of entity height
 const ENTITY_CENTER_RATIO = 0.5;      // Target center for LOS checks
@@ -304,14 +305,16 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         .filter(([label]) => label !== 'torch')
         .map(([label, count]) => (count > 1 ? `${label} x${count}` : label));
 
-    // Determine if we're in a cave: roof is present AND most surrounding solid
-    // blocks are natural stone/deepslate rather than player-placed materials
-    const isCave = hasRoof && solidWallCount > 0 && (caveBlockCount / solidWallCount) > CAVE_BLOCK_RATIO_THRESHOLD;
+    // Determine if we're in a cave: either roof + natural stone ratio, or
+    // very high natural stone ratio alone (handles tall caves with no visible ceiling)
+    const caveRatio = solidWallCount > 0 ? caveBlockCount / solidWallCount : 0;
+    const isCave = (hasRoof && caveRatio > CAVE_BLOCK_RATIO_THRESHOLD)
+        || caveRatio > CAVE_NO_ROOF_RATIO_THRESHOLD;
 
     let shelter = 'outdoors';
-    if (hasRoof && isCave && shelterBlockLabels.length > 0) {
+    if (isCave && shelterBlockLabels.length > 0) {
         shelter = `underground cave (${shelterBlockLabels.join(', ')} nearby)`;
-    } else if (hasRoof && isCave) {
+    } else if (isCave) {
         shelter = 'underground cave';
     } else if (hasRoof && shelterBlockLabels.length > 0) {
         shelter = `indoors, inside shelter (${shelterBlockLabels.join(', ')} nearby)`;
