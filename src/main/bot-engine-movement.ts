@@ -585,8 +585,10 @@ export function createFollowWatchdog(
             resumeFollowPlayer(bot, followingPlayer, callbacks.getNames());
         } else if (stuckCount === 2) {
             console.log(`[${label}] Watchdog: still stuck — resetting pathfinder movements (tier 2)`);
+            // Preserve canDig from current movements — shelter protection may have disabled it
+            const prevCanDig = bot.pathfinder.movements?.canDig ?? true;
             const freshMovements = new (require('mineflayer-pathfinder').Movements)(bot);
-            freshMovements.canDig = true;
+            freshMovements.canDig = prevCanDig;
             freshMovements.allow1by1towers = true;
             bot.pathfinder.setMovements(freshMovements);
             resumeFollowPlayer(bot, followingPlayer, callbacks.getNames());
