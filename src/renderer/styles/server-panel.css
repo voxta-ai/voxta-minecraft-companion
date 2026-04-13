@@ -1126,9 +1126,15 @@
     padding: 12px 0;
 }
 
-/* Audio effects test button */
+/* Audio effects preview buttons */
+.preview-buttons {
+    display: flex;
+    gap: 6px;
+}
+
 .btn-test-voice {
-    padding: 6px 14px;
+    padding: 6px 12px;
+    min-width: 36px;
     background: var(--accent-green);
     border: none;
     border-radius: var(--radius-sm);
