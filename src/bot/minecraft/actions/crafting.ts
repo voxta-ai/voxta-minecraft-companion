@@ -75,7 +75,7 @@ async function autoCraftWithPrereqs(
     const stillNeed = depth > 0 ? count - alreadyHave : count;
 
     // Try direct craft first (bot has all materials)
-    let recipes = bot.recipesFor(itemId, null, 1, craftingTable);
+    const recipes = bot.recipesFor(itemId, null, 1, craftingTable);
     if (recipes.length > 0) {
         try {
             const before = countItemInInventory(bot, itemId);
