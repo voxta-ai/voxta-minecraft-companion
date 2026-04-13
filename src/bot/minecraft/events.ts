@@ -604,6 +604,13 @@ export class McEventBridge {
         const botName = this.callbacks.getAssistantName();
 
         try {
+            // Re-verify ingredients — inventory may have changed since the pre-check
+            const hasCoal = this.bot.inventory.items().some((i) => i.name === 'coal' || i.name === 'charcoal');
+            const hasSticks = this.bot.inventory.items().some((i) => i.name === 'stick');
+            const hasPlanks = this.bot.inventory.items().some((i) => i.name.endsWith('_planks'));
+            const hasLogs = this.bot.inventory.items().some((i) => i.name.includes('_log'));
+            if (!hasCoal || (!hasSticks && !hasPlanks && !hasLogs)) return;
+
             const mcData = require('minecraft-data')(this.bot.version);
 
             // Step 1: Ensure we have sticks
@@ -615,15 +622,16 @@ export class McEventBridge {
                 // Need planks first?
                 const planks = this.bot.inventory.items().find((i) => i.name.endsWith('_planks'));
                 if (!planks) {
-                    // Craft planks from a log
+                    // Craft planks from a log — match plank type to the log we have
                     const log = this.bot.inventory.items().find((i) => i.name.includes('_log'));
-                    if (!log) { return; }
-                    const plankId = mcData.itemsByName['oak_planks']?.id;
+                    if (!log) return;
+                    const woodType = log.name.replace('_log', '').replace('stripped_', '');
+                    const plankName = `${woodType}_planks`;
+                    const plankId = mcData.itemsByName[plankName]?.id ?? mcData.itemsByName['oak_planks']?.id;
                     if (!plankId) return;
                     const plankRecipes = this.bot.recipesFor(plankId, null, 1, null);
-                    if (plankRecipes.length > 0) {
-                        await this.bot.craft(plankRecipes[0], 1, undefined);
-                    }
+                    if (plankRecipes.length === 0) return;
+                    await this.bot.craft(plankRecipes[0], 1, undefined);
                 }
                 // Craft sticks from planks
                 const stickId = mcData.itemsByName['stick']?.id;
