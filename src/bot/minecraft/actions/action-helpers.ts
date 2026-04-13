@@ -3,6 +3,8 @@ import type { Block } from 'prismarine-block';
 import type { Entity } from 'prismarine-entity';
 import pkg from 'mineflayer-pathfinder';
 const { goals } = pkg;
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
 import type { ActionInvocationArgument } from '../../voxta/types.js';
 import type { NameRegistry } from '../../name-registry';
 import type { ToolCategory } from '../game-data';
@@ -125,6 +127,99 @@ export function getEquipSlot(itemName: string): 'head' | 'torso' | 'legs' | 'fee
     if (itemName.includes('leggings') || itemName.includes('pants')) return 'legs';
     if (itemName.includes('boots')) return 'feet';
     return 'hand';
+}
+
+// ---- Player targeting helpers ----
+
+/** Find the nearest non-bot player entity */
+export function findNearestPlayer(bot: Bot): Entity | undefined {
+    let closest: Entity | undefined;
+    let closestDist = Infinity;
+    for (const entity of Object.values(bot.entities)) {
+        if (entity.type !== 'player' || entity === bot.entity) continue;
+        const dist = entity.position.distanceTo(bot.entity.position);
+        if (dist < closestDist) {
+            closestDist = dist;
+            closest = entity;
+        }
+    }
+    return closest;
+}
+
+// ---- Raycast helpers ----
+
+const PLAYER_EYE_HEIGHT = 1.62;
+const RAY_STEP = 0.1;
+const DEFAULT_RAY_RANGE = 20;
+
+export interface RaycastHit {
+    /** The solid block the ray hit */
+    block: Block;
+    /** The face normal — which side of the block was hit */
+    face: { x: number; y: number; z: number };
+}
+
+/**
+ * Raytrace from a player's eye position along their look direction.
+ * Returns the first solid block hit and the face it was entered from, or null if nothing in range.
+ */
+export function raycastFromPlayer(bot: Bot, player: Entity, maxRange = DEFAULT_RAY_RANGE): RaycastHit | null {
+    const Vec3 = require('vec3').Vec3;
+    const eyePos = player.position.offset(0, PLAYER_EYE_HEIGHT, 0);
+    const yaw = player.yaw ?? 0;
+    const pitch = player.pitch ?? 0;
+
+    // Mineflayer: negative pitch = looking down, positive = looking up
+    const dirX = -Math.sin(yaw) * Math.cos(pitch);
+    const dirY = Math.sin(pitch);
+    const dirZ = -Math.cos(yaw) * Math.cos(pitch);
+
+    const maxSteps = Math.ceil(maxRange / RAY_STEP);
+
+    let prevBlockX = NaN;
+    let prevBlockY = NaN;
+    let prevBlockZ = NaN;
+
+    for (let i = 1; i <= maxSteps; i++) {
+        const rx = eyePos.x + dirX * RAY_STEP * i;
+        const ry = eyePos.y + dirY * RAY_STEP * i;
+        const rz = eyePos.z + dirZ * RAY_STEP * i;
+
+        const bx = Math.floor(rx);
+        const by = Math.floor(ry);
+        const bz = Math.floor(rz);
+
+        // Skip if same block as previous step
+        if (bx === prevBlockX && by === prevBlockY && bz === prevBlockZ) continue;
+
+        const checkPos = new Vec3(bx, by, bz);
+        const block = bot.blockAt(checkPos);
+
+        if (block && block.boundingBox === 'block') {
+            // Determine which face we entered from using the previous air position
+            let face = { x: 0, y: 1, z: 0 }; // default: top face
+            if (!isNaN(prevBlockX)) {
+                const dx = prevBlockX - bx;
+                const dy = prevBlockY - by;
+                const dz = prevBlockZ - bz;
+                // Pick the dominant axis
+                if (Math.abs(dy) >= Math.abs(dx) && Math.abs(dy) >= Math.abs(dz)) {
+                    face = { x: 0, y: dy > 0 ? 1 : -1, z: 0 };
+                } else if (Math.abs(dx) >= Math.abs(dz)) {
+                    face = { x: dx > 0 ? 1 : -1, y: 0, z: 0 };
+                } else {
+                    face = { x: 0, y: 0, z: dz > 0 ? 1 : -1 };
+                }
+            }
+            return { block, face };
+        }
+
+        prevBlockX = bx;
+        prevBlockY = by;
+        prevBlockZ = bz;
+    }
+
+    return null;
 }
 
 // ---- Block interaction helpers ----
