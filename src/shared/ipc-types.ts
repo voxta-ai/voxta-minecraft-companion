@@ -103,6 +103,9 @@ export interface McSettings {
     visionMode: VisionMode;
     actionInferenceTiming: ActionInferenceTiming;
 
+    // Action inference system prompt addon
+    actionInferencePrompt: string;
+
     // Audio effects
     enableSpatialAudio: boolean;
     spatialNearDistance: number;  // Full volume within this range (blocks)
@@ -138,6 +141,8 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableAutoTorch: true,
     visionMode: 'off',
     actionInferenceTiming: 'afterChar',
+
+    actionInferencePrompt: 'Before selecting eat, give, or equip actions, check the inventory in the updated context. Only eat, give, or equip items that are currently listed in the inventory.',
 
     enableSpatialAudio: false,
     spatialNearDistance: 5,

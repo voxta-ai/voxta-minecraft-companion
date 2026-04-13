@@ -24,6 +24,7 @@ const ALWAYS_SILENT_PATTERNS = [
     'no block name', 'no item', 'too tough to kill', 'barely got away',
     'stopped fighting', 'died while fighting', 'reached the', 'cannot find',
     'failed to eat', 'not edible', 'ate some', 'nothing to eat',
+    'checked inventory but has no',
 ];
 
 /** Actions that clear follow state when triggered */

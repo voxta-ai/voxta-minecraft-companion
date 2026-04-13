@@ -12,7 +12,23 @@ export interface ContextDefinition {
     disabled?: boolean;
     flagsFilter?: string;
     roleFilter?: string;
+    applyTo?: PromptCategory;
+    position?: PromptPosition;
 }
+
+/** PromptCategories (serialized as strings via JsonStringEnumConverter) */
+export type PromptCategory =
+    | 'All'
+    | 'Replies'
+    | 'ActionInference'
+    | 'Summarization'
+    | 'ImageGen'
+    | 'Memory'
+    | 'Stories'
+    | 'ComputerVision';
+
+/** PromptPositions (serialized as strings via JsonStringEnumConverter) */
+export type PromptPosition = 'Context' | 'System';
 
 export type FunctionArgumentType = 'Undefined' | 'String' | 'Integer' | 'Double' | 'Boolean';
 

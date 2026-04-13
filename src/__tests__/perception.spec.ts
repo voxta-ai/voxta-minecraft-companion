@@ -253,22 +253,22 @@ describe('buildContextStrings', () => {
             expect(playerLine).toContain('5.2m');
         });
 
-        it('shows held item for nearby players', () => {
+        it('shows held item for nearby players as separate observation', () => {
             const state = createWorldState({
                 nearbyPlayers: [{ name: 'Steve', type: 'player', distance: 3.0, position: { x: 103, y: 64, z: -200 }, heldItem: 'Diamond Sword' }],
             });
             const lines = buildContextStrings(state, names, 'Bot');
-            const playerLine = lines.find((l) => l.includes('Nearby players'));
-            expect(playerLine).toContain('holding Diamond Sword');
+            const holdingLine = lines.find((l) => l.includes('can see'));
+            expect(holdingLine).toContain('can see Steve is holding: Diamond Sword');
         });
 
-        it('shows empty hands when player holds nothing', () => {
+        it('shows empty hands when player holds nothing as separate observation', () => {
             const state = createWorldState({
                 nearbyPlayers: [{ name: 'Steve', type: 'player', distance: 3.0, position: { x: 103, y: 64, z: -200 }, heldItem: null }],
             });
             const lines = buildContextStrings(state, names, 'Bot');
-            const playerLine = lines.find((l) => l.includes('Nearby players'));
-            expect(playerLine).toContain('empty hands');
+            const holdingLine = lines.find((l) => l.includes('can see'));
+            expect(holdingLine).toContain('can see Steve has empty hands');
         });
 
         it('lists nearby mobs', () => {
@@ -324,6 +324,12 @@ describe('buildContextStrings', () => {
             const state = createWorldState({ heldItem: 'diamond_sword' });
             const lines = buildContextStrings(state, names, 'Bot');
             expect(lines.find((l) => l.includes('holding: diamond_sword'))).toBeTruthy();
+        });
+
+        it('shows empty hands when bot holds nothing', () => {
+            const state = createWorldState({ heldItem: null });
+            const lines = buildContextStrings(state, names, 'Bot');
+            expect(lines.find((l) => l.includes('holding: nothing (empty hands)'))).toBeTruthy();
         });
 
         it('shows armor pieces', () => {
