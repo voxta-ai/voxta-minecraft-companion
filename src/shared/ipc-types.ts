@@ -116,6 +116,7 @@ export interface McSettings {
     enableEcho: boolean;
     echoDelay: number;            // 100-500 ms
     echoDecay: number;            // 0-100 feedback amount
+    enableAutoCaveEffects: boolean; // Auto-enable reverb+echo in caves
 }
 
 export const DEFAULT_SETTINGS: McSettings = {
@@ -142,7 +143,7 @@ export const DEFAULT_SETTINGS: McSettings = {
     visionMode: 'off',
     actionInferenceTiming: 'afterChar',
 
-    actionInferencePrompt: 'Before selecting eat, give, or equip actions, check the inventory in the updated context. Only eat, give, or equip items that are currently listed in the inventory.',
+    actionInferencePrompt: 'CRITICAL: Only select physical actions (mine, craft, build, attack, cook) when the player EXPLICITLY requests it. Questions about inventory, resources, or plans are NOT requests to act — use mc_none for those. Before selecting eat, give, or equip actions, check the inventory in the updated context. Only eat, give, or equip items that are currently listed in the inventory.',
 
     enableSpatialAudio: false,
     spatialNearDistance: 5,
@@ -153,6 +154,7 @@ export const DEFAULT_SETTINGS: McSettings = {
     enableEcho: false,
     echoDelay: 200,
     echoDecay: 30,
+    enableAutoCaveEffects: false,
 };
 
 export interface CharacterInfo {
@@ -224,6 +226,7 @@ export interface SpatialPosition {
     playerY: number;
     playerZ: number;
     playerYaw: number;
+    inCave: boolean;
 }
 
 // ---- Server Manager ----

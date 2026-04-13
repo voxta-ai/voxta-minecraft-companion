@@ -104,21 +104,27 @@ export async function placeBlock(bot: Bot, blockName: string | undefined): Promi
 
     const resolved = blockName.toLowerCase().replace(/ /g, '_');
 
-    // Find the block in inventory
+    // Find the block in inventory (main slots + held item + off-hand)
     const item = bot.inventory.items().find((i) => i.name.toLowerCase().includes(resolved));
     const heldItem = bot.heldItem;
     const isHeld = heldItem && heldItem.name.toLowerCase().includes(resolved);
+    const offHandItem = bot.inventory.slots[45];
+    const isOffHand = offHandItem && offHandItem.name.toLowerCase().includes(resolved);
 
-    if (!item && !isHeld) return `Checked inventory but has no ${blockName} to place`;
+    if (!item && !isHeld && !isOffHand) return `Checked inventory but has no ${blockName} to place`;
 
-    const displayName = item?.displayName ?? heldItem?.displayName ?? blockName;
+    // Use the display name of the item we're actually going to place
+    const sourceItem = item ?? (isHeld ? heldItem : null) ?? (isOffHand ? offHandItem : null);
+    const displayName = sourceItem?.displayName ?? blockName;
 
     // Save currently held item to re-equip after
     const previousHeld = !isHeld && heldItem ? heldItem.name : null;
 
     setSuppressPickups(bot, true);
-    if (!isHeld && item) {
-        await bot.equip(item, 'hand');
+    if (!isHeld) {
+        // Prefer main inventory, fall back to off-hand item
+        const toEquip = item ?? offHandItem;
+        if (toEquip) await bot.equip(toEquip, 'hand');
     }
 
     // Torch: place where the player is looking

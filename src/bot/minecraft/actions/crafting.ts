@@ -191,20 +191,20 @@ async function autoCraftWithPrereqs(
             continue; // Try the next recipe variant
         }
 
-        // All prerequisites resolved — delay to let server catch up, then retry
+        // All prerequisites resolved — use THIS recipe variant (not recipesFor
+        // which may return a different variant with ingredients we don't have)
         await delay(CRAFT_STEP_DELAY_MS);
-        recipes = bot.recipesFor(itemId, null, 1, craftingTable);
-        if (recipes.length > 0) {
-            try {
-                const before = countItemInInventory(bot, itemId);
-                await bot.craft(recipes[0], craftRuns, craftingTable ?? undefined);
-                const gained = countItemInInventory(bot, itemId) - before;
-                allSteps.push(`${gained} ${displayName}`);
-                return { success: true, crafted: gained, steps: allSteps, missing: [] };
-            } catch (err) {
-                const message = getErrorMessage(err);
-                return { success: false, crafted: 0, steps: allSteps, missing: [`${displayName}: ${message}`] };
-            }
+        try {
+            const before = countItemInInventory(bot, itemId);
+            await bot.craft(recipe, craftRuns, craftingTable ?? undefined);
+            const gained = countItemInInventory(bot, itemId) - before;
+            allSteps.push(`${gained} ${displayName}`);
+            return { success: true, crafted: gained, steps: allSteps, missing: [] };
+        } catch (err) {
+            const message = getErrorMessage(err);
+            // If this variant failed, try the next one instead of giving up
+            lastMissing = [`${displayName}: ${message}`];
+            continue;
         }
 
         // Collect what's still missing for this variant

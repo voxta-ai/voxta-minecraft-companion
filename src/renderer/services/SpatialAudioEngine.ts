@@ -31,6 +31,8 @@ export class SpatialAudioEngine {
     private maxDistance = 32;
     private lastPosition: SpatialPosition | null = null;
     private lastSettings: McSettings | null = null;
+    private autoCaveEnabled = false;
+    private lastInCave = false;
 
     /** Initialize the AudioContext and build the audio graph */
     private ensureContext(): AudioContext {
@@ -138,31 +140,37 @@ export class SpatialAudioEngine {
         this.spatialEnabled = settings.enableSpatialAudio;
         this.nearDistance = settings.spatialNearDistance;
         this.maxDistance = settings.spatialMaxDistance;
+        this.autoCaveEnabled = settings.enableAutoCaveEffects;
 
-        // Reverb
-        if (this.reverbWetGain && this.reverbDryGain) {
-            if (settings.enableReverb) {
-                const wet = settings.reverbAmount / 100;
-                this.reverbWetGain.gain.value = wet;
-                this.reverbDryGain.gain.value = 1 - wet * 0.5; // Keep some dry signal
-            } else {
-                this.reverbWetGain.gain.value = 0;
-                this.reverbDryGain.gain.value = 1;
+        // When auto cave is enabled, reverb/echo are driven by cave state — skip manual toggles
+        if (this.autoCaveEnabled) {
+            this.applyCaveEffects(this.lastInCave);
+        } else {
+            // Reverb
+            if (this.reverbWetGain && this.reverbDryGain) {
+                if (settings.enableReverb) {
+                    const wet = settings.reverbAmount / 100;
+                    this.reverbWetGain.gain.value = wet;
+                    this.reverbDryGain.gain.value = 1 - wet * 0.5; // Keep some dry signal
+                } else {
+                    this.reverbWetGain.gain.value = 0;
+                    this.reverbDryGain.gain.value = 1;
+                }
             }
-        }
 
-        // Update reverb impulse when decay changes
-        if (settings.enableReverb) {
-            this.updateReverbImpulse(settings.reverbDecay);
-        }
+            // Update reverb impulse when decay changes
+            if (settings.enableReverb) {
+                this.updateReverbImpulse(settings.reverbDecay);
+            }
 
-        // Echo
-        if (this.echoDelayNode && this.echoFeedbackGain) {
-            if (settings.enableEcho) {
-                this.echoDelayNode.delayTime.value = settings.echoDelay / 1000;
-                this.echoFeedbackGain.gain.value = settings.echoDecay / 100 * 0.7; // Cap at 0.7 to prevent runaway
-            } else {
-                this.echoFeedbackGain.gain.value = 0;
+            // Echo
+            if (this.echoDelayNode && this.echoFeedbackGain) {
+                if (settings.enableEcho) {
+                    this.echoDelayNode.delayTime.value = settings.echoDelay / 1000;
+                    this.echoFeedbackGain.gain.value = settings.echoDecay / 100 * 0.7; // Cap at 0.7 to prevent runaway
+                } else {
+                    this.echoFeedbackGain.gain.value = 0;
+                }
             }
         }
 
@@ -181,6 +189,13 @@ export class SpatialAudioEngine {
     /** Update spatial position — called on every position tick from main process */
     updatePosition(data: SpatialPosition): void {
         this.lastPosition = data;
+
+        // Auto cave effects: toggle reverb+echo when entering/exiting caves
+        if (this.autoCaveEnabled && data.inCave !== this.lastInCave) {
+            this.lastInCave = data.inCave;
+            this.applyCaveEffects(data.inCave);
+        }
+
         if (!this.spatialEnabled || !this.gainNode || !this.pannerNode) return;
 
         // 3D distance (includes height — flying/digging affects volume)
@@ -222,6 +237,35 @@ export class SpatialAudioEngine {
         // rightComponent: +1 = directly to player's right, -1 = directly to left
         const pan = Math.max(-1, Math.min(1, rightComponent));
         this.pannerNode.pan.setTargetAtTime(pan, now, 0.05);
+    }
+
+    /** Toggle reverb+echo for automatic cave detection */
+    private applyCaveEffects(inCave: boolean): void {
+        const settings = this.lastSettings;
+        if (!settings) return;
+
+        // Reverb
+        if (this.reverbWetGain && this.reverbDryGain) {
+            if (inCave) {
+                const wet = settings.reverbAmount / 100;
+                this.reverbWetGain.gain.value = wet;
+                this.reverbDryGain.gain.value = 1 - wet * 0.5;
+                this.updateReverbImpulse(settings.reverbDecay);
+            } else {
+                this.reverbWetGain.gain.value = 0;
+                this.reverbDryGain.gain.value = 1;
+            }
+        }
+
+        // Echo
+        if (this.echoDelayNode && this.echoFeedbackGain) {
+            if (inCave) {
+                this.echoDelayNode.delayTime.value = settings.echoDelay / 1000;
+                this.echoFeedbackGain.gain.value = settings.echoDecay / 100 * 0.7;
+            } else {
+                this.echoFeedbackGain.gain.value = 0;
+            }
+        }
     }
 
     /**

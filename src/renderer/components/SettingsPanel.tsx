@@ -280,6 +280,21 @@ function AudioEffects() {
                 </SettingCard>
             </Show>
 
+            {/* Auto Cave Effects */}
+            <SettingCard
+                name="Auto Cave Effects"
+                description="Automatically enable reverb+echo when bot is in a cave (experimental)"
+            >
+                <label class="toggle">
+                    <input
+                        type="checkbox"
+                        checked={settings.enableAutoCaveEffects}
+                        onChange={(e) => updateSetting('enableAutoCaveEffects', e.currentTarget.checked)}
+                    />
+                    <span class="toggle-slider" />
+                </label>
+            </SettingCard>
+
             {/* Reverb */}
             <SettingCard name="Reverb" description="Cave-like echo ambience">
                 <label class="toggle">
