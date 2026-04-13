@@ -309,6 +309,18 @@ export function setupStuckDetection(bot: Bot): void {
                 );
             }
 
+            // ---- Give up after too many consecutive stuck cycles ----
+            // If the bot keeps getting stuck in the same spot (e.g. trapped inside
+            // its own build), cancel the pathfinder goal to break the loop.
+            if (consecutiveStuckCount >= 5) {
+                console.log(`[MC Stuck] Giving up after ${consecutiveStuckCount} consecutive stuck cycles — canceling pathfinder goal`);
+                bot.pathfinder.stop();
+                consecutiveStuckCount = 0;
+                stuckSince = null;
+                lastMovePos = pos.clone();
+                return;
+            }
+
             // ---- Diagnostic dump when stuck repeatedly ----
             // Log full surroundings on every 2nd+ consecutive stuck cycle
             // so we can diagnose pit/wall traps without flooding logs on one-off stalls.

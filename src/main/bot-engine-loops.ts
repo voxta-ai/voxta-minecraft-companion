@@ -32,6 +32,8 @@ export interface LoopCallbacks {
     queueNote(text: string): void;
     emit(event: string, data: unknown): void;
     getActionInferenceAddon(): ContextDefinition | null;
+    isInCave(slot: 1 | 2): boolean;
+    setInCave(slot: 1 | 2, inCave: boolean): void;
 }
 
 /**
@@ -53,11 +55,18 @@ export function createPerceptionLoop(
     const statusHealthKey = slot === 1 ? 'health' : 'health2';
     const statusFoodKey = slot === 1 ? 'food' : 'food2';
 
+    // Read cave state immediately so auto-cave effects work on first spawn
+    try {
+        const initialState = readWorldState(bot, entityRange);
+        callbacks.setInCave(slot, initialState.inCave);
+    } catch { /* chunk may not be loaded yet */ }
+
     return setInterval(() => {
         const voxta = callbacks.getVoxta();
         if (!voxta?.sessionId) return;
         try {
             const state = readWorldState(bot, entityRange);
+            callbacks.setInCave(slot, state.inCave);
             const rawStrings = buildContextStrings(state, callbacks.getNames(), assistantName);
             const contextStrings = rawStrings.map((s) => `[${assistantName}] ${s}`);
 
@@ -108,8 +117,6 @@ export function createSpatialLoop(
     callbacks: LoopCallbacks,
 ): ReturnType<typeof setInterval> {
     return setInterval(() => {
-        const playerMcUsername = callbacks.getPlayerMcUsername();
-        if (!playerMcUsername) return;
         try {
             // Use the currently speaking bot's position — not always bot 1
             const slot = callbacks.getLastSpeakingSlot();
@@ -119,8 +126,14 @@ export function createSpatialLoop(
             // Use vehicle position when mounted — entity position is stale for passengers
             const botVehicle = getVehicle(activeBot);
             const botPos = botVehicle ? botVehicle.position : activeBot.entity?.position;
-            const playerEntity = activeBot.players[playerMcUsername]?.entity;
-            if (botPos && playerEntity) {
+            if (!botPos) return;
+
+            const playerMcUsername = callbacks.getPlayerMcUsername();
+            const playerEntity = playerMcUsername
+                ? activeBot.players[playerMcUsername]?.entity
+                : null;
+
+            if (playerEntity) {
                 const playerVehicle = getEntityVehicle(playerEntity);
                 const pPos = playerVehicle ? playerVehicle.position : playerEntity.position;
                 callbacks.emit('spatial-position', {
@@ -131,9 +144,10 @@ export function createSpatialLoop(
                     playerY: pPos.y,
                     playerZ: pPos.z,
                     playerYaw: playerEntity.yaw,
+                    inCave: callbacks.isInCave(slot),
                 });
-            } else if (botPos) {
-                // Player out of entity tracking range — signal max distance
+            } else {
+                // Player unknown or out of range — still emit so inCave reaches the renderer
                 callbacks.emit('spatial-position', {
                     botX: botPos.x,
                     botY: botPos.y,
@@ -142,6 +156,7 @@ export function createSpatialLoop(
                     playerY: botPos.y,
                     playerZ: botPos.z,
                     playerYaw: 0,
+                    inCave: callbacks.isInCave(slot),
                 });
             }
         } catch {

@@ -5,6 +5,7 @@ import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, initHomePosition } from '../bot/minecraft/action-dispatcher';
 import { loadCustomBlueprints } from '../bot/minecraft/blueprints';
 import { dismountEntity } from '../bot/minecraft/actions';
+import { resumeFollowPlayer } from '../bot/minecraft/actions/movement';
 import { NameRegistry } from '../bot/name-registry';
 import { VoxtaClient } from '../bot/voxta/client';
 import type { ServerMessage } from '../bot/voxta/types';
@@ -98,6 +99,7 @@ interface BotSlot {
     assistantName: string | null;
     flushHuntBatch: (() => void) | null;
     inRange: boolean;
+    inCave: boolean;
 }
 
 function createEmptySlot(): BotSlot {
@@ -111,6 +113,7 @@ function createEmptySlot(): BotSlot {
         assistantName: null,
         flushHuntBatch: null,
         inRange: true,
+        inCave: false,
     };
 }
 
@@ -400,6 +403,8 @@ export class BotEngine extends EventEmitter {
             queueNote: (text) => this.queueNote(text),
             emit: (event, data) => this.emit(event as BotEngineEvent, data),
             getActionInferenceAddon: () => buildActionInferenceAddon(this.settings.actionInferencePrompt),
+            isInCave: (slot) => this.slot(slot).inCave,
+            setInCave: (slot, inCave) => { this.slot(slot).inCave = inCave; },
         };
     }
 
@@ -605,7 +610,10 @@ export class BotEngine extends EventEmitter {
         // 5. Auto-follow player on spawn
         this.setupAutoFollow();
 
-        // 6. Late player detection — if the player wasn't online when the bot spawned,
+        // 6. Refresh follow goal on respawn (bot runs to death spot otherwise)
+        this.setupRespawnFollowRefresh();
+
+        // 7. Late player detection — if the player wasn't online when the bot spawned,
         //    detect them when they join and register names + set override
         if (!this.playerMcUsername) {
             this.setupLatePlayerDetection(this.botSlots[0].mcBot!.bot, config, uiConfig);
@@ -952,6 +960,31 @@ export class BotEngine extends EventEmitter {
                 });
             }
         }, 1000);
+    }
+
+    /** Refresh follow goal on respawn so the bot runs to the player's current position, not the death spot */
+    private setupRespawnFollowRefresh(): void {
+        let initialSpawnDone = false;
+        for (const slot of this.botSlots) {
+            if (!slot.mcBot) continue;
+            const bot = slot.mcBot.bot;
+            bot.on('spawn', () => {
+                // Skip the initial spawn — setupAutoFollow handles that
+                if (!initialSpawnDone) {
+                    initialSpawnDone = true;
+                    return;
+                }
+                const playerName = this.followingPlayer;
+                if (!playerName) return;
+                // Short delay: let the bot's position stabilize after respawn
+                setTimeout(() => {
+                    if (this.followingPlayer !== playerName) return;
+                    if (!slot.mcBot) return;
+                    const result = resumeFollowPlayer(slot.mcBot.bot, playerName, this.names);
+                    console.log(`[Bot] Respawn follow refresh: ${result}`);
+                }, 1500);
+            });
+        }
     }
 
     /**

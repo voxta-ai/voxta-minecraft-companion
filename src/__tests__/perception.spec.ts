@@ -19,6 +19,7 @@ function createWorldState(overrides: Partial<WorldState> = {}): WorldState {
         isRaining: false,
         isThundering: false,
         heldItem: null,
+        offHandItem: null,
         armor: [],
         nearbyPlayers: [],
         nearbyMobs: [],
@@ -34,6 +35,7 @@ function createWorldState(overrides: Partial<WorldState> = {}): WorldState {
         activeEffects: [],
         riding: null,
         playerLookingAt: null,
+        inCave: false,
         ...overrides,
     };
 }
@@ -324,13 +326,21 @@ describe('buildContextStrings', () => {
         it('shows held item', () => {
             const state = createWorldState({ heldItem: 'diamond_sword' });
             const lines = buildContextStrings(state, names, 'Bot');
-            expect(lines.find((l) => l.includes('holding: diamond_sword'))).toBeTruthy();
+            expect(lines.find((l) => l.includes('holding: diamond sword'))).toBeTruthy();
         });
 
         it('shows empty hands when bot holds nothing', () => {
             const state = createWorldState({ heldItem: null });
             const lines = buildContextStrings(state, names, 'Bot');
             expect(lines.find((l) => l.includes('holding: nothing (empty hands)'))).toBeTruthy();
+        });
+
+        it('shows off-hand item separately', () => {
+            const state = createWorldState({ heldItem: 'diamond_pickaxe', offHandItem: 'torch' });
+            const lines = buildContextStrings(state, names, 'Bot');
+            const holdingLine = lines.find((l) => l.includes('holding:'));
+            expect(holdingLine).toContain('diamond pickaxe');
+            expect(holdingLine).toContain('off-hand: torch');
         });
 
         it('shows armor pieces', () => {

@@ -19,7 +19,6 @@ const ORE_SCAN_Y_MIN = -3;
 const ORE_SCAN_Y_MAX = 3;
 const ROOF_CHECK_MAX_Y = 24;          // How high to look for a roof above bot
 const CAVE_BLOCK_RATIO_THRESHOLD = 0.6; // Fraction of natural stone to count as cave
-const CAVE_NO_ROOF_RATIO_THRESHOLD = 0.8; // High ratio = cave even without visible roof
 const SNOW_TEMP_THRESHOLD = 0.15;     // Below this biome temp → "Snowing" instead of "Raining"
 const EYE_HEIGHT_RATIO = 0.85;        // Bot eye position as fraction of entity height
 const ENTITY_CENTER_RATIO = 0.5;      // Target center for LOS checks
@@ -48,6 +47,7 @@ export interface WorldState {
     isRaining: boolean;
     isThundering: boolean;
     heldItem: string | null;
+    offHandItem: string | null;
     armor: string[]; // Equipped armor pieces
     nearbyPlayers: NearbyEntity[];
     nearbyMobs: NearbyEntity[];
@@ -63,6 +63,7 @@ export interface WorldState {
     activeEffects: string[]; // e.g. ["Poison II (0:15)", "Slowness (1:30)"]
     riding: string | null; // Name of entity being ridden, or null
     playerLookingAt: { name: string; distance: number } | null;
+    inCave: boolean;
 }
 
 export interface NearbyEntity {
@@ -223,11 +224,25 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         ancient_debris: 'ancient debris',
     };
 
+    // Blocks that don't count as a solid roof (natural foliage, trees, transparent blocks)
+    const NON_ROOF_BLOCKS = new Set([
+        'air', 'cave_air', 'void_air',
+        // Tree parts — standing under a tree is not being in a cave
+        'oak_leaves', 'birch_leaves', 'spruce_leaves', 'jungle_leaves',
+        'acacia_leaves', 'dark_oak_leaves', 'mangrove_leaves', 'cherry_leaves',
+        'azalea_leaves', 'flowering_azalea_leaves',
+        'oak_log', 'birch_log', 'spruce_log', 'jungle_log',
+        'acacia_log', 'dark_oak_log', 'mangrove_log', 'cherry_log',
+        // Vegetation and transparent blocks
+        'short_grass', 'tall_grass', 'fern', 'large_fern',
+        'vine', 'glow_lichen', 'hanging_roots', 'moss_carpet',
+    ]);
+
     let hasRoof = false;
     try {
         for (let dy = 1; dy <= ROOF_CHECK_MAX_Y; dy++) {
             const above = bot.blockAt(pos.offset(0, dy, 0));
-            if (above && above.name !== 'air' && above.name !== 'cave_air') {
+            if (above && !NON_ROOF_BLOCKS.has(above.name)) {
                 hasRoof = true;
                 break;
             }
@@ -236,11 +251,11 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         /* chunk not loaded */
     }
 
-    // Natural cave/underground blocks — used to detect if the bot is in a cave
+    // Natural cave/underground blocks — only hard rock types that indicate
+    // a real cave, NOT surface materials like dirt/gravel/clay
     const CAVE_BLOCKS = new Set([
         'stone', 'deepslate', 'granite', 'diorite', 'andesite', 'tuff',
         'calcite', 'dripstone_block', 'pointed_dripstone', 'moss_block',
-        'clay', 'gravel', 'dirt', 'coarse_dirt', 'rooted_dirt',
         'smooth_basalt', 'basalt', 'blackstone', 'netherrack', 'soul_sand', 'soul_soil',
         'cobbled_deepslate', 'infested_stone', 'infested_deepslate',
     ]);
@@ -305,11 +320,10 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         .filter(([label]) => label !== 'torch')
         .map(([label, count]) => (count > 1 ? `${label} x${count}` : label));
 
-    // Determine if we're in a cave: either roof + natural stone ratio, or
-    // very high natural stone ratio alone (handles tall caves with no visible ceiling)
+    // Determine if we're in a cave: must have a roof (within 24 blocks) AND
+    // enough natural stone around. Without a roof overhead, it's a ravine/surface, not a cave.
     const caveRatio = solidWallCount > 0 ? caveBlockCount / solidWallCount : 0;
-    const isCave = (hasRoof && caveRatio > CAVE_BLOCK_RATIO_THRESHOLD)
-        || caveRatio > CAVE_NO_ROOF_RATIO_THRESHOLD;
+    const isCave = hasRoof && caveRatio > CAVE_BLOCK_RATIO_THRESHOLD;
 
     let shelter = 'outdoors';
     if (isCave && shelterBlockLabels.length > 0) {
@@ -386,6 +400,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         isRaining: bot.isRaining,
         isThundering: bot.thunderState > 0,
         heldItem: bot.heldItem?.name ?? null,
+        offHandItem: bot.inventory.slots[45]?.name ?? null,
         armor: [
             bot.inventory.slots[5]?.name, // head
             bot.inventory.slots[6]?.name, // chest
@@ -406,6 +421,7 @@ export function readWorldState(bot: Bot, entityRange: number): WorldState {
         activeEffects: readActiveEffects(bot),
         riding,
         playerLookingAt,
+        inCave: isCave,
     };
 }
 
@@ -585,7 +601,9 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
         lines.push(`${who}'s active effects: ${state.activeEffects.join(', ')}`);
     }
 
-    lines.push(`${who} is holding: ${state.heldItem ?? 'nothing (empty hands)'}`);
+    const heldDesc = state.heldItem?.replace(/_/g, ' ') ?? 'nothing (empty hands)';
+    const offHandDesc = state.offHandItem ? `, off-hand: ${state.offHandItem.replace(/_/g, ' ')}` : '';
+    lines.push(`${who} is holding: ${heldDesc}${offHandDesc}`);
 
     if (state.armor.length > 0) {
         lines.push(`${who}'s armor: ${state.armor.map((a) => a.replace(/_/g, ' ')).join(', ')}`);

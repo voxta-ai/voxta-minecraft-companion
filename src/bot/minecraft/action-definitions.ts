@@ -91,7 +91,8 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     {
         name: 'mc_mine_block',
         description:
-            'Find and collect/harvest a specific type of block, plant, or resource. Works for ores, wood, flowers, crops, mushrooms, sweet berries (sweet_berry_bush), sugarcane (sugar_cane), and any other block or plant.',
+            'Find and collect/harvest a specific type of block, plant, or resource. Works for ores, wood, flowers, crops, mushrooms, sweet berries (sweet_berry_bush), sugarcane (sugar_cane), and any other block or plant. '
+            + 'Only use when the player explicitly asks to mine, gather, collect, or chop. Do NOT use just because the bot mentions resources or the player asks about inventory.',
         disabled: false,
         layer: '',
         effect: {},
@@ -103,7 +104,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
                     'Type of block to collect/harvest. Use "wood" or "log" for trees. Examples: oak_log, stone, iron_ore, cornflower, poppy, dandelion, wheat, sweet_berry_bush, sugar_cane',
                 required: true,
             },
-            { name: 'count', type: 'String', description: 'Number of blocks to mine (default: 5, max: 32)', required: false },
+            { name: 'count', type: 'String', description: 'How many to mine. Set when the player says or implies an amount. Leave empty for a small default batch.', required: false },
         ],
         category: 'survival',
         isQuick: false,
@@ -304,7 +305,7 @@ export const MINECRAFT_ACTIONS: McAction[] = [
     },
     {
         name: 'mc_craft',
-        description: 'Craft an item using materials in inventory. Needs a crafting table nearby for tools/weapons.',
+        description: 'Craft an item using materials in inventory. Needs a crafting table nearby for tools/weapons. Only use when the player explicitly asks to craft or make something.',
         disabled: false,
         layer: '',
         effect: {},

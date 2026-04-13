@@ -112,6 +112,12 @@ const BLOCK_DROP_NAMES: Record<string, string> = {
     grass_block: 'dirt',
     coal_ore: 'coal',
     deepslate_coal_ore: 'coal',
+    iron_ore: 'raw_iron',
+    deepslate_iron_ore: 'raw_iron',
+    gold_ore: 'raw_gold',
+    deepslate_gold_ore: 'raw_gold',
+    copper_ore: 'raw_copper',
+    deepslate_copper_ore: 'raw_copper',
     diamond_ore: 'diamond',
     deepslate_diamond_ore: 'diamond',
     emerald_ore: 'emerald',
@@ -276,6 +282,8 @@ interface MiningContext {
     anchorX: number;
     anchorY: number;
     anchorZ: number;
+    /** Last mined block position — used for ore cluster mining */
+    lastMinedPos: { x: number; y: number; z: number } | null;
     failedPositions: Set<string>;
 }
 
@@ -355,15 +363,34 @@ function filterAndSortCandidates(bot: Bot, candidates: Vec3[], ctx: MiningContex
                 const botDistB = horizontalDist(b, bot.entity.position);
                 return botDistA - botDistB;
             }
-            // Default: prioritize blocks at/above bot level over below
-            const belowA = a.y < botY ? 1 : 0;
-            const belowB = b.y < botY ? 1 : 0;
-            if (belowA !== belowB) return belowA - belowB;
-            const yPenaltyA = Math.abs(a.y - botY) * 16;
-            const yPenaltyB = Math.abs(b.y - botY) * 16;
-            const distA = bot.entity.position.distanceTo(a) + yPenaltyA;
-            const distB = bot.entity.position.distanceTo(b) + yPenaltyB;
-            return distA - distB;
+            if (ctx.isOreBlock) {
+                // Cluster mining: prefer blocks near the last mined position
+                // so the bot finishes a vein before running to a distant one
+                const ref = ctx.lastMinedPos ?? bot.entity.position;
+                const distA = Math.sqrt((a.x - ref.x) ** 2 + (a.y - ref.y) ** 2 + (a.z - ref.z) ** 2);
+                const distB = Math.sqrt((b.x - ref.x) ** 2 + (b.y - ref.y) ** 2 + (b.z - ref.z) ** 2);
+                return distA - distB;
+            }
+            // Default (dirt, sand, etc.): systematic strip mining from anchor.
+            // Same Y level first, then expand outward from last mined block
+            // so the bot clears an area instead of digging random scattered holes.
+            const ref = ctx.lastMinedPos ?? { x: ctx.anchorX, y: ctx.anchorY, z: ctx.anchorZ };
+            const yA = Math.floor(a.y);
+            const yB = Math.floor(b.y);
+            const baseY = Math.floor(ref.y);
+            // Prefer same level, then above, then below
+            const levelA = yA >= baseY ? yA - baseY : (baseY - yA) + 100;
+            const levelB = yB >= baseY ? yB - baseY : (baseY - yB) + 100;
+            if (levelA !== levelB) return levelA - levelB;
+            // Same level — closest to last mined position (systematic expansion)
+            const refDistA = Math.sqrt((a.x - ref.x) ** 2 + (a.z - ref.z) ** 2);
+            const refDistB = Math.sqrt((b.x - ref.x) ** 2 + (b.z - ref.z) ** 2);
+            const ringDiff = Math.floor(refDistA) - Math.floor(refDistB);
+            if (ringDiff !== 0) return ringDiff;
+            // Same ring — pick whichever is closer to bot right now
+            const botDistA = horizontalDist(a, bot.entity.position);
+            const botDistB = horizontalDist(b, bot.entity.position);
+            return botDistA - botDistB;
         });
 }
 
@@ -421,6 +448,7 @@ export async function mineBlock(
         anchorX: bot.entity.position.x,
         anchorY: bot.entity.position.y,
         anchorZ: bot.entity.position.z,
+        lastMinedPos: null,
         failedPositions: new Set(),
     };
 
@@ -433,8 +461,8 @@ export async function mineBlock(
         if (signal.aborted) break;
         attempts++;
 
-        // Find blocks nearby — use tighter radius for stone (stay in one area)
-        const searchRadius = ctx.isStoneBlock ? 16 : 64;
+        // Tighter radius for stone/ore — bot should mine nearby, not run across the cave
+        const searchRadius = ctx.isStoneBlock ? 16 : (ctx.isOreBlock ? 16 : 64);
         const candidates = bot.findBlocks({
             matching: blockIds,
             maxDistance: searchRadius,
@@ -499,7 +527,7 @@ export async function mineBlock(
                 `goalY=${goalY} bot=(${Math.floor(botPos.x)},${Math.floor(botPos.y)},${Math.floor(botPos.z)}) ` +
                 `dug=${dug}/${maxCount} failures=${consecutivePathFailures}`,
             );
-            const pathPromise = bot.pathfinder.goto(new goals.GoalNear(block.position.x, goalY, block.position.z, 2));
+            const pathPromise = bot.pathfinder.goto(new goals.GoalNear(block.position.x, goalY, block.position.z, 3));
             const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
             await Promise.race([pathPromise, timeout]);
             if (signal.aborted) break;
@@ -523,54 +551,15 @@ export async function mineBlock(
 
             await bot.dig(block);
             dug++;
+            ctx.lastMinedPos = { x: blockPos.x, y: blockPos.y, z: blockPos.z };
 
             // Brief pause to let items fall and auto-collect
             await new Promise((r) => setTimeout(r, 300));
 
-            // For trees, collect dropped items every 5 logs instead of per-block
-            if (ctx.isTreeBlock && dug % 5 === 0) {
+            // Ores: sweep after every block (drops bounce/land awkwardly)
+            // Trees/other: sweep every 5 blocks
+            if (ctx.isOreBlock || dug % 5 === 0) {
                 await collectItems(bot, null, 10);
-            }
-
-            if (!ctx.isTreeBlock) {
-                // Walk to nearby dropped items for non-tree blocks
-                const droppedItem = Object.values(bot.entities).find(
-                    (e) =>
-                        e.name === 'item' &&
-                        (e.position.distanceTo(block.position) < 3 || e.position.distanceTo(bot.entity.position) < 4),
-                );
-                if (droppedItem) {
-                    // Wait for playerCollect or timeout
-                    const collectPromise = new Promise<void>((resolve) => {
-                        const onCollect = (collector: { id: number }): void => {
-                            if (collector.id === bot.entity.id) {
-                                bot.removeListener('playerCollect', onCollect);
-                                resolve();
-                            }
-                        };
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        bot.on('playerCollect', onCollect as any);
-                        // Timeout — don't wait forever
-                        setTimeout(() => {
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            bot.removeListener('playerCollect', onCollect as any);
-                            resolve();
-                        }, 2000);
-                    });
-                    // Walk to the item drop
-                    try {
-                        await bot.pathfinder.goto(
-                            new goals.GoalBlock(
-                                Math.floor(droppedItem.position.x),
-                                Math.floor(droppedItem.position.y),
-                                Math.floor(droppedItem.position.z),
-                            ),
-                        );
-                    } catch {
-                        // Item may have been auto-collected already
-                    }
-                    await collectPromise;
-                }
             }
 
             console.log(`[MC Action] Dug ${block.name} (collected ${countInventory() - startCount}/${maxCount})`);
@@ -590,13 +579,9 @@ export async function mineBlock(
         }
     }
 
-    // Collect dropped items after mining
-    if (ctx.isTreeBlock && dug > 0 && !signal.aborted) {
-        // Trees: logs pile up at the base — sweep them up in one pass
+    // Final sweep to collect any remaining dropped items
+    if (dug > 0 && !signal.aborted) {
         await collectItems(bot, null, 10);
-    } else {
-        // Non-trees: wait briefly for straggler items to auto-collect
-        await new Promise((r) => setTimeout(r, 2000));
     }
 
     } finally {
