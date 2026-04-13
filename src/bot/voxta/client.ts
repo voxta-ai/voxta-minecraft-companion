@@ -282,7 +282,7 @@ export class VoxtaClient {
             return;
         }
         await this.send({
-            $type: 'updateContext',
+            $type: 'updateContext' as const,
             sessionId: this._sessionId,
             contextKey,
             contexts,

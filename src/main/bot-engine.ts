@@ -68,6 +68,12 @@ const SESSION_POLL_MS = 200;     // Polling interval during session wait
 const LOG_PREVIEW_LENGTH = 80;   // Truncation length for log messages
 const CONTEXT_KEY_BOT1 = 'minecraft-bot1';
 
+/** Build the system-level instruction appended to action inference prompt via Voxta's system_prompt_addons */
+function buildActionInferenceAddon(prompt: string): import('../bot/voxta/types').ContextDefinition | null {
+    if (!prompt.trim()) return null;
+    return { text: prompt, applyTo: 'ActionInference', position: 'System' };
+}
+
 type BotEngineEvent =
     | 'status-changed'
     | 'chat-message'
@@ -271,24 +277,37 @@ export class BotEngine extends EventEmitter {
         return MINECRAFT_ACTIONS.filter((a) => this.actionToggles.get(a.name) !== false).map((a) => ({ ...a, timing }));
     }
 
+    /** Append the action inference addon (if configured) to a list of perception contexts */
+    private buildContextsWithAddon(contextStrings: string[]): import('../bot/voxta/types').ContextDefinition[] {
+        const contexts: import('../bot/voxta/types').ContextDefinition[] = contextStrings.map((text) => ({ text }));
+        const addon = buildActionInferenceAddon(this.settings.actionInferencePrompt);
+        if (addon) contexts.push(addon);
+        return contexts;
+    }
+
     private pushActionsToVoxta(): void {
         if (!this.voxta?.sessionId) return;
+        const contexts: import('../bot/voxta/types').ContextDefinition[] = [
+            {
+                text: 'The user is playing Minecraft. You are their AI companion bot inside the game world. You can see the world around you and perform actions.',
+            },
+        ];
+        const addon = buildActionInferenceAddon(this.settings.actionInferencePrompt);
+        if (addon) contexts.push(addon);
         void this.voxta.updateContext(
             CONTEXT_KEY_BOT1,
-            [
-                {
-                    text: 'The user is playing Minecraft. You are their AI companion bot inside the game world. You can see the world around you and perform actions.',
-                },
-            ],
+            contexts,
             this.getEnabledActions(),
         ).catch((e) => this.logSendError('updateContext', e));
     }
 
     updateSettings(newSettings: McSettings): void {
-        const timingChanged = this.settings.actionInferenceTiming !== newSettings.actionInferenceTiming;
+        const actionsChanged =
+            this.settings.actionInferenceTiming !== newSettings.actionInferenceTiming ||
+            this.settings.actionInferencePrompt !== newSettings.actionInferencePrompt;
         const distanceChanged = this.settings.spatialMaxDistance !== newSettings.spatialMaxDistance;
         this.settings = { ...newSettings };
-        if (timingChanged) {
+        if (actionsChanged) {
             this.pushActionsToVoxta();
         }
         // Sync maxDistance to SVC voice bridge plugin channel
@@ -380,6 +399,7 @@ export class BotEngine extends EventEmitter {
             addChat: (type, sender, text) => this.addChat(type, sender, text),
             queueNote: (text) => this.queueNote(text),
             emit: (event, data) => this.emit(event as BotEngineEvent, data),
+            getActionInferenceAddon: () => buildActionInferenceAddon(this.settings.actionInferencePrompt),
         };
     }
 
@@ -797,7 +817,7 @@ export class BotEngine extends EventEmitter {
             uiConfig.scenarioId ?? undefined,
             {
                 contextKey: CONTEXT_KEY_BOT1,
-                contexts: initialContextStrings.map((text) => ({ text })),
+                contexts: this.buildContextsWithAddon(initialContextStrings),
                 actions: this.getEnabledActions(),
             },
         );
@@ -1007,7 +1027,7 @@ export class BotEngine extends EventEmitter {
                 undefined,
                 {
                     contextKey: 'minecraft',
-                    contexts: initialContextStrings.map((text) => ({ text })),
+                    contexts: this.buildContextsWithAddon(initialContextStrings),
                     actions: this.getEnabledActions(),
                 },
             );

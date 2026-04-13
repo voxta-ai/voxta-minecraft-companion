@@ -1,5 +1,6 @@
 import { createSignal, For, Show } from 'solid-js';
 import type { McSettings, VisionMode, ActionInferenceTiming } from '../../shared/ipc-types';
+import { DEFAULT_SETTINGS } from '../../shared/ipc-types';
 import { settings, updateSetting } from '../stores/settings-store';
 import { SettingCard } from './SettingCard';
 
@@ -392,6 +393,26 @@ export default function SettingsPanel() {
                             ? 'More precise actions, but slower — AI decides the action before replying'
                             : 'Faster replies — AI speaks first, then picks an action (recommended)'}
                     </span>
+                </div>
+                <div class="setting-card setting-card-column">
+                    <div class="setting-card-name">System Prompt</div>
+                    <span class="field-hint">
+                        Extra instructions appended to the action inference system prompt — guides which actions the AI picks
+                    </span>
+                    <textarea
+                        class="action-inference-prompt"
+                        rows={4}
+                        value={settings.actionInferencePrompt}
+                        onInput={(e) => updateSetting('actionInferencePrompt', e.currentTarget.value)}
+                    />
+                    <Show when={settings.actionInferencePrompt !== DEFAULT_SETTINGS.actionInferencePrompt}>
+                        <button
+                            class="btn-revert-prompt"
+                            onClick={() => updateSetting('actionInferencePrompt', DEFAULT_SETTINGS.actionInferencePrompt)}
+                        >
+                            Revert to Default
+                        </button>
+                    </Show>
                 </div>
             </div>
             <VisionModeSelector />

@@ -2,7 +2,7 @@ import type { Bot as MineflayerBot } from 'mineflayer';
 import type { NameRegistry } from '../bot/name-registry';
 import type { VoxtaClient } from '../bot/voxta/client';
 import type { BotStatus } from '../shared/ipc-types';
-import type { ScenarioAction } from '../bot/voxta/types';
+import type { ContextDefinition, ScenarioAction } from '../bot/voxta/types';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { getVehicle, getEntityVehicle } from '../bot/minecraft/mineflayer-types';
 
@@ -31,6 +31,7 @@ export interface LoopCallbacks {
     addChat(type: 'system' | 'event', sender: string, text: string): void;
     queueNote(text: string): void;
     emit(event: string, data: unknown): void;
+    getActionInferenceAddon(): ContextDefinition | null;
 }
 
 /**
@@ -76,9 +77,12 @@ export function createPerceptionLoop(
                 if (!callbacks.isBotInRange(slot)) return;
                 if (slot === 1) {
                     // Send actions only with bot1's context (shared between both bots)
+                    const contexts: ContextDefinition[] = contextStrings.map((text) => ({ text }));
+                    const addon = callbacks.getActionInferenceAddon();
+                    if (addon) contexts.push(addon);
                     void voxta.updateContext(
                         contextKey,
-                        contextStrings.map((text) => ({ text })),
+                        contexts,
                         callbacks.getEnabledActions(),
                     );
                 } else {
