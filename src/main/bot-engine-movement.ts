@@ -584,13 +584,13 @@ export function createFollowWatchdog(
             console.log(`[${label}] Watchdog: stuck ${distToPlayer.toFixed(1)} blocks from player, moved ${moved.toFixed(2)} — re-setting goal (tier 1)`);
             resumeFollowPlayer(bot, followingPlayer, callbacks.getNames());
         } else if (stuckCount === 2) {
-            console.log(`[${label}] Watchdog: still stuck — resetting pathfinder movements (tier 2)`);
-            // Preserve canDig from current movements — shelter protection may have disabled it
-            const prevCanDig = bot.pathfinder.movements?.canDig ?? true;
-            const freshMovements = new (require('mineflayer-pathfinder').Movements)(bot);
-            freshMovements.canDig = prevCanDig;
-            freshMovements.allow1by1towers = true;
-            bot.pathfinder.setMovements(freshMovements);
+            console.log(`[${label}] Watchdog: still stuck — re-setting movements + goal (tier 2)`);
+            // Re-apply the existing movements (preserves door monkey-patch, canDig, etc.)
+            // This forces the pathfinder to recalculate without losing movement config.
+            const currentMovements = bot.pathfinder.movements;
+            if (currentMovements) {
+                bot.pathfinder.setMovements(currentMovements);
+            }
             resumeFollowPlayer(bot, followingPlayer, callbacks.getNames());
         } else {
             console.log(`[${label}] Watchdog: pathfinder failed — manual walking toward player (tier 3, dist=${distToPlayer.toFixed(1)})`);

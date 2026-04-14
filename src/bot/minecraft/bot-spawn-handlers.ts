@@ -10,14 +10,16 @@ import { isInWater } from './mineflayer-types';
 
 // ---- Constants ----
 const NAN_WARNING_RATE_LIMIT_MS = 10_000;
-const DOOR_GLOBAL_COOLDOWN_MS = 1000;
 const DOOR_REOPEN_COOLDOWN_MS = 3000;    // Don't re-toggle a recently opened door
-const DOOR_WALK_THROUGH_MS = 800;        // Time to walk through after opening
 const DOOR_CLEANUP_TIMEOUT_MS = 10_000;  // Prune old door-open timestamps
 const STUCK_MOVEMENT_THRESHOLD = 0.1;    // Blocks moved to count as "not stuck"
-const STUCK_DETECTION_TIMEOUT_MS = 1500; // Must be stuck this long before teleporting
+const STUCK_DETECTION_TIMEOUT_MS = 800;  // Must be stuck this long before recovery
+const STUCK_RECOVERY_DURATION_MS = 400;  // How long to apply recovery movement
+const STUCK_POST_RECOVERY_GRACE_MS = 400; // Ignore stuck checks while pathfinder re-engages
+const STUCK_REAL_MOVE_THRESHOLD = 0.5;   // Must move this far to count as genuinely unstuck
 const STUCK_DIAG_Y_MIN = -1;
 const STUCK_DIAG_Y_MAX = 2;
+const STUCK_MAX_CYCLES = 6;              // Give up after this many recovery attempts
 const TREE_SPAWN_JUMP_DURATION_MS = 1500;
 const SHELTER_CHECK_INTERVAL_TICKS = 40;  // ~2 seconds
 const SHELTER_DETECTION_RADIUS = 16;      // How far to scan for shelter doors
@@ -110,34 +112,30 @@ export function setupNaNGuards(bot: Bot): void {
 // to avoid re-toggling (open→close→open spam).
 
 export function setupDoorAutomation(bot: Bot, doorIds: Set<number>): void {
-    let lastDoorOpen = 0;
-    let doorWalkingThrough = false;
+    let activating = false;
     const recentlyOpened = new Map<string, number>(); // "x,z" → timestamp
 
+    // Monkey-patch bot.blockAt so open doors have boundingBox='empty' for ALL callers,
+    // including mineflayer's physics engine. Without this, the physics engine treats
+    // open doors as solid walls because the block cache doesn't update boundingBox.
+    // Door collision shapes are patched at the registry level in bot.ts
+    // (open door states have shapes=[]), so no per-block patching is needed here.
+
     bot.on('physicsTick', () => {
-        const now = performance.now();
-        if (doorWalkingThrough) return; // already handling a door
-        if (now - lastDoorOpen < DOOR_GLOBAL_COOLDOWN_MS) return; // global cooldown
-        // Fire when pathfinder is moving OR has a goal but is stuck
+        if (activating) return;
         if (!bot.pathfinder.isMoving() && !bot.pathfinder.goal) return;
 
+        const now = performance.now();
         const pos = bot.entity.position;
-        for (let dx = -1; dx <= 1; dx++) {
-            for (let dz = -1; dz <= 1; dz++) {
+        for (let dx = -3; dx <= 3; dx++) {
+            for (let dz = -3; dz <= 3; dz++) {
                 for (let dy = 0; dy <= 1; dy++) {
                     const block = bot.blockAt(pos.offset(dx, dy, dz));
                     if (!block || !doorIds.has(block.type)) continue;
-                    if (block.boundingBox !== 'block') continue; // already open
 
-                    // Use X, Z as a key — both top and bottom halves share the same column.
-                    // This prevents the bot from opening the bottom half and then
-                    // immediately closing via the top half on the next tick.
                     const key = `${block.position.x},${block.position.z}`;
-                    const lastOpen = recentlyOpened.get(key);
-                    if (lastOpen && now - lastOpen < DOOR_REOPEN_COOLDOWN_MS) continue;
 
-                    // Find the bottom half of the door for more reliable activation.
-                    // In Minecraft, doors have 'half' property: 'upper' or 'lower'.
+                    // Resolve bottom half for reliable property reading and activation
                     let doorBlock = block;
                     try {
                         const props = block.getProperties() as Record<string, string>;
@@ -147,34 +145,55 @@ export function setupDoorAutomation(bot: Bot, doorIds: Set<number>): void {
                                 doorBlock = below;
                             }
                         }
+                    } catch { /* getProperties may not be available */ }
+
+                    // Read door state — check BOTH the scanned block and resolved bottom half
+                    let isOpen = false;
+                    let facing = 'unknown';
+                    let openSource = '?';
+                    try {
+                        const doorProps = doorBlock.getProperties() as Record<string, unknown>;
+                        // Property can be boolean true or string 'true' depending on server
+                        isOpen = String(doorProps['open']) === 'true';
+                        facing = String(doorProps['facing'] ?? 'unknown');
+                        openSource = `prop:${doorProps['open']}(${typeof doorProps['open']})`;
                     } catch {
-                        /* getProperties may not be available */
+                        try {
+                            const blockProps = block.getProperties() as Record<string, unknown>;
+                            isOpen = String(blockProps['open']) === 'true';
+                            openSource = `fallback:${blockProps['open']}(${typeof blockProps['open']})`;
+                        } catch {
+                            console.log(`[MC Door] Can't read state at ${key} — skipping`);
+                            continue;
+                        }
                     }
 
-                    // Found a closed door — align, open, walk through
-                    doorWalkingThrough = true;
-                    lastDoorOpen = now;
-                    recentlyOpened.set(key, now);
-                    console.log(`[MC] Door detected at ${key}, activating...`);
+                    if (isOpen) continue; // Door already open — just walk through
 
-                    // Look at the center of the door, then open and walk through
+                    // Per-door cooldown to prevent toggle spam
+                    const lastOpen = recentlyOpened.get(key);
+                    if (lastOpen && now - lastOpen < DOOR_REOPEN_COOLDOWN_MS) continue;
+
+                    const dist = pos.distanceTo(doorBlock.position.offset(0.5, 0, 0.5));
+                    activating = true;
+                    recentlyOpened.set(key, now);
+                    console.log(
+                        `[MC Door] ${doorBlock.name} at ${key} state=${openSource} facing=${facing}` +
+                        ` dist=${dist.toFixed(1)} — activating (bot at ${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})`,
+                    );
+
+                    // Look at the door first (Paper requires it), then activate.
+                    // No manual forward after — pathfinder handles walking through.
                     const doorCenter = doorBlock.position.offset(0.5, 0.5, 0.5);
                     bot.lookAt(doorCenter, true)
+                        .then(() => bot.activateBlock(doorBlock))
                         .then(() => {
-                            return bot.activateBlock(doorBlock);
-                        })
-                        .then(() => {
-                            console.log(`[MC] Door opened at ${key}`);
-                            // Walk forward through the door
-                            bot.setControlState('forward', true);
-                            setTimeout(() => {
-                                bot.setControlState('forward', false);
-                                doorWalkingThrough = false;
-                            }, DOOR_WALK_THROUGH_MS);
+                            console.log(`[MC Door] Activated at ${key}`);
+                            activating = false;
                         })
                         .catch((err) => {
-                            console.warn(`[MC] Door activation failed at ${key}:`, err);
-                            doorWalkingThrough = false;
+                            console.warn(`[MC Door] Failed at ${key}: ${err}`);
+                            activating = false;
                         });
 
                     // Clean up old entries
@@ -220,102 +239,93 @@ export function setupAutoSwim(bot: Bot): void {
 // snap the position to block center on every tick. This prevents the pathfinder
 // from drifting the bot off-center between ticks.
 
-export function setupStuckDetection(bot: Bot): void {
+export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
     let stuckSince: number | null = null;
     let lastMovePos = bot.entity.position.clone();
+    let preRecoveryPos = bot.entity.position.clone(); // Position before any recovery attempts
     let consecutiveStuckCount = 0;
+    let isRecovering = false;
+    let graceUntil = 0; // Timestamp — ignore checks until pathfinder re-engages
+
+    /** Stop recovery movement controls */
+    function clearRecoveryControls(): void {
+        bot.setControlState('back', false);
+        bot.setControlState('left', false);
+        bot.setControlState('right', false);
+        bot.setControlState('jump', false);
+    }
 
     bot.on('physicsTick', () => {
-        const isMoving = bot.pathfinder.isMoving();
-        const forwardOn = bot.getControlState('forward');
-        const pos = bot.entity.position;
-
-        if (!isMoving || !forwardOn) {
-            stuckSince = null;
-            if (consecutiveStuckCount > 0) {
-                console.log(`[MC Stuck] Unstuck after ${consecutiveStuckCount} cycles`);
-                consecutiveStuckCount = 0;
-            }
-            lastMovePos = pos.clone();
-            return;
-        }
-
-        const moved = pos.distanceTo(lastMovePos);
-        if (moved > STUCK_MOVEMENT_THRESHOLD) {
-            stuckSince = null;
-            if (consecutiveStuckCount > 0) {
-                console.log(`[MC Stuck] Unstuck (moved ${moved.toFixed(2)}) after ${consecutiveStuckCount} cycles`);
-                consecutiveStuckCount = 0;
-            }
-            lastMovePos = pos.clone();
-            return;
-        }
+        if (isRecovering) return; // Don't check during recovery movement
 
         const now = performance.now();
+        if (now < graceUntil) return; // Post-recovery grace — let pathfinder re-engage
+
+        const hasGoal = !!bot.pathfinder.goal;
+        const pos = bot.entity.position;
+        const moved = pos.distanceTo(lastMovePos);
+
+        // Bot actually moved — not stuck
+        if (moved > STUCK_MOVEMENT_THRESHOLD) {
+            if (stuckSince !== null) stuckSince = null;
+            if (consecutiveStuckCount > 0) {
+                const realMoved = pos.distanceTo(preRecoveryPos);
+                if (realMoved > STUCK_REAL_MOVE_THRESHOLD) {
+                    console.log(`[MC Stuck] Genuinely unstuck (moved ${realMoved.toFixed(2)} from pre-recovery pos) after ${consecutiveStuckCount} cycles`);
+                    consecutiveStuckCount = 0;
+                }
+            }
+            lastMovePos = pos.clone();
+            return;
+        }
+
+        // No goal — nothing to be stuck about
+        if (!hasGoal) {
+            if (consecutiveStuckCount > 0) {
+                console.log(`[MC Stuck] Goal cleared — resetting (was at cycle #${consecutiveStuckCount})`);
+                consecutiveStuckCount = 0;
+            }
+            stuckSince = null;
+            lastMovePos = pos.clone();
+            return;
+        }
+
+        // Check WHY the bot isn't moving
+        const isMoving = bot.pathfinder.isMoving();
+        const forwardOn = bot.getControlState('forward');
+        const isPhysicallyStuck = isMoving && forwardOn; // hitbox clip — recovery can help
+        const isNoPath = hasGoal && !isMoving;            // no path — recovery won't help
+
+        // "No path" — pathfinder can't find a route. Don't bounce the bot around.
+        // Just try opening nearby doors and let the pathfinder retry on its own.
+        if (isNoPath && !isPhysicallyStuck) {
+            if (stuckSince === null) {
+                stuckSince = now;
+                console.log(
+                    `[MC Stuck] No path at (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})` +
+                    ` — waiting for pathfinder to retry (not bouncing)`,
+                );
+            }
+            // Don't apply recovery — just reset timer periodically so we don't
+            // trigger the recovery code below. The watchdog handles re-setting goals.
+            if (now - stuckSince > 5000) {
+                stuckSince = now; // reset timer, keep waiting
+                console.log('[MC Stuck] Still no path — waiting for watchdog to re-set goal');
+            }
+            return;
+        }
+
+        // Physically stuck — bot is moving with forward=true but not displacing
         if (stuckSince === null) {
             stuckSince = now;
-            return;
+            return; // Wait for timeout before logging — avoid noisy false positives
         }
 
         if (now - stuckSince > STUCK_DETECTION_TIMEOUT_MS) {
             consecutiveStuckCount++;
 
-            // Teleport 1 block forward in the direction the pathfinder is facing.
-            // The pathfinder already set the yaw toward the next path node.
-            const yaw = bot.entity.yaw;
-            const newX = pos.x + -Math.sin(yaw);
-            const newZ = pos.z + -Math.cos(yaw);
-
-            // Verify destination is air (foot + head level)
-            const destFoot = bot.blockAt(pos.offset(-Math.sin(yaw), 0, -Math.cos(yaw)));
-            const destHead = bot.blockAt(pos.offset(-Math.sin(yaw), 1, -Math.cos(yaw)));
-            const footClear = !destFoot || destFoot.boundingBox === 'empty';
-            const headClear = !destHead || destHead.boundingBox === 'empty';
-
-            const destCenterX = Math.floor(newX) + 0.5;
-            const destCenterZ = Math.floor(newZ) + 0.5;
-
-            if (footClear && headClear) {
-                // Flat teleport — destination is clear at the same level
-                console.log(
-                    `[MC Stuck] Teleporting forward: (${pos.x.toFixed(2)}, ${pos.z.toFixed(2)})` +
-                        ` → (${destCenterX.toFixed(2)}, ${destCenterZ.toFixed(2)})`,
-                );
-                pos.x = destCenterX;
-                pos.z = destCenterZ;
-            } else if (!footClear && headClear) {
-                // Step-up: solid block at foot (e.g. grass_block) with air above
-                // Check if space on TOP of the solid block is clear (y+1 foot, y+2 head)
-                const upFoot = bot.blockAt(pos.offset(-Math.sin(yaw), 1, -Math.cos(yaw)));
-                const upHead = bot.blockAt(pos.offset(-Math.sin(yaw), 2, -Math.cos(yaw)));
-                const upFootClear = !upFoot || upFoot.boundingBox === 'empty';
-                const upHeadClear = !upHead || upHead.boundingBox === 'empty';
-
-                if (upFootClear && upHeadClear) {
-                    console.log(
-                        `[MC Stuck] Teleporting up+forward: (${pos.x.toFixed(2)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(2)})` +
-                            ` → (${destCenterX.toFixed(2)}, ${(pos.y + 1).toFixed(1)}, ${destCenterZ.toFixed(2)})`,
-                    );
-                    pos.x = destCenterX;
-                    pos.y = pos.y + 1;
-                    pos.z = destCenterZ;
-                } else {
-                    console.log(
-                        `[MC Stuck] Can't teleport up — blocked above` +
-                            ` (upFoot=${upFoot?.name}, upHead=${upHead?.name})`,
-                    );
-                }
-            } else {
-                console.log(
-                    `[MC Stuck] Can't teleport forward — fully blocked` +
-                        ` (foot=${destFoot?.name}, head=${destHead?.name})`,
-                );
-            }
-
             // ---- Give up after too many consecutive stuck cycles ----
-            // If the bot keeps getting stuck in the same spot (e.g. trapped inside
-            // its own build), cancel the pathfinder goal to break the loop.
-            if (consecutiveStuckCount >= 5) {
+            if (consecutiveStuckCount >= STUCK_MAX_CYCLES) {
                 console.log(`[MC Stuck] Giving up after ${consecutiveStuckCount} consecutive stuck cycles — canceling pathfinder goal`);
                 bot.pathfinder.stop();
                 consecutiveStuckCount = 0;
@@ -324,10 +334,9 @@ export function setupStuckDetection(bot: Bot): void {
                 return;
             }
 
-            // ---- Diagnostic dump when stuck repeatedly ----
-            // Log full surroundings on every 2nd+ consecutive stuck cycle
-            // so we can diagnose pit/wall traps without flooding logs on one-off stalls.
-            if (consecutiveStuckCount >= 2) {
+            // ---- Diagnostic dump on 3rd+ cycle ----
+            if (consecutiveStuckCount >= 3) {
+                const yaw = bot.entity.yaw;
                 const bx = Math.floor(pos.x);
                 const by = Math.floor(pos.y);
                 const bz = Math.floor(pos.z);
@@ -338,12 +347,10 @@ export function setupStuckDetection(bot: Bot): void {
                     { label: 'W', dx: -1, dz: 0 },
                 ];
                 const survey: string[] = [];
-                // Current column
                 for (let dy = STUCK_DIAG_Y_MIN; dy <= STUCK_DIAG_Y_MAX; dy++) {
                     const b = bot.blockAt(pos.offset(0, dy, 0));
                     survey.push(`  self  y${dy >= 0 ? '+' : ''}${dy}: ${b?.name ?? 'unloaded'} (${b?.boundingBox ?? '?'})`);
                 }
-                // Cardinal directions
                 for (const dir of dirs) {
                     for (let dy = STUCK_DIAG_Y_MIN; dy <= STUCK_DIAG_Y_MAX; dy++) {
                         const b = bot.blockAt(pos.offset(dir.dx, dy, dir.dz));
@@ -352,24 +359,204 @@ export function setupStuckDetection(bot: Bot): void {
                 }
                 const controls = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak'] as const;
                 const activeControls = controls.filter((c) => bot.getControlState(c));
-                const onGround = bot.entity.onGround;
-                const inWaterDiag = isInWater(bot.entity);
-                const hasGoal = !!bot.pathfinder.goal;
-                const isMining = bot.pathfinder.isMining();
-
                 console.log(
                     `[MC Stuck] === DIAGNOSTIC DUMP (cycle #${consecutiveStuckCount}) ===\n` +
                     `  pos: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}) block: (${bx}, ${by}, ${bz})\n` +
-                    `  yaw: ${((yaw * 180) / Math.PI).toFixed(1)}°, onGround: ${onGround}, inWater: ${inWaterDiag}\n` +
+                    `  yaw: ${((yaw * 180) / Math.PI).toFixed(1)}°, onGround: ${bot.entity.onGround}, inWater: ${isInWater(bot.entity)}\n` +
                     `  controls: [${activeControls.join(', ')}]\n` +
-                    `  pathfinder: goal=${hasGoal}, moving=${isMoving}, mining=${isMining}\n` +
+                    `  pathfinder: goal=${hasGoal}, moving=${bot.pathfinder.isMoving()}, mining=${bot.pathfinder.isMining()}\n` +
                     `  --- Block survey ---\n` +
                     survey.join('\n'),
                 );
             }
 
-            stuckSince = null;
-            lastMovePos = pos.clone();
+            // ---- Physics-based recovery ----
+            const startPos = pos.clone();
+            // Don't stop the pathfinder — just layer strafe/jump controls on top
+            // of the pathfinder's forward movement. The bot moves diagonally to
+            // clear the corner, and the pathfinder never loses its goal.
+            isRecovering = true;
+
+            // Save the position before the FIRST recovery attempt in a stuck episode
+            if (consecutiveStuckCount === 1) {
+                preRecoveryPos = pos.clone();
+            }
+
+            // Check if stuck near a door — open it and walk through in sequence
+            let doorRecovery = false;
+            try {
+                const nearbyDoors = bot.findBlocks({
+                    matching: [...doorIds],
+                    maxDistance: 2,
+                    count: 1,
+                });
+                if (nearbyDoors.length > 0) {
+                    const doorPos = nearbyDoors[0];
+                    let doorBlock = bot.blockAt(doorPos);
+                    if (doorBlock) {
+                        // Resolve to bottom half
+                        try {
+                            const props = doorBlock.getProperties() as Record<string, unknown>;
+                            if (String(props['half']) === 'upper') {
+                                const below = bot.blockAt(doorPos.offset(0, -1, 0));
+                                if (below && doorIds.has(below.type)) doorBlock = below;
+                            }
+                        } catch { /* use as-is */ }
+
+                        let doorFacing = 'north';
+                        let doorHinge = 'left';
+                        let doorIsOpen = false;
+                        try {
+                            const props = doorBlock.getProperties() as Record<string, unknown>;
+                            doorFacing = String(props['facing'] ?? 'north');
+                            doorHinge = String(props['hinge'] ?? 'left');
+                            doorIsOpen = String(props['open']) === 'true';
+                        } catch { /* defaults */ }
+
+                        doorRecovery = true;
+                        const isNS = doorFacing === 'north' || doorFacing === 'south';
+
+                        // Calculate the walkable offset within the door block.
+                        // When open, the thin panel (0.19 blocks) sits on the hinge side.
+                        // The bot must walk through the OTHER side to avoid server-side collision.
+                        // Offset 0.25 = hinge side (panel), 0.75 = open side (walkable)
+                        let walkableX = doorBlock.position.x + 0.5; // default: center
+                        let walkableZ = doorBlock.position.z + 0.5;
+                        if (isNS) {
+                            // N/S door: passage along Z, panel on X side
+                            const panelEast =
+                                (doorFacing === 'north' && doorHinge === 'right') ||
+                                (doorFacing === 'south' && doorHinge === 'left');
+                            walkableX = doorBlock.position.x + (panelEast ? 0.25 : 0.75);
+                        } else {
+                            // E/W door: passage along X, panel on Z side
+                            const panelSouth =
+                                (doorFacing === 'east' && doorHinge === 'left') ||
+                                (doorFacing === 'west' && doorHinge === 'right');
+                            walkableZ = doorBlock.position.z + (panelSouth ? 0.25 : 0.75);
+                        }
+
+                        console.log(
+                            `[MC Stuck] Door-pass #${consecutiveStuckCount}: door at (${doorPos.x},${doorPos.z})` +
+                            ` facing=${doorFacing} hinge=${doorHinge} open=${doorIsOpen}` +
+                            ` walkable=(${walkableX.toFixed(2)},${walkableZ.toFixed(2)})`,
+                        );
+
+                        // 1. Stop pathfinder so it doesn't fight our controls
+                        const goal = bot.pathfinder.goal;
+                        bot.pathfinder.stop();
+
+                        // 2. Open the door if closed
+                        const theDoor = doorBlock; // capture non-null ref for async
+                        const openAndWalk = async (): Promise<void> => {
+                            if (!doorIsOpen) {
+                                const center = theDoor.position.offset(0.5, 0.5, 0.5);
+                                await bot.lookAt(center, true);
+                                await bot.activateBlock(theDoor);
+                                console.log(`[MC Stuck] Door opened — now walking through`);
+                                await new Promise(r => setTimeout(r, 100));
+                            }
+
+                            // 3. Look through the door on the WALKABLE side (away from panel)
+                            const botPos = bot.entity.position;
+                            const doorCZ = theDoor.position.z + 0.5;
+                            const doorCX = theDoor.position.x + 0.5;
+                            let lookX = walkableX;
+                            let lookZ = walkableZ;
+                            if (isNS) {
+                                lookZ = botPos.z < doorCZ ? doorCZ + 2 : doorCZ - 2;
+                            } else {
+                                lookX = botPos.x < doorCX ? doorCX + 2 : doorCX - 2;
+                            }
+                            console.log(
+                                `[MC Stuck] Door-pass: bot=(${botPos.x.toFixed(2)},${botPos.z.toFixed(2)})` +
+                                ` → looking toward (${lookX.toFixed(2)}, ${lookZ.toFixed(2)})`,
+                            );
+                            await bot.lookAt(
+                                theDoor.position.offset(
+                                    lookX - theDoor.position.x,
+                                    0.5,
+                                    lookZ - theDoor.position.z,
+                                ),
+                                true,
+                            );
+
+                            // 4. Walk forward through the door
+                            // Force onGround=true EVERY TICK — Paper overrides it to
+                            // false each tick, which blocks horizontal movement.
+                            const forceGround = (): void => { bot.entity.onGround = true; };
+                            bot.on('physicsTick', forceGround);
+                            bot.setControlState('forward', true);
+                            bot.setControlState('sprint', true);
+
+                            const walkStart = bot.entity.position.clone();
+                            await new Promise(r => setTimeout(r, 800));
+                            bot.removeListener('physicsTick', forceGround);
+                            clearRecoveryControls();
+                            bot.setControlState('sprint', false);
+
+                            const endPos = bot.entity.position;
+                            const recoveryDist = startPos.distanceTo(endPos);
+                            console.log(
+                                `[MC Stuck] Door-pass done: moved ${recoveryDist.toFixed(2)}` +
+                                ` ${recoveryDist > 0.3 ? 'OK' : 'FAILED'}`,
+                            );
+
+                            // 5. Restore goal
+                            if (goal) bot.pathfinder.setGoal(goal, true);
+                            isRecovering = false;
+                            graceUntil = performance.now() + STUCK_POST_RECOVERY_GRACE_MS;
+                            stuckSince = null;
+                            lastMovePos = bot.entity.position.clone();
+                        };
+
+                        openAndWalk().catch((err) => {
+                            console.warn(`[MC Stuck] Door-pass failed: ${err}`);
+                            if (goal) bot.pathfinder.setGoal(goal, true);
+                            isRecovering = false;
+                            stuckSince = null;
+                            lastMovePos = bot.entity.position.clone();
+                        });
+
+                        // Early return — the async flow handles cleanup
+                        stuckSince = null;
+                        return;
+                    }
+                }
+            } catch { /* findBlocks can fail before chunks load */ }
+
+            // Force onGround every tick during recovery — hoisted for setTimeout access
+            const forceGroundGeneric = (): void => { bot.entity.onGround = true; };
+
+            if (!doorRecovery) {
+                // Generic wall/corner recovery — back+strafe
+                bot.on('physicsTick', forceGroundGeneric);
+                const strategy = ((consecutiveStuckCount - 1) % 4);
+                const strategyNames = ['back+left', 'back+right', 'back', 'left'];
+                console.log(`[MC Stuck] Recovery #${consecutiveStuckCount}: ${strategyNames[strategy]} at (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})`);
+
+                bot.setControlState('forward', false);
+                if (strategy <= 2) bot.setControlState('back', true);
+                if (strategy === 0 || strategy === 3) bot.setControlState('left', true);
+                if (strategy === 1) bot.setControlState('right', true);
+            }
+
+            setTimeout(() => {
+                bot.removeListener('physicsTick', forceGroundGeneric);
+                clearRecoveryControls();
+                const endPos = bot.entity.position;
+                const recoveryDist = startPos.distanceTo(endPos);
+                const totalDist = endPos.distanceTo(preRecoveryPos);
+                console.log(
+                    `[MC Stuck] Recovery done: moved ${recoveryDist.toFixed(2)} (total ${totalDist.toFixed(2)})` +
+                    ` ${recoveryDist > 0.1 ? 'OK' : 'FAILED'}`,
+                );
+                // Pathfinder still has its goal — it resumes naturally
+                isRecovering = false;
+                graceUntil = performance.now() + STUCK_POST_RECOVERY_GRACE_MS;
+                stuckSince = null;
+                lastMovePos = bot.entity.position.clone();
+            }, STUCK_RECOVERY_DURATION_MS);
         }
     });
 }
@@ -457,7 +644,7 @@ export function setupShelterProtection(bot: Bot, doorIds: Set<number>): void {
                 // digging through walls that was planned when canDig was still true.
                 const goal = bot.pathfinder.goal;
                 if (goal && bot.pathfinder.isMoving()) {
-                    bot.pathfinder.setGoal(goal);
+                    bot.pathfinder.setGoal(goal, true);
                 }
             }
         }

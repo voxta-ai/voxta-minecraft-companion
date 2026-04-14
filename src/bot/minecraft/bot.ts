@@ -66,17 +66,45 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             defaultMovements.scafoldingBlocks = [dirtBlock.id];
         }
 
-        // Collect door block IDs
+        // Collect door block IDs and patch the registry so open door states
+        // have empty collision shapes. This fixes BOTH pathfinder AND physics
+        // at the source — no per-block monkey-patching needed.
         const doorNames = DOOR_BLOCKS;
         const doorIds = new Set<number>();
+        let patchedStates = 0;
         for (const name of doorNames) {
             const block = mcData.blocksByName[name];
-            if (block) {
-                doorIds.add(block.id);
-                defaultMovements.blocksCantBreak.add(block.id);
+            if (!block) continue;
+            doorIds.add(block.id);
+            defaultMovements.blocksCantBreak.add(block.id);
+
+            // Patch stateShapes: find which metadata values correspond to open=true
+            // and set their shapes to [] (no collision).
+            if (block.states && block.stateShapes) {
+                // Calculate which metadata indices have open=true
+                // Properties are encoded in reverse order: last state varies fastest
+                const states = block.states as Array<{ name: string; num_values: number; values?: string[] }>;
+                const openStateIdx = states.findIndex((s) => s.name === 'open');
+                if (openStateIdx >= 0) {
+                    // Calculate the stride for the 'open' property
+                    let stride = 1;
+                    for (let i = states.length - 1; i > openStateIdx; i--) {
+                        stride *= states[i].num_values;
+                    }
+                    const totalCombinations = block.stateShapes.length;
+                    for (let meta = 0; meta < totalCombinations; meta++) {
+                        // Extract the 'open' value for this metadata
+                        const openValue = Math.floor(meta / stride) % states[openStateIdx].num_values;
+                        // open=true is typically value index 1 (false=0, true=1)
+                        if (openValue === 1) {
+                            block.stateShapes[meta] = [];
+                            patchedStates++;
+                        }
+                    }
+                }
             }
         }
-        console.log(`[MC] Registered ${doorIds.size} door types as passable`);
+        console.log(`[MC] Registered ${doorIds.size} door types, patched ${patchedStates} open-door collision states`);
 
         // Monkey-patch getBlock so doors are treated as passable by the pathfinder.
         // Without this, closed doors have boundingBox='block' → pathfinder sees walls.
@@ -141,7 +169,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         setupNaNGuards(bot);
         setupDoorAutomation(bot, doorIds);
         setupAutoSwim(bot);
-        setupStuckDetection(bot);
+        setupStuckDetection(bot, doorIds);
         setupShelterProtection(bot, doorIds);
         handleTreeSpawn(bot);
 
