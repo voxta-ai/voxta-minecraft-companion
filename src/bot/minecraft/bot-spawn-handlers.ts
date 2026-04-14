@@ -241,6 +241,7 @@ export function setupAutoSwim(bot: Bot): void {
 
 export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
     let stuckSince: number | null = null;
+    let noPathSince: number | null = null; // Separate timer for "no path" state (prevents leak into physically-stuck timer)
     let lastMovePos = bot.entity.position.clone();
     let preRecoveryPos = bot.entity.position.clone(); // Position before any recovery attempts
     let consecutiveStuckCount = 0;
@@ -268,6 +269,7 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
         // Bot actually moved — not stuck
         if (moved > STUCK_MOVEMENT_THRESHOLD) {
             if (stuckSince !== null) stuckSince = null;
+            if (noPathSince !== null) noPathSince = null;
             if (consecutiveStuckCount > 0) {
                 const realMoved = pos.distanceTo(preRecoveryPos);
                 if (realMoved > STUCK_REAL_MOVE_THRESHOLD) {
@@ -286,6 +288,7 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                 consecutiveStuckCount = 0;
             }
             stuckSince = null;
+            noPathSince = null;
             lastMovePos = pos.clone();
             return;
         }
@@ -296,21 +299,30 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
         const isPhysicallyStuck = isMoving && forwardOn; // hitbox clip — recovery can help
         const isNoPath = hasGoal && !isMoving;            // no path — recovery won't help
 
+        // Clear no-path state when pathfinder is active again (brief recalculation pauses reset)
+        if (!isNoPath && noPathSince !== null) {
+            noPathSince = null;
+        }
+
         // "No path" — pathfinder can't find a route. Don't bounce the bot around.
         // Just try opening nearby doors and let the pathfinder retry on its own.
+        // Uses a SEPARATE timer (noPathSince) so the clock doesn't leak into
+        // the physically-stuck timer and cause false-positive recovery triggers.
         if (isNoPath && !isPhysicallyStuck) {
-            if (stuckSince === null) {
-                stuckSince = now;
+            if (noPathSince === null) {
+                noPathSince = now;
+            }
+            // Only log after 3s of CONTINUOUS no-path state.
+            // The pathfinder briefly sets isMoving()=false during normal
+            // recalculations — those ~100-500ms blips are not real stucks
+            // and noPathSince gets cleared above when the bot starts moving again.
+            const noPathDuration = now - noPathSince;
+            if (noPathDuration > 5000) {
+                noPathSince = now; // reset timer, keep waiting
                 console.log(
                     `[MC Stuck] No path at (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})` +
-                    ` — waiting for pathfinder to retry (not bouncing)`,
+                    ` — waiting for watchdog to re-set goal`,
                 );
-            }
-            // Don't apply recovery — just reset timer periodically so we don't
-            // trigger the recovery code below. The watchdog handles re-setting goals.
-            if (now - stuckSince > 5000) {
-                stuckSince = now; // reset timer, keep waiting
-                console.log('[MC Stuck] Still no path — waiting for watchdog to re-set goal');
             }
             return;
         }
@@ -529,16 +541,26 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
             const forceGroundGeneric = (): void => { bot.entity.onGround = true; };
 
             if (!doorRecovery) {
-                // Generic wall/corner recovery — back+strafe
-                bot.on('physicsTick', forceGroundGeneric);
-                const strategy = ((consecutiveStuckCount - 1) % 4);
-                const strategyNames = ['back+left', 'back+right', 'back', 'left'];
+                // Generic wall/corner recovery — back+strafe (strategies 0-3)
+                // Strategy 4 is forward+jump for micro-ledge obstacles
+                // (e.g. dirt_path → grass_block = 1/16 block step at door frames)
+                const strategy = ((consecutiveStuckCount - 1) % 5);
+                const strategyNames = ['back+left', 'back+right', 'back', 'left', 'forward+jump'];
                 console.log(`[MC Stuck] Recovery #${consecutiveStuckCount}: ${strategyNames[strategy]} at (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)})`);
 
-                bot.setControlState('forward', false);
-                if (strategy <= 2) bot.setControlState('back', true);
-                if (strategy === 0 || strategy === 3) bot.setControlState('left', true);
-                if (strategy === 1) bot.setControlState('right', true);
+                if (strategy <= 3) {
+                    // Strafe recovery — force ground so Paper doesn't block movement
+                    bot.on('physicsTick', forceGroundGeneric);
+                    bot.setControlState('forward', false);
+                    if (strategy <= 2) bot.setControlState('back', true);
+                    if (strategy === 0 || strategy === 3) bot.setControlState('left', true);
+                    if (strategy === 1) bot.setControlState('right', true);
+                } else {
+                    // Jump recovery — DON'T force ground (jump needs real ground state,
+                    // forceGround + jump creates a trampoline that launches the bot)
+                    bot.setControlState('forward', true);
+                    bot.setControlState('jump', true);
+                }
             }
 
             setTimeout(() => {
