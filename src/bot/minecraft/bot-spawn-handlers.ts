@@ -17,6 +17,8 @@ const STUCK_DETECTION_TIMEOUT_MS = 800;  // Must be stuck this long before recov
 const STUCK_RECOVERY_DURATION_MS = 400;  // How long to apply recovery movement
 const STUCK_POST_RECOVERY_GRACE_MS = 400; // Ignore stuck checks while pathfinder re-engages
 const STUCK_REAL_MOVE_THRESHOLD = 0.5;   // Must move this far to count as genuinely unstuck
+const STUCK_PROGRESS_INTERVAL_MS = 1500; // How often to sample progress (longer-window check)
+const STUCK_PROGRESS_MIN_DIST = 0.3;     // Must move this far per progress interval to not be stuck
 const STUCK_DIAG_Y_MIN = -1;
 const STUCK_DIAG_Y_MAX = 2;
 const STUCK_MAX_CYCLES = 6;              // Give up after this many recovery attempts
@@ -229,6 +231,48 @@ export function setupAutoSwim(bot: Bot): void {
     });
 }
 
+// ---- Non-full-height block ground fix ----
+// Paper servers report onGround=false when the bot stands on blocks with
+// non-standard heights (dirt_path/farmland = 15/16, soul_sand = 14/16).
+// This prevents jumping, step-up, and reduces movement speed to air-control.
+// Fix: detect when the bot is resting on such a block and force onGround=true.
+
+/** Blocks shorter than 1.0 and their actual surface heights */
+const NON_FULL_BLOCK_HEIGHTS: Record<string, number> = {
+    'dirt_path': 0.9375,     // 15/16
+    'farmland': 0.9375,      // 15/16
+    'soul_sand': 0.875,      // 14/16
+};
+
+/** Maximum gap between bot feet and block surface to count as "standing on" */
+const GROUND_FIX_TOLERANCE = 0.1;
+
+export function setupNonFullBlockGroundFix(bot: Bot): void {
+    bot.on('physicsTick', () => {
+        const pos = bot.entity.position;
+        const feetY = pos.y;
+
+        // Check the block at feet level (offset -0.1 to catch the block we're standing on)
+        const block = bot.blockAt(pos.offset(0, -0.1, 0));
+        if (!block) return;
+
+        const blockHeight = NON_FULL_BLOCK_HEIGHTS[block.name];
+        if (blockHeight === undefined) return; // Not a non-full block
+
+        // Check if bot is close to the block's actual surface (not truly airborne)
+        const surface = block.position.y + blockHeight;
+        if (Math.abs(feetY - surface) < GROUND_FIX_TOLERANCE) {
+            // Snap Y to full block height — eliminates the 1/16 step that causes
+            // physics deadlocks at narrow entrances (dirt_path → grass_block).
+            // The physics engine drops the bot to 97.9375 each tick, we snap it
+            // back to 98.0 so the step-up to adjacent full blocks is zero.
+            const fullSurface = block.position.y + 1.0;
+            bot.entity.position.y = fullSurface;
+            bot.entity.onGround = true;
+        }
+    });
+}
+
 // ---- Narrow passage fix (stuck detection) ----
 // Root cause: the pathfinder's physics simulation (canStraightLine) predicts
 // the bot CAN reach the next node (returns true → forward=true), but the
@@ -247,6 +291,11 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
     let consecutiveStuckCount = 0;
     let isRecovering = false;
     let graceUntil = 0; // Timestamp — ignore checks until pathfinder re-engages
+
+    // Longer-window progress tracker — catches "jittering without progress"
+    // (bot moves > 0.1 blocks per tick but < 0.5 blocks per 3 seconds)
+    let lastProgressPos = bot.entity.position.clone();
+    let lastProgressCheck = performance.now();
 
     /** Stop recovery movement controls */
     function clearRecoveryControls(): void {
@@ -278,7 +327,27 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                 }
             }
             lastMovePos = pos.clone();
-            return;
+
+            // Longer-window progress check: bot moved per-tick but is it
+            // making real progress? Catches jittering at obstacles.
+            if (hasGoal && now - lastProgressCheck > STUCK_PROGRESS_INTERVAL_MS) {
+                const progress = pos.distanceTo(lastProgressPos);
+                lastProgressPos = pos.clone();
+                lastProgressCheck = now;
+                if (progress < STUCK_PROGRESS_MIN_DIST) {
+                    // Jittering without progress — force into stuck state
+                    console.log(
+                        `[MC Stuck] Jitter detected: moved ${progress.toFixed(2)} in ${STUCK_PROGRESS_INTERVAL_MS}ms` +
+                        ` (threshold: ${STUCK_PROGRESS_MIN_DIST}) — forcing stuck recovery`,
+                    );
+                    stuckSince = now - STUCK_DETECTION_TIMEOUT_MS - 1; // Force immediate timeout
+                    // Fall through to stuck handling below
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
         }
 
         // No goal — nothing to be stuck about

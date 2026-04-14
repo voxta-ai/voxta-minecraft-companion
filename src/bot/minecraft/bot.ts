@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import type { CompanionConfig } from '../config.js';
 import { DOOR_BLOCKS } from './game-data';
-import { setupNaNGuards, setupDoorAutomation, setupAutoSwim, setupStuckDetection, setupShelterProtection, handleTreeSpawn } from './bot-spawn-handlers';
+import { setupNaNGuards, setupDoorAutomation, setupAutoSwim, setupNonFullBlockGroundFix, setupStuckDetection, setupShelterProtection, handleTreeSpawn } from './bot-spawn-handlers';
 
 export interface MinecraftBot {
     bot: mineflayer.Bot;
@@ -106,6 +106,55 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         }
         console.log(`[MC] Registered ${doorIds.size} door types, patched ${patchedStates} open-door collision states`);
 
+        // Patch non-full-height blocks (dirt_path, farmland = 15/16) to full
+        // collision height. Without this, the 1/16-block step between these
+        // blocks and adjacent full blocks causes the bot to clip at narrow
+        // entrances (e.g. shelter doorframes with shoveled ground).
+        //
+        // Two registries must be patched:
+        //  1. block.stateShapes — used by mineflayer-pathfinder for path planning
+        //  2. mcData.blockCollisionShapes — used by prismarine-physics for collision
+        const NON_FULL_BLOCKS = ['dirt_path', 'farmland'];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const bcs = (mcData as any).blockCollisionShapes;
+        const fullBlockShape = [[0, 0, 0, 1, 1, 1]];
+
+        for (const name of NON_FULL_BLOCKS) {
+            const block = mcData.blocksByName[name];
+            if (!block) continue;
+
+            // Patch stateShapes (pathfinder)
+            if (block.stateShapes) {
+                for (let i = 0; i < block.stateShapes.length; i++) {
+                    block.stateShapes[i] = fullBlockShape;
+                }
+                console.log(`[MC] Patched ${name} stateShapes to full height (${block.stateShapes.length} states)`);
+            }
+
+            // Patch blockCollisionShapes (physics engine)
+            if (bcs && bcs.blocks && bcs.shapes) {
+                const shapeRef = bcs.blocks[name];
+                if (shapeRef !== undefined) {
+                    // shapeRef can be a number (single state) or array (multi-state)
+                    if (Array.isArray(shapeRef)) {
+                        // Multi-state: each entry is a shape index
+                        for (const idx of shapeRef) {
+                            bcs.shapes[String(idx)] = fullBlockShape;
+                        }
+                        console.log(`[MC] Patched ${name} physics collision (${shapeRef.length} state shapes)`);
+                    } else {
+                        // Single state: one shape index
+                        bcs.shapes[String(shapeRef)] = fullBlockShape;
+                        console.log(`[MC] Patched ${name} physics collision (shape index ${shapeRef})`);
+                    }
+                } else {
+                    console.warn(`[MC] WARNING: ${name} not found in blockCollisionShapes.blocks`);
+                }
+            } else {
+                console.warn(`[MC] WARNING: blockCollisionShapes not available — ${name} collision NOT patched`);
+            }
+        }
+
         // Monkey-patch getBlock so doors are treated as passable by the pathfinder.
         // Without this, closed doors have boundingBox='block' → pathfinder sees walls.
         const originalGetBlock = defaultMovements.getBlock.bind(defaultMovements);
@@ -169,6 +218,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         setupNaNGuards(bot);
         setupDoorAutomation(bot, doorIds);
         setupAutoSwim(bot);
+        setupNonFullBlockGroundFix(bot);
         setupStuckDetection(bot, doorIds);
         setupShelterProtection(bot, doorIds);
         handleTreeSpawn(bot);
