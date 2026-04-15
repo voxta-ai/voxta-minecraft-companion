@@ -36,6 +36,8 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
     // Load pathfinder plugin
     bot.loadPlugin(pathfinder);
 
+    let subsystemsRegistered = false;
+
     bot.on('login', () => {
         console.log(`[MC] Logged in as ${bot.username}`);
     });
@@ -66,6 +68,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             defaultMovements.scafoldingBlocks = [dirtBlock.id];
         }
 
+
         // Collect door block IDs and patch the registry so open door states
         // have empty collision shapes. This fixes BOTH pathfinder AND physics
         // at the source — no per-block monkey-patching needed.
@@ -78,33 +81,39 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             doorIds.add(block.id);
             defaultMovements.blocksCantBreak.add(block.id);
 
-            // Patch stateShapes: find which metadata values correspond to open=true
-            // and set their shapes to [] (no collision).
-            if (block.states && block.stateShapes) {
-                // Calculate which metadata indices have open=true
-                // Properties are encoded in reverse order: last state varies fastest
-                const states = block.states as Array<{ name: string; num_values: number; values?: string[] }>;
-                const openStateIdx = states.findIndex((s) => s.name === 'open');
-                if (openStateIdx >= 0) {
-                    // Calculate the stride for the 'open' property
-                    let stride = 1;
-                    for (let i = states.length - 1; i > openStateIdx; i--) {
-                        stride *= states[i].num_values;
-                    }
-                    const totalCombinations = block.stateShapes.length;
-                    for (let meta = 0; meta < totalCombinations; meta++) {
-                        // Extract the 'open' value for this metadata
-                        const openValue = Math.floor(meta / stride) % states[openStateIdx].num_values;
-                        // open=true is typically value index 1 (false=0, true=1)
-                        if (openValue === 1) {
-                            block.stateShapes[meta] = [];
-                            patchedStates++;
+            // Patch ALL door stateShapes to empty collision.
+            // The bot's block state cache is often stale on Paper — it reports
+            // open=false for doors that are actually open. By clearing ALL states
+            // (not just open=true), the physics engine won't block the bot at
+            // doors regardless of cached state. The pathfinder already treats
+            // doors as passable (getBlock override), and the auto-door handler
+            // + narrow-passage recovery handle actually-closed doors.
+            if (block.stateShapes) {
+                for (let i = 0; i < block.stateShapes.length; i++) {
+                    block.stateShapes[i] = [];
+                    patchedStates++;
+                }
+            }
+        }
+
+        // Also patch physics collision shapes for doors
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const bcsForDoors = (mcData as any).blockCollisionShapes;
+        if (bcsForDoors && bcsForDoors.blocks && bcsForDoors.shapes) {
+            for (const name of doorNames) {
+                const shapeRef = bcsForDoors.blocks[name];
+                if (shapeRef !== undefined) {
+                    if (Array.isArray(shapeRef)) {
+                        for (const idx of shapeRef) {
+                            bcsForDoors.shapes[String(idx)] = [];
                         }
+                    } else {
+                        bcsForDoors.shapes[String(shapeRef)] = [];
                     }
                 }
             }
         }
-        console.log(`[MC] Registered ${doorIds.size} door types, patched ${patchedStates} open-door collision states`);
+        console.log(`[MC] Registered ${doorIds.size} door types, patched ${patchedStates} door collision states (all passable)`);
 
         // Patch non-full-height blocks (dirt_path, farmland = 15/16) to full
         // collision height. Without this, the 1/16-block step between these
@@ -180,7 +189,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         if (lavaId !== undefined) {
             const isLava = (id: number): boolean => id === lavaId || id === flowingLavaId;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            defaultMovements.exclusionAreasStep = [(block: any) => {
+            defaultMovements.exclusionAreasStep.push((block: any) => {
                 const p = block.position;
                 if (!p) return 0;
                 const offsets = [
@@ -193,7 +202,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                     if (neighbor && isLava(neighbor.type)) return 100;
                 }
                 return 0;
-            }];
+            });
         }
 
         // Companion bot exclusion zone — avoid walking into the other bot's position.
@@ -214,13 +223,19 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
         bot.pathfinder.setMovements(defaultMovements);
 
-        // Register spawn-time subsystems (each is self-contained)
-        setupNaNGuards(bot);
-        setupDoorAutomation(bot, doorIds);
-        setupAutoSwim(bot);
-        setupNonFullBlockGroundFix(bot);
-        setupStuckDetection(bot, doorIds);
-        setupShelterProtection(bot, doorIds);
+        // Register spawn-time subsystems (each is self-contained).
+        // Guard: only register once — the 'spawn' event fires on every respawn
+        // (death, SkinsRestorer skin apply, dimension change). Without this guard,
+        // each respawn adds DUPLICATE physicsTick handlers that fight each other.
+        if (!subsystemsRegistered) {
+            subsystemsRegistered = true;
+            setupNaNGuards(bot);
+            setupDoorAutomation(bot, doorIds);
+            setupAutoSwim(bot);
+            setupNonFullBlockGroundFix(bot);
+            setupStuckDetection(bot, doorIds);
+            setupShelterProtection(bot, doorIds);
+        }
         handleTreeSpawn(bot);
 
         if (resolveSpawn) {

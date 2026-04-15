@@ -245,32 +245,61 @@ const NON_FULL_BLOCK_HEIGHTS: Record<string, number> = {
 };
 
 /** Maximum gap between bot feet and block surface to count as "standing on" */
-const GROUND_FIX_TOLERANCE = 0.1;
+const GROUND_FIX_TOLERANCE = 0.03;
 
 export function setupNonFullBlockGroundFix(bot: Bot): void {
+
+    // ---- Ground fix: onGround correction for non-full blocks ----
     bot.on('physicsTick', () => {
         const pos = bot.entity.position;
         const feetY = pos.y;
 
-        // Check the block at feet level (offset -0.1 to catch the block we're standing on)
         const block = bot.blockAt(pos.offset(0, -0.1, 0));
         if (!block) return;
 
-        const blockHeight = NON_FULL_BLOCK_HEIGHTS[block.name];
-        if (blockHeight === undefined) return; // Not a non-full block
+        // Use known height for non-full blocks, or 1.0 for full solid blocks.
+        // Paper often reports onGround=false even on full blocks (grass_block,
+        // dirt, stone, etc.), crippling movement to airborne acceleration (1/5th
+        // normal speed). We must fix onGround for ALL solid blocks, not just
+        // the non-full ones.
+        let blockHeight = NON_FULL_BLOCK_HEIGHTS[block.name];
+        if (blockHeight === undefined) {
+            if (block.boundingBox === 'block') {
+                blockHeight = 1.0;
+            } else {
+                return;
+            }
+        }
 
-        // Check if bot is close to the block's actual surface (not truly airborne)
         const surface = block.position.y + blockHeight;
         if (Math.abs(feetY - surface) < GROUND_FIX_TOLERANCE) {
-            // Snap Y to full block height — eliminates the 1/16 step that causes
-            // physics deadlocks at narrow entrances (dirt_path → grass_block).
-            // The physics engine drops the bot to 97.9375 each tick, we snap it
-            // back to 98.0 so the step-up to adjacent full blocks is zero.
-            const fullSurface = block.position.y + 1.0;
-            bot.entity.position.y = fullSurface;
             bot.entity.onGround = true;
         }
     });
+
+    // ---- Monkey-patch setControlState to intercept and suppress jump ----
+    // The pathfinder sets jump internally; we can't cancel it after the fact
+    // because physics already processes it. Intercept at the source.
+    const origSetControlState = bot.setControlState.bind(bot);
+    bot.setControlState = (control: Parameters<typeof origSetControlState>[0], state: boolean): void => {
+        if (control === 'jump' && state) {
+            // Suppress jump near shelter entrances (any door within 5 blocks)
+            const pos = bot.entity.position;
+            try {
+                const nearbyDoors = bot.findBlocks({
+                    matching: (block) => block.name.includes('door'),
+                    maxDistance: 5,
+                    count: 1,
+                    point: pos,
+                });
+                if (nearbyDoors.length > 0) {
+                    return; // swallow the jump command
+                }
+            } catch { /* findBlocks can fail before chunks load */ }
+        }
+        origSetControlState(control, state);
+    };
+
 }
 
 // ---- Narrow passage fix (stuck detection) ----
@@ -288,6 +317,8 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
     let noPathSince: number | null = null; // Separate timer for "no path" state (prevents leak into physically-stuck timer)
     let lastMovePos = bot.entity.position.clone();
     let preRecoveryPos = bot.entity.position.clone(); // Position before any recovery attempts
+    let zoneStuckPos: ReturnType<typeof bot.entity.position.clone> | null = null; // Where the bot FIRST got stuck in this zone
+    const ZONE_STUCK_RADIUS = 2.0; // If bot keeps getting stuck within this radius, escalate recovery
     let consecutiveStuckCount = 0;
     let isRecovering = false;
     let graceUntil = 0; // Timestamp — ignore checks until pathfinder re-engages
@@ -322,8 +353,15 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
             if (consecutiveStuckCount > 0) {
                 const realMoved = pos.distanceTo(preRecoveryPos);
                 if (realMoved > STUCK_REAL_MOVE_THRESHOLD) {
-                    console.log(`[MC Stuck] Genuinely unstuck (moved ${realMoved.toFixed(2)} from pre-recovery pos) after ${consecutiveStuckCount} cycles`);
-                    consecutiveStuckCount = 0;
+                    // Moved from recovery pos — but are we still in the same stuck zone?
+                    if (zoneStuckPos && pos.distanceTo(zoneStuckPos) < ZONE_STUCK_RADIUS) {
+                        // Still oscillating in the same area — don't reset counter
+                        // This lets narrow-passage recovery (cycle 3) trigger
+                    } else {
+                        console.log(`[MC Stuck] Genuinely unstuck (moved ${realMoved.toFixed(2)} from pre-recovery pos) after ${consecutiveStuckCount} cycles`);
+                        consecutiveStuckCount = 0;
+                        zoneStuckPos = null;
+                    }
                 }
             }
             lastMovePos = pos.clone();
@@ -355,6 +393,7 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
             if (consecutiveStuckCount > 0) {
                 console.log(`[MC Stuck] Goal cleared — resetting (was at cycle #${consecutiveStuckCount})`);
                 consecutiveStuckCount = 0;
+                zoneStuckPos = null;
             }
             stuckSince = null;
             noPathSince = null;
@@ -404,12 +443,17 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
 
         if (now - stuckSince > STUCK_DETECTION_TIMEOUT_MS) {
             consecutiveStuckCount++;
+            // Record zone center on first stuck detection
+            if (consecutiveStuckCount === 1) {
+                zoneStuckPos = pos.clone();
+            }
 
             // ---- Give up after too many consecutive stuck cycles ----
             if (consecutiveStuckCount >= STUCK_MAX_CYCLES) {
                 console.log(`[MC Stuck] Giving up after ${consecutiveStuckCount} consecutive stuck cycles — canceling pathfinder goal`);
                 bot.pathfinder.stop();
                 consecutiveStuckCount = 0;
+                zoneStuckPos = null;
                 stuckSince = null;
                 lastMovePos = pos.clone();
                 return;
@@ -463,7 +507,25 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                 preRecoveryPos = pos.clone();
             }
 
-            // Check if stuck near a door — open it and walk through in sequence
+            // Force onGround during recovery — but ONLY when near a block surface.
+            // Unconditional forceGround enables step-up at any height, letting
+            // the bot climb wall blocks (the root cause of doorframe wall-jumping).
+            const forceGroundGeneric = (): void => {
+                const y = bot.entity.position.y;
+                const below = bot.blockAt(bot.entity.position.offset(0, -0.5, 0));
+                if (below && below.boundingBox === 'block') {
+                    const blockTop = below.position.y + 1.0;
+                    if (Math.abs(y - blockTop) < 0.2) {
+                        bot.entity.onGround = true;
+                    }
+                }
+            };
+
+            // ---- Door alignment recovery ----
+            // When stuck near a door (open or closed), the bot is usually at an
+            // angle and its hitbox clips the door frame. Fix: back up, face
+            // perpendicular through the passage, strafe to center on the opening,
+            // then walk straight through.
             let doorRecovery = false;
             try {
                 const nearbyDoors = bot.findBlocks({
@@ -475,7 +537,7 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                     const doorPos = nearbyDoors[0];
                     let doorBlock = bot.blockAt(doorPos);
                     if (doorBlock) {
-                        // Resolve to bottom half
+                        // Resolve to bottom half for reliable property reading
                         try {
                             const props = doorBlock.getProperties() as Record<string, unknown>;
                             if (String(props['half']) === 'upper') {
@@ -485,105 +547,222 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                         } catch { /* use as-is */ }
 
                         let doorFacing = 'north';
-                        let doorHinge = 'left';
                         let doorIsOpen = false;
                         try {
                             const props = doorBlock.getProperties() as Record<string, unknown>;
                             doorFacing = String(props['facing'] ?? 'north');
-                            doorHinge = String(props['hinge'] ?? 'left');
                             doorIsOpen = String(props['open']) === 'true';
                         } catch { /* defaults */ }
 
                         doorRecovery = true;
+
+                        // Door facing north/south → passage along Z, center on X
+                        // Door facing east/west  → passage along X, center on Z
                         const isNS = doorFacing === 'north' || doorFacing === 'south';
 
-                        // Calculate the walkable offset within the door block.
-                        // When open, the thin panel (0.19 blocks) sits on the hinge side.
-                        // The bot must walk through the OTHER side to avoid server-side collision.
-                        // Offset 0.25 = hinge side (panel), 0.75 = open side (walkable)
-                        let walkableX = doorBlock.position.x + 0.5; // default: center
-                        let walkableZ = doorBlock.position.z + 0.5;
-                        if (isNS) {
-                            // N/S door: passage along Z, panel on X side
-                            const panelEast =
-                                (doorFacing === 'north' && doorHinge === 'right') ||
-                                (doorFacing === 'south' && doorHinge === 'left');
-                            walkableX = doorBlock.position.x + (panelEast ? 0.25 : 0.75);
-                        } else {
-                            // E/W door: passage along X, panel on Z side
-                            const panelSouth =
-                                (doorFacing === 'east' && doorHinge === 'left') ||
-                                (doorFacing === 'west' && doorHinge === 'right');
-                            walkableZ = doorBlock.position.z + (panelSouth ? 0.25 : 0.75);
+                        // Detect double doors — check adjacent blocks along the lateral axis
+                        const allDoors = [doorBlock];
+                        const lateralOffsets = isNS
+                            ? [[1, 0], [-1, 0]]  // N/S: check east/west
+                            : [[0, 1], [0, -1]];  // E/W: check north/south
+                        for (const [dx, dz] of lateralOffsets) {
+                            const neighbor = bot.blockAt(doorBlock.position.offset(dx, 0, dz));
+                            if (neighbor && doorIds.has(neighbor.type)) {
+                                try {
+                                    const nProps = neighbor.getProperties() as Record<string, unknown>;
+                                    if (String(nProps['half']) !== 'upper' &&
+                                        String(nProps['facing']) === doorFacing) {
+                                        allDoors.push(neighbor);
+                                    }
+                                } catch { /* skip */ }
+                            }
                         }
 
+                        // Center of all door blocks (handles single + double doors)
+                        let doorCenterX = 0;
+                        let doorCenterZ = 0;
+                        for (const d of allDoors) {
+                            doorCenterX += d.position.x + 0.5;
+                            doorCenterZ += d.position.z + 0.5;
+                        }
+                        doorCenterX /= allDoors.length;
+                        doorCenterZ /= allDoors.length;
+
+                        const botPos = bot.entity.position;
+
+                        // Determine through direction based on where the player is.
+                        // The bot's own yaw is unreliable here — the pathfinder may
+                        // point at an angle or even away from the door when stuck.
+                        // The bot always wants to reach the player, so we just check
+                        // which side of the door the player is on.
+                        const targetPlayer = Object.values(bot.players).find(
+                            p => p.entity && p.username !== bot.username,
+                        );
+                        let throughDx = 0;
+                        let throughDz = 0;
+                        if (targetPlayer?.entity) {
+                            const playerPos = targetPlayer.entity.position;
+                            if (isNS) {
+                                throughDz = playerPos.z > doorCenterZ ? 1 : -1;
+                            } else {
+                                throughDx = playerPos.x > doorCenterX ? 1 : -1;
+                            }
+                        } else {
+                            // No player visible — fall back to bot's heading
+                            const yaw = bot.entity.yaw;
+                            const headingX = -Math.sin(yaw);
+                            const headingZ = Math.cos(yaw);
+                            if (isNS) {
+                                throughDz = Math.abs(headingZ) > 0.1
+                                    ? (headingZ < 0 ? -1 : 1)
+                                    : (botPos.z < doorCenterZ ? 1 : -1);
+                            } else {
+                                throughDx = Math.abs(headingX) > 0.1
+                                    ? (headingX < 0 ? -1 : 1)
+                                    : (botPos.x < doorCenterX ? 1 : -1);
+                            }
+                        }
+
+                        // Calculate lateral offset — how far off-center the bot is
+                        const lateralOffset = isNS
+                            ? botPos.x - doorCenterX
+                            : botPos.z - doorCenterZ;
+
+                        const doorDesc = allDoors.length > 1
+                            ? `double-door at (${doorBlock.position.x},${doorBlock.position.z})+(${allDoors[1].position.x},${allDoors[1].position.z})`
+                            : `door at (${doorBlock.position.x},${doorBlock.position.z})`;
                         console.log(
-                            `[MC Stuck] Door-pass #${consecutiveStuckCount}: door at (${doorPos.x},${doorPos.z})` +
-                            ` facing=${doorFacing} hinge=${doorHinge} open=${doorIsOpen}` +
-                            ` walkable=(${walkableX.toFixed(2)},${walkableZ.toFixed(2)})`,
+                            `[MC Stuck] Door-align #${consecutiveStuckCount}: ${doorDesc}` +
+                            ` facing=${doorFacing} open=${doorIsOpen}` +
+                            ` center=(${doorCenterX.toFixed(2)},${doorCenterZ.toFixed(2)})` +
+                            ` bot=(${botPos.x.toFixed(2)},${botPos.z.toFixed(2)})` +
+                            ` through=(${throughDx},${throughDz}) offset=${lateralOffset.toFixed(3)}`,
                         );
 
-                        // 1. Stop pathfinder so it doesn't fight our controls
                         const goal = bot.pathfinder.goal;
                         bot.pathfinder.stop();
+                        const theDoor = doorBlock;
+                        const allDoorsRef = allDoors;
 
-                        // 2. Open the door if closed
-                        const theDoor = doorBlock; // capture non-null ref for async
-                        const openAndWalk = async (): Promise<void> => {
-                            if (!doorIsOpen) {
-                                const center = theDoor.position.offset(0.5, 0.5, 0.5);
-                                await bot.lookAt(center, true);
-                                await bot.activateBlock(theDoor);
-                                console.log(`[MC Stuck] Door opened — now walking through`);
-                                await new Promise(r => setTimeout(r, 100));
-                            }
+                        // Boost airborne acceleration to match ground speed.
+                        // The physicsTick handler sets onGround=true, but it fires
+                        // AFTER the physics simulation already ran that tick. So every
+                        // other tick the engine sees onGround=false and uses the tiny
+                        // airborne acceleration (0.02). Boosting it ensures the bot
+                        // moves at full speed regardless of onGround timing.
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const savedAirborneAccel = (bot as any).physics?.airborneAcceleration;
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        if ((bot as any).physics) (bot as any).physics.airborneAcceleration = 0.1;
 
-                            // 3. Look through the door on the WALKABLE side (away from panel)
-                            const botPos = bot.entity.position;
-                            const doorCZ = theDoor.position.z + 0.5;
-                            const doorCX = theDoor.position.x + 0.5;
-                            let lookX = walkableX;
-                            let lookZ = walkableZ;
-                            if (isNS) {
-                                lookZ = botPos.z < doorCZ ? doorCZ + 2 : doorCZ - 2;
-                            } else {
-                                lookX = botPos.x < doorCX ? doorCX + 2 : doorCX - 2;
-                            }
-                            console.log(
-                                `[MC Stuck] Door-pass: bot=(${botPos.x.toFixed(2)},${botPos.z.toFixed(2)})` +
-                                ` → looking toward (${lookX.toFixed(2)}, ${lookZ.toFixed(2)})`,
-                            );
-                            await bot.lookAt(
-                                theDoor.position.offset(
-                                    lookX - theDoor.position.x,
-                                    0.5,
-                                    lookZ - theDoor.position.z,
-                                ),
-                                true,
+                        const alignAndWalk = async (): Promise<void> => {
+                            bot.on('physicsTick', forceGroundGeneric);
+
+                            // The bot is stuck at a door at an angle because the
+                            // pathfinder was heading toward the player who moved
+                            // sideways after going through. Recovery strategy:
+                            //   1. Face through the door (perpendicular to the wall)
+                            //   2. Back up straight to clear the door frame
+                            //   3. Open any closed doors
+                            //   4. Strafe laterally to center on the opening
+                            //   5. Sprint straight through
+
+                            const throughPoint = theDoor.position.offset(
+                                0.5 + throughDx * 2,
+                                0.5,
+                                0.5 + throughDz * 2,
                             );
 
-                            // 4. Walk forward through the door
-                            // Force onGround=true EVERY TICK — Paper overrides it to
-                            // false each tick, which blocks horizontal movement.
-                            const forceGround = (): void => { bot.entity.onGround = true; };
-                            bot.on('physicsTick', forceGround);
+                            // Step 1: Sprint AWAY from the door to create clearance.
+                            // Walking backward is too slow (~0.5 blocks in 400ms).
+                            // Instead: face away, sprint forward, then turn back.
+                            // This gives ~2-3 blocks of clearance so the strafe won't
+                            // clip wall corners next to the door frame.
+                            const awayPoint = theDoor.position.offset(
+                                0.5 - throughDx * 3,
+                                0.5,
+                                0.5 - throughDz * 3,
+                            );
+                            await bot.lookAt(awayPoint, true);
                             bot.setControlState('forward', true);
                             bot.setControlState('sprint', true);
+                            await new Promise(r => setTimeout(r, 500));
+                            bot.setControlState('forward', false);
+                            bot.setControlState('sprint', false);
+                            await new Promise(r => setTimeout(r, 100));
 
-                            const walkStart = bot.entity.position.clone();
-                            await new Promise(r => setTimeout(r, 800));
-                            bot.removeListener('physicsTick', forceGround);
+                            // Step 3: Open all closed doors (handles double doors)
+                            for (const d of allDoorsRef) {
+                                const freshBlock = bot.blockAt(d.position);
+                                if (!freshBlock || !doorIds.has(freshBlock.type)) continue;
+                                try {
+                                    const dProps = freshBlock.getProperties() as Record<string, unknown>;
+                                    if (String(dProps['open']) !== 'true') {
+                                        const center = freshBlock.position.offset(0.5, 0.5, 0.5);
+                                        await bot.lookAt(center, true);
+                                        await bot.activateBlock(freshBlock);
+                                        console.log(`[MC Stuck] Door-align: opened door at (${freshBlock.position.x},${freshBlock.position.z})`);
+                                        await new Promise(r => setTimeout(r, 200));
+                                    }
+                                } catch { /* skip */ }
+                            }
+
+                            // Step 4: Strafe laterally to center on the door opening.
+                            // Pure sideways movement — no forward/back — so the bot
+                            // stays at the same distance from the door while centering.
+                            // Re-aim through the door first so strafe is perpendicular.
+                            await bot.lookAt(throughPoint, true);
+
+                            const postBackupPos = bot.entity.position;
+                            const currentOffset = isNS
+                                ? postBackupPos.x - doorCenterX
+                                : postBackupPos.z - doorCenterZ;
+
+                            if (Math.abs(currentOffset) > 0.05) {
+                                // Strafe left/right are relative to the bot's look direction.
+                                // When looking along (throughDx, throughDz), the "left" direction
+                                // in world coords is (throughDz, -throughDx). We care about its
+                                // lateral component: throughDz for N/S doors, -throughDx for E/W.
+                                // If that component has opposite sign to offset, 'left' reduces it.
+                                const leftLateral = isNS ? throughDz : -throughDx;
+                                const strafeDir: 'left' | 'right' =
+                                    (currentOffset * leftLateral < 0) ? 'left' : 'right';
+                                const strafeDist = Math.abs(currentOffset);
+                                // Walk speed ~4.3 blocks/sec → ~230ms/block + buffer
+                                const strafeDuration = Math.min(Math.max(strafeDist * 250 + 250, 300), 1200);
+
+                                console.log(
+                                    `[MC Stuck] Door-align: offset=${currentOffset.toFixed(3)}` +
+                                    ` → strafe ${strafeDir} for ${strafeDuration.toFixed(0)}ms`,
+                                );
+
+                                bot.setControlState(strafeDir, true);
+                                await new Promise(r => setTimeout(r, strafeDuration));
+                                bot.setControlState(strafeDir, false);
+                                await new Promise(r => setTimeout(r, 100));
+                            } else {
+                                console.log(`[MC Stuck] Door-align: offset=${currentOffset.toFixed(3)} — centered, skipping strafe`);
+                            }
+
+                            // Step 5: Sprint straight through the door
+                            await bot.lookAt(throughPoint, true);
+                            bot.setControlState('forward', true);
+                            bot.setControlState('sprint', true);
+                            await new Promise(r => setTimeout(r, 1000));
+
+                            bot.removeListener('physicsTick', forceGroundGeneric);
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            if ((bot as any).physics && savedAirborneAccel !== undefined) (bot as any).physics.airborneAcceleration = savedAirborneAccel;
                             clearRecoveryControls();
                             bot.setControlState('sprint', false);
 
                             const endPos = bot.entity.position;
                             const recoveryDist = startPos.distanceTo(endPos);
                             console.log(
-                                `[MC Stuck] Door-pass done: moved ${recoveryDist.toFixed(2)}` +
+                                `[MC Stuck] Door-align done: moved ${recoveryDist.toFixed(2)}` +
                                 ` ${recoveryDist > 0.3 ? 'OK' : 'FAILED'}`,
                             );
 
-                            // 5. Restore goal
                             if (goal) bot.pathfinder.setGoal(goal, true);
                             isRecovering = false;
                             graceUntil = performance.now() + STUCK_POST_RECOVERY_GRACE_MS;
@@ -591,8 +770,12 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                             lastMovePos = bot.entity.position.clone();
                         };
 
-                        openAndWalk().catch((err) => {
-                            console.warn(`[MC Stuck] Door-pass failed: ${err}`);
+                        alignAndWalk().catch((err) => {
+                            console.warn(`[MC Stuck] Door-align failed: ${err}`);
+                            bot.removeListener('physicsTick', forceGroundGeneric);
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            if ((bot as any).physics && savedAirborneAccel !== undefined) (bot as any).physics.airborneAcceleration = savedAirborneAccel;
+                            clearRecoveryControls();
                             if (goal) bot.pathfinder.setGoal(goal, true);
                             isRecovering = false;
                             stuckSince = null;
@@ -606,10 +789,129 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                 }
             } catch { /* findBlocks can fail before chunks load */ }
 
-            // Force onGround every tick during recovery — hoisted for setTimeout access
-            const forceGroundGeneric = (): void => { bot.entity.onGround = true; };
-
             if (!doorRecovery) {
+                // ---- Narrow-passage recovery (cycle >= 3) ----
+                // Detects when the bot is stuck at a narrow opening (1-2 block wide
+                // passage with walls on sides). Instead of random strafe bouncing,
+                // align to the center of the opening and walk straight through.
+                if (consecutiveStuckCount >= 3) {
+                    // Scan N/S/E/W for walls vs openings at head height (y+1)
+                    const dirs = [
+                        { name: 'N', dx: 0, dz: -1 },
+                        { name: 'S', dx: 0, dz: 1 },
+                        { name: 'E', dx: 1, dz: 0 },
+                        { name: 'W', dx: -1, dz: 0 },
+                    ];
+                    const wallDirs: typeof dirs = [];
+                    const openDirs: typeof dirs = [];
+                    for (const d of dirs) {
+                        const checkBlock = bot.blockAt(pos.offset(d.dx, 0, d.dz));
+                        // Wall = solid block at foot level (y+0) that isn't a door or short block
+                        // Doors are OPENINGS — the bot should walk through them, not away!
+                        if (checkBlock && checkBlock.boundingBox === 'block' &&
+                            !NON_FULL_BLOCK_HEIGHTS[checkBlock.name] &&
+                            !checkBlock.name.includes('door')) {
+                            wallDirs.push(d);
+                        } else {
+                            openDirs.push(d);
+                        }
+                    }
+
+                    // Narrow passage = at least 1 wall direction and at least 1 open direction
+                    // The bot should walk toward the open direction that the pathfinder wants
+                    if (wallDirs.length >= 1 && openDirs.length >= 1) {
+                        // Pick the open direction closest to where the pathfinder was heading
+                        const yaw = bot.entity.yaw;
+                        const lookDx = -Math.sin(yaw);
+                        const lookDz = Math.cos(yaw);
+
+                        let bestDir = openDirs[0];
+                        let bestDot = -Infinity;
+                        for (const d of openDirs) {
+                            const dot = d.dx * lookDx + d.dz * lookDz;
+                            if (dot > bestDot) {
+                                bestDot = dot;
+                                bestDir = d;
+                            }
+                        }
+
+                        console.log(
+                            `[MC Stuck] Narrow-passage #${consecutiveStuckCount}: walls=[${wallDirs.map(d => d.name).join(',')}]` +
+                            ` open=[${openDirs.map(d => d.name).join(',')}] → walking ${bestDir.name}`,
+                        );
+
+                        // Stop pathfinder, align, and walk through
+                        const goal = bot.pathfinder.goal;
+                        bot.pathfinder.stop();
+
+                        const walkThrough = async (): Promise<void> => {
+                            // Force ground during walk-through (Paper reports onGround=false
+                            // even on grass_block, blocking all horizontal movement)
+                            bot.on('physicsTick', forceGroundGeneric);
+
+                            // Open any closed door at current position AND in walking direction
+                            const doorPositions = [
+                                pos,                                          // bot's current block
+                                pos.offset(bestDir.dx, 0, bestDir.dz),        // next block in walking direction
+                            ];
+                            for (const doorPos of doorPositions) {
+                                const doorCheck = bot.blockAt(doorPos);
+                                if (doorCheck && doorCheck.name.includes('door')) {
+                                    const doorProps = doorCheck.getProperties();
+                                    const isOpen = doorProps['open'] === true || doorProps['open'] === 'true';
+                                    if (!isOpen) {
+                                        console.log(`[MC Stuck] Opening door at ${doorCheck.position} before walk-through`);
+                                        await bot.activateBlock(doorCheck);
+                                        await new Promise(r => setTimeout(r, 200));
+                                    }
+                                }
+                            }
+
+                            // Look toward the center of the opening (2 blocks ahead)
+                            await bot.lookAt(
+                                pos.offset(bestDir.dx * 2, 0.5, bestDir.dz * 2),
+                                true,
+                            );
+
+                            // Sprint forward through the opening
+                            bot.setControlState('forward', true);
+                            bot.setControlState('sprint', true);
+
+                            await new Promise(r => setTimeout(r, 600));
+                            bot.removeListener('physicsTick', forceGroundGeneric);
+                            clearRecoveryControls();
+                            bot.setControlState('sprint', false);
+
+                            const endPos = bot.entity.position;
+                            const recoveryDist = startPos.distanceTo(endPos);
+                            console.log(
+                                `[MC Stuck] Narrow-passage done: moved ${recoveryDist.toFixed(2)}` +
+                                ` ${recoveryDist > 0.3 ? 'OK' : 'FAILED'}`,
+                            );
+
+                            // Restore goal
+                            if (goal) bot.pathfinder.setGoal(goal, true);
+                            isRecovering = false;
+                            graceUntil = performance.now() + STUCK_POST_RECOVERY_GRACE_MS;
+                            stuckSince = null;
+                            lastMovePos = bot.entity.position.clone();
+                        };
+
+                        walkThrough().catch((err) => {
+                            console.warn(`[MC Stuck] Narrow-passage failed: ${err}`);
+                            bot.removeListener('physicsTick', forceGroundGeneric);
+                            if (goal) bot.pathfinder.setGoal(goal, true);
+                            isRecovering = false;
+                            stuckSince = null;
+                            lastMovePos = bot.entity.position.clone();
+                        });
+
+                        // Early return — async flow handles cleanup
+                        stuckSince = null;
+                        return;
+                    }
+                }
+
                 // Generic wall/corner recovery — back+strafe (strategies 0-3)
                 // Strategy 4 is forward+jump for micro-ledge obstacles
                 // (e.g. dirt_path → grass_block = 1/16 block step at door frames)
@@ -770,3 +1072,4 @@ export function handleTreeSpawn(bot: Bot): void {
         /* chunk not loaded — skip */
     }
 }
+
