@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import type { CompanionConfig } from '../config.js';
 import { DOOR_BLOCKS } from './game-data';
-import { setupNaNGuards, setupDoorAutomation, setupAutoSwim, setupStuckDetection, setupShelterProtection, handleTreeSpawn } from './bot-spawn-handlers';
+import { setupNaNGuards, setupDoorAutomation, setupAutoSwim, setupNonFullBlockGroundFix, setupStuckDetection, setupShelterProtection, handleTreeSpawn } from './bot-spawn-handlers';
 
 export interface MinecraftBot {
     bot: mineflayer.Bot;
@@ -35,6 +35,8 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
     // Load pathfinder plugin
     bot.loadPlugin(pathfinder);
+
+    let subsystemsRegistered = false;
 
     bot.on('login', () => {
         console.log(`[MC] Logged in as ${bot.username}`);
@@ -66,17 +68,101 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
             defaultMovements.scafoldingBlocks = [dirtBlock.id];
         }
 
-        // Collect door block IDs
+
+        // Collect door block IDs and patch the registry so open door states
+        // have empty collision shapes. This fixes BOTH pathfinder AND physics
+        // at the source — no per-block monkey-patching needed.
         const doorNames = DOOR_BLOCKS;
         const doorIds = new Set<number>();
+        let patchedStates = 0;
         for (const name of doorNames) {
             const block = mcData.blocksByName[name];
-            if (block) {
-                doorIds.add(block.id);
-                defaultMovements.blocksCantBreak.add(block.id);
+            if (!block) continue;
+            doorIds.add(block.id);
+            defaultMovements.blocksCantBreak.add(block.id);
+
+            // Patch ALL door stateShapes to empty collision.
+            // The bot's block state cache is often stale on Paper — it reports
+            // open=false for doors that are actually open. By clearing ALL states
+            // (not just open=true), the physics engine won't block the bot at
+            // doors regardless of cached state. The pathfinder already treats
+            // doors as passable (getBlock override), and the auto-door handler
+            // + narrow-passage recovery handle actually-closed doors.
+            if (block.stateShapes) {
+                for (let i = 0; i < block.stateShapes.length; i++) {
+                    block.stateShapes[i] = [];
+                    patchedStates++;
+                }
             }
         }
-        console.log(`[MC] Registered ${doorIds.size} door types as passable`);
+
+        // Also patch physics collision shapes for doors
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const bcsForDoors = (mcData as any).blockCollisionShapes;
+        if (bcsForDoors && bcsForDoors.blocks && bcsForDoors.shapes) {
+            for (const name of doorNames) {
+                const shapeRef = bcsForDoors.blocks[name];
+                if (shapeRef !== undefined) {
+                    if (Array.isArray(shapeRef)) {
+                        for (const idx of shapeRef) {
+                            bcsForDoors.shapes[String(idx)] = [];
+                        }
+                    } else {
+                        bcsForDoors.shapes[String(shapeRef)] = [];
+                    }
+                }
+            }
+        }
+        console.log(`[MC] Registered ${doorIds.size} door types, patched ${patchedStates} door collision states (all passable)`);
+
+        // Patch non-full-height blocks (dirt_path, farmland = 15/16) to full
+        // collision height. Without this, the 1/16-block step between these
+        // blocks and adjacent full blocks causes the bot to clip at narrow
+        // entrances (e.g. shelter doorframes with shoveled ground).
+        //
+        // Two registries must be patched:
+        //  1. block.stateShapes — used by mineflayer-pathfinder for path planning
+        //  2. mcData.blockCollisionShapes — used by prismarine-physics for collision
+        const NON_FULL_BLOCKS = ['dirt_path', 'farmland'];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const bcs = (mcData as any).blockCollisionShapes;
+        const fullBlockShape = [[0, 0, 0, 1, 1, 1]];
+
+        for (const name of NON_FULL_BLOCKS) {
+            const block = mcData.blocksByName[name];
+            if (!block) continue;
+
+            // Patch stateShapes (pathfinder)
+            if (block.stateShapes) {
+                for (let i = 0; i < block.stateShapes.length; i++) {
+                    block.stateShapes[i] = fullBlockShape;
+                }
+                console.log(`[MC] Patched ${name} stateShapes to full height (${block.stateShapes.length} states)`);
+            }
+
+            // Patch blockCollisionShapes (physics engine)
+            if (bcs && bcs.blocks && bcs.shapes) {
+                const shapeRef = bcs.blocks[name];
+                if (shapeRef !== undefined) {
+                    // shapeRef can be a number (single state) or array (multi-state)
+                    if (Array.isArray(shapeRef)) {
+                        // Multi-state: each entry is a shape index
+                        for (const idx of shapeRef) {
+                            bcs.shapes[String(idx)] = fullBlockShape;
+                        }
+                        console.log(`[MC] Patched ${name} physics collision (${shapeRef.length} state shapes)`);
+                    } else {
+                        // Single state: one shape index
+                        bcs.shapes[String(shapeRef)] = fullBlockShape;
+                        console.log(`[MC] Patched ${name} physics collision (shape index ${shapeRef})`);
+                    }
+                } else {
+                    console.warn(`[MC] WARNING: ${name} not found in blockCollisionShapes.blocks`);
+                }
+            } else {
+                console.warn(`[MC] WARNING: blockCollisionShapes not available — ${name} collision NOT patched`);
+            }
+        }
 
         // Monkey-patch getBlock so doors are treated as passable by the pathfinder.
         // Without this, closed doors have boundingBox='block' → pathfinder sees walls.
@@ -103,7 +189,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         if (lavaId !== undefined) {
             const isLava = (id: number): boolean => id === lavaId || id === flowingLavaId;
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            defaultMovements.exclusionAreasStep = [(block: any) => {
+            defaultMovements.exclusionAreasStep.push((block: any) => {
                 const p = block.position;
                 if (!p) return 0;
                 const offsets = [
@@ -116,7 +202,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
                     if (neighbor && isLava(neighbor.type)) return 100;
                 }
                 return 0;
-            }];
+            });
         }
 
         // Companion bot exclusion zone — avoid walking into the other bot's position.
@@ -137,12 +223,19 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
 
         bot.pathfinder.setMovements(defaultMovements);
 
-        // Register spawn-time subsystems (each is self-contained)
-        setupNaNGuards(bot);
-        setupDoorAutomation(bot, doorIds);
-        setupAutoSwim(bot);
-        setupStuckDetection(bot);
-        setupShelterProtection(bot, doorIds);
+        // Register spawn-time subsystems (each is self-contained).
+        // Guard: only register once — the 'spawn' event fires on every respawn
+        // (death, SkinsRestorer skin apply, dimension change). Without this guard,
+        // each respawn adds DUPLICATE physicsTick handlers that fight each other.
+        if (!subsystemsRegistered) {
+            subsystemsRegistered = true;
+            setupNaNGuards(bot);
+            setupDoorAutomation(bot, doorIds);
+            setupAutoSwim(bot);
+            setupNonFullBlockGroundFix(bot);
+            setupStuckDetection(bot, doorIds);
+            setupShelterProtection(bot, doorIds);
+        }
         handleTreeSpawn(bot);
 
         if (resolveSpawn) {
