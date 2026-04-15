@@ -150,20 +150,20 @@ export function setupDoorAutomation(bot: Bot, doorIds: Set<number>): void {
                     } catch { /* getProperties may not be available */ }
 
                     // Read door state — check BOTH the scanned block and resolved bottom half
-                    let isOpen = false;
+                    let isOpen: boolean;
                     let facing = 'unknown';
-                    let openSource = '?';
+                    let openSource: string;
                     try {
                         const doorProps = doorBlock.getProperties() as Record<string, unknown>;
                         // Property can be boolean true or string 'true' depending on server
                         isOpen = String(doorProps['open']) === 'true';
-                        facing = String(doorProps['facing'] ?? 'unknown');
-                        openSource = `prop:${doorProps['open']}(${typeof doorProps['open']})`;
+                        facing = typeof doorProps['facing'] === 'string' ? doorProps['facing'] : 'unknown';
+                        openSource = `prop:${String(doorProps['open'])}(${typeof doorProps['open']})`;
                     } catch {
                         try {
                             const blockProps = block.getProperties() as Record<string, unknown>;
                             isOpen = String(blockProps['open']) === 'true';
-                            openSource = `fallback:${blockProps['open']}(${typeof blockProps['open']})`;
+                            openSource = `fallback:${String(blockProps['open'])}(${typeof blockProps['open']})`;
                         } catch {
                             console.log(`[MC Door] Can't read state at ${key} — skipping`);
                             continue;
@@ -550,7 +550,7 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                         let doorIsOpen = false;
                         try {
                             const props = doorBlock.getProperties() as Record<string, unknown>;
-                            doorFacing = String(props['facing'] ?? 'north');
+                            doorFacing = typeof props['facing'] === 'string' ? props['facing'] : 'north';
                             doorIsOpen = String(props['open']) === 'true';
                         } catch { /* defaults */ }
 
@@ -860,7 +860,7 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                                     const doorProps = doorCheck.getProperties();
                                     const isOpen = doorProps['open'] === true || doorProps['open'] === 'true';
                                     if (!isOpen) {
-                                        console.log(`[MC Stuck] Opening door at ${doorCheck.position} before walk-through`);
+                                        console.log(`[MC Stuck] Opening door at ${String(doorCheck.position)} before walk-through`);
                                         await bot.activateBlock(doorCheck);
                                         await new Promise(r => setTimeout(r, 200));
                                     }

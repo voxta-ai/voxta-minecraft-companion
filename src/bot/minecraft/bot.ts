@@ -97,8 +97,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         }
 
         // Also patch physics collision shapes for doors
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const bcsForDoors = (mcData as any).blockCollisionShapes;
+        const bcsForDoors = mcData.blockCollisionShapes;
         if (bcsForDoors && bcsForDoors.blocks && bcsForDoors.shapes) {
             for (const name of doorNames) {
                 const shapeRef = bcsForDoors.blocks[name];
@@ -124,8 +123,7 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         //  1. block.stateShapes — used by mineflayer-pathfinder for path planning
         //  2. mcData.blockCollisionShapes — used by prismarine-physics for collision
         const NON_FULL_BLOCKS = ['dirt_path', 'farmland'];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const bcs = (mcData as any).blockCollisionShapes;
+        const bcs = mcData.blockCollisionShapes;
         const fullBlockShape = [[0, 0, 0, 1, 1, 1]];
 
         for (const name of NON_FULL_BLOCKS) {
