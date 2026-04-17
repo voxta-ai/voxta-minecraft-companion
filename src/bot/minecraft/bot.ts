@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import type { CompanionConfig } from '../config.js';
 import { DOOR_BLOCKS } from './game-data';
-import { setupNaNGuards, setupDoorAutomation, setupAutoSwim, setupNonFullBlockGroundFix, setupStuckDetection, setupShelterProtection, handleTreeSpawn } from './bot-spawn-handlers';
+import { setupNaNGuards, setupDoorAutomation, setupAutoSwim, setupNonFullBlockGroundFix, setupStuckDetection, setupShelterProtection, handleTreeSpawn } from './spawn-handlers';
 
 export interface MinecraftBot {
     bot: mineflayer.Bot;
