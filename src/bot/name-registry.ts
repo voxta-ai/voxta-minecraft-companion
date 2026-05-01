@@ -3,16 +3,32 @@
  * Ensures actions always resolve the correct player/bot entity,
  * even with multiple bots in the same world.
  */
+export type NameRole = 'user' | 'bot';
+
 export class NameRegistry {
     // voxtaName (lowercase) → mcUsername
     private readonly voxtaToMc = new Map<string, string>();
     // mcUsername (lowercase) → voxtaName
     private readonly mcToVoxta = new Map<string, string>();
+    // mcUsername (lowercase) → role (user vs bot). Lets perception/event code
+    // label nearby players and disambiguate chat without extra params.
+    private readonly mcRoles = new Map<string, NameRole>();
 
     /** Register a name pair (e.g. "Lapiro" ↔ "Player", "Inferna" ↔ "VoxtaBot") */
-    register(voxtaName: string, mcUsername: string): void {
+    register(voxtaName: string, mcUsername: string, role: NameRole = 'bot'): void {
         this.voxtaToMc.set(voxtaName.toLowerCase(), mcUsername);
         this.mcToVoxta.set(mcUsername.toLowerCase(), voxtaName);
+        this.mcRoles.set(mcUsername.toLowerCase(), role);
+    }
+
+    /** Returns true if the given MC username belongs to the user (the human player). */
+    isUserMc(mcUsername: string): boolean {
+        return this.mcRoles.get(mcUsername.toLowerCase()) === 'user';
+    }
+
+    /** Returns true if the given MC username belongs to a bot (companion AI). */
+    isBotMc(mcUsername: string): boolean {
+        return this.mcRoles.get(mcUsername.toLowerCase()) === 'bot';
     }
 
     /**

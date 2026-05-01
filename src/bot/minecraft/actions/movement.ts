@@ -23,14 +23,17 @@ export async function followPlayer(bot: Bot, playerName: string | undefined, nam
     }
 
     // Don't follow ourselves — AI sometimes sends the bot's own name.
-    // Auto-reroute to the first online human player instead.
+    // Reroute to the user (the human player) when possible, or any other
+    // non-bot human as a fallback. Avoid rerouting to companion bots.
     const mcName = names.resolveToMc(playerName);
     if (mcName.toLowerCase() === bot.username.toLowerCase()) {
-        const otherPlayer = Object.values(bot.players).find(
-            (p) => p.username.toLowerCase() !== bot.username.toLowerCase(),
+        const onlinePlayers = Object.values(bot.players);
+        const userPlayer = onlinePlayers.find((p) => names.isUserMc(p.username));
+        const otherHuman = userPlayer ?? onlinePlayers.find(
+            (p) => p.username.toLowerCase() !== bot.username.toLowerCase() && !names.isBotMc(p.username),
         );
-        if (otherPlayer) {
-            playerName = names.resolveToVoxta(otherPlayer.username) || otherPlayer.username;
+        if (otherHuman) {
+            playerName = names.resolveToVoxta(otherHuman.username) || otherHuman.username;
             console.log(`[MC Action] Bot tried to follow itself, rerouting to ${playerName}`);
         } else {
             return 'No other players nearby to follow';

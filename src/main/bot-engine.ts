@@ -771,13 +771,13 @@ export class BotEngine extends EventEmitter {
         // Populate name registry (player + both bots)
         this.names.clear();
         if (this.voxtaUserName && this.playerMcUsername) {
-            this.names.register(this.voxtaUserName, this.playerMcUsername);
+            this.names.register(this.voxtaUserName, this.playerMcUsername, 'user');
         }
         if (this.botSlots[0].assistantName && config.mc.username) {
-            this.names.register(this.botSlots[0].assistantName, config.mc.username);
+            this.names.register(this.botSlots[0].assistantName, config.mc.username, 'bot');
         }
         if (this.botSlots[1].assistantName && uiConfig.secondMcUsername) {
-            this.names.register(this.botSlots[1].assistantName, uiConfig.secondMcUsername);
+            this.names.register(this.botSlots[1].assistantName, uiConfig.secondMcUsername, 'bot');
         }
     }
 
@@ -1010,7 +1010,7 @@ export class BotEngine extends EventEmitter {
 
             // Register in name registry
             if (this.voxtaUserName) {
-                this.names.register(this.voxtaUserName, this.playerMcUsername);
+                this.names.register(this.voxtaUserName, this.playerMcUsername, 'user');
             }
 
             // Auto-follow the late-joining player
