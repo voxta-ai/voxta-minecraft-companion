@@ -12,6 +12,43 @@ import { getErrorMessage } from '../utils';
 const CRAFT_STEP_DELAY_MS = 250;
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+// Scan radius (blocks) used when looking for a mineable source for an
+// auto-craftable raw material like cobblestone. Keep this modest so the bot
+// doesn't go on a long expedition mid-craft.
+const AUTO_MINE_SCAN_RADIUS = 16;
+
+/**
+ * Raw materials we know how to obtain by mining when they appear as a craft
+ * prerequisite. The block we mine may differ from the item dropped (mining
+ * "stone" with a wooden pickaxe drops "cobblestone").
+ */
+const AUTO_MINEABLE_PREREQS: Record<string, { sourceBlocks: string[]; needsPickaxe: boolean }> = {
+    cobblestone: {
+        // Stone variants that all drop cobblestone (or themselves) when mined
+        sourceBlocks: ['stone', 'cobblestone', 'andesite', 'granite', 'diorite'],
+        needsPickaxe: true,
+    },
+    cobbled_deepslate: {
+        sourceBlocks: ['deepslate', 'cobbled_deepslate'],
+        needsPickaxe: true,
+    },
+};
+
+/** Returns true if the bot has any pickaxe (any tier) in inventory. */
+function hasAnyPickaxe(bot: Bot): boolean {
+    return bot.inventory.items().some((i) => i.name.endsWith('_pickaxe'));
+}
+
+/** Find the first mineable source block within scan radius. Returns the block name found, or null. */
+function findMineableSource(bot: Bot, sourceBlocks: string[]): string | null {
+    const sources = new Set(sourceBlocks);
+    const block = bot.findBlock({
+        matching: (b) => sources.has(b.name),
+        maxDistance: AUTO_MINE_SCAN_RADIUS,
+    });
+    return block ? block.name : null;
+}
+
 // Progress callback for sending notes during long crafts (e.g. chopping wood)
 export type CraftProgressCallback = (message: string) => void;
 let craftProgressCallback: CraftProgressCallback | null = null;
@@ -79,7 +116,14 @@ async function autoCraftWithPrereqs(
     if (recipes.length > 0) {
         try {
             const before = countItemInInventory(bot, itemId);
-            await bot.craft(recipes[0], stillNeed, craftingTable ?? undefined);
+            // bot.craft's second arg is the number of TIMES to run the recipe,
+            // not the number of items wanted. Convert by dividing by per-craft
+            // yield (e.g. sticks yield 4 per run, so stillNeed=2 → 1 run, not 2).
+            // Without this, crafting 2 sticks uses 4 planks instead of 2 and
+            // can starve a parent recipe of its plank supply.
+            const resultPerCraft = recipes[0].result?.count ?? 1;
+            const craftRuns = Math.max(1, Math.ceil(stillNeed / resultPerCraft));
+            await bot.craft(recipes[0], craftRuns, craftingTable ?? undefined);
             const gained = countItemInInventory(bot, itemId) - before;
             return { success: true, crafted: gained, steps: [`${gained} ${displayName}`], missing: [] };
         } catch {
@@ -94,6 +138,75 @@ async function autoCraftWithPrereqs(
     const allRecipes = bot.recipesAll(itemId, null, craftingTable);
     if (allRecipes.length === 0) {
         // No recipe exists — this is a raw material (logs, ores, etc.)
+
+        // Auto-mine path: some raw materials (cobblestone, deepslate) are
+        // routinely needed mid-chain (e.g. for stone tools) and the bot can
+        // obtain them by mining nearby blocks. Only attempt when this is a
+        // recursive call (depth > 0) — at depth 0 the user explicitly asked
+        // for the raw material, which is the mineBlock action's job.
+        const itemName = mcData.items[itemId]?.name;
+        const mineable = itemName ? AUTO_MINEABLE_PREREQS[itemName] : undefined;
+        if (mineable && depth > 0) {
+            const sourceFound = findMineableSource(bot, mineable.sourceBlocks);
+            if (!sourceFound) {
+                return {
+                    success: false,
+                    crafted: 0,
+                    steps: [],
+                    missing: [`no ${mineable.sourceBlocks[0]} found within ${AUTO_MINE_SCAN_RADIUS} blocks to mine ${displayName}`],
+                };
+            }
+
+            // Track every step (including auto-crafted pickaxe) so the final
+            // partial-success message can mention them — important for the
+            // stone-pickaxe soft-fail case where the player still gets a
+            // useful wooden pickaxe even when stone is unreachable.
+            const mineSteps: string[] = [];
+
+            // Make sure we have a tool capable of mining the source block.
+            // Any pickaxe tier can mine stone-class blocks for the drop.
+            if (mineable.needsPickaxe && !hasAnyPickaxe(bot)) {
+                const pickaxeInfo = mcData.itemsByName['wooden_pickaxe'];
+                if (pickaxeInfo) {
+                    const pickaxeResult = await autoCraftWithPrereqs(
+                        bot, mcData, pickaxeInfo.id, 1, craftingTable, depth + 1,
+                    );
+                    mineSteps.push(...pickaxeResult.steps);
+                    if (!pickaxeResult.success) {
+                        return {
+                            success: false,
+                            crafted: 0,
+                            steps: mineSteps,
+                            missing: [...pickaxeResult.missing, `couldn't craft a pickaxe to mine ${displayName}`],
+                        };
+                    }
+                    await delay(CRAFT_STEP_DELAY_MS);
+                }
+            }
+
+            // Mine the source block.
+            craftProgressCallback?.(`Mining ${stillNeed} ${sourceFound} for ${displayName}...`);
+            const { mineBlock } = await import('./mining.js');
+            const beforeMine = countItemInInventory(bot, itemId);
+            const mineResult = await mineBlock(bot, sourceFound, String(stillNeed));
+            const minedCount = countItemInInventory(bot, itemId) - beforeMine;
+            if (minedCount > 0) mineSteps.push(`mined ${minedCount} ${displayName}`);
+            if (minedCount >= stillNeed) {
+                return {
+                    success: true,
+                    crafted: minedCount,
+                    steps: mineSteps,
+                    missing: [],
+                };
+            }
+            return {
+                success: false,
+                crafted: minedCount,
+                steps: mineSteps,
+                missing: [`couldn't reach any ${sourceFound} close enough to mine (${mineResult.toLowerCase()})`],
+            };
+        }
+
         // But first: check if this is a specific wood type (e.g. spruce_planks)
         // and the bot has a different wood type (e.g. oak_log) that could work.
         const substituted = tryWoodSubstitution(bot, mcData, itemId);
@@ -138,6 +251,10 @@ async function autoCraftWithPrereqs(
 
     // Try each recipe variant until one succeeds
     let lastMissing: string[] = [];
+    // Capture the last attempted variant's accumulated steps so the final
+    // failure return can still surface useful intermediate results
+    // (e.g. a wooden pickaxe crafted while trying to make a stone pickaxe).
+    let lastSteps: string[] = [];
     for (const { recipe } of scored) {
         const ingredients: { id: number; countPerCraft: number }[] = [];
         for (const delta of recipe.delta) {
@@ -150,44 +267,56 @@ async function autoCraftWithPrereqs(
         const resultPerCraft = recipe.result?.count ?? 1;
         const craftRuns = Math.ceil(stillNeed / resultPerCraft);
 
-        // Recursively ensure we have enough of each ingredient
+        // Recursively ensure we have enough of each ingredient.
+        // Wrap in a retry-pass loop because sibling prereqs can consume each
+        // other's materials — e.g. crafting sticks to satisfy a tool recipe
+        // uses planks that the same tool recipe also needs. After each pass,
+        // re-check all ingredients and craft more of any that are now short.
         const allSteps: string[] = [];
         const allMissing: string[] = [];
         let prereqFailed = false;
-        for (const ingredient of ingredients) {
-            const totalNeeded = ingredient.countPerCraft * craftRuns;
-            const have = countItemInInventory(bot, ingredient.id);
-            if (have < totalNeeded) {
-                let prereqResult = await autoCraftWithPrereqs(
-                    bot,
-                    mcData,
-                    ingredient.id,
-                    totalNeeded,
-                    craftingTable,
-                    depth + 1,
-                );
-                // If prereq failed, try wood-type substitution (e.g. spruce_planks → oak_planks)
-                if (!prereqResult.success) {
-                    const sub = tryWoodSubstitution(bot, mcData, ingredient.id);
-                    if (sub) {
-                        prereqResult = await autoCraftWithPrereqs(
-                            bot, mcData, sub.id, totalNeeded, craftingTable, depth + 1,
-                        );
+        const MAX_INGREDIENT_PASSES = 3;
+        let pass = 0;
+        for (; pass < MAX_INGREDIENT_PASSES; pass++) {
+            let didWork = false;
+            for (const ingredient of ingredients) {
+                const totalNeeded = ingredient.countPerCraft * craftRuns;
+                const have = countItemInInventory(bot, ingredient.id);
+                if (have < totalNeeded) {
+                    didWork = true;
+                    let prereqResult = await autoCraftWithPrereqs(
+                        bot,
+                        mcData,
+                        ingredient.id,
+                        totalNeeded,
+                        craftingTable,
+                        depth + 1,
+                    );
+                    // If prereq failed, try wood-type substitution (e.g. spruce_planks → oak_planks)
+                    if (!prereqResult.success) {
+                        const sub = tryWoodSubstitution(bot, mcData, ingredient.id);
+                        if (sub) {
+                            prereqResult = await autoCraftWithPrereqs(
+                                bot, mcData, sub.id, totalNeeded, craftingTable, depth + 1,
+                            );
+                        }
                     }
+                    allSteps.push(...prereqResult.steps);
+                    allMissing.push(...prereqResult.missing);
+                    if (!prereqResult.success) {
+                        prereqFailed = true;
+                        break;
+                    }
+                    // Delay between prerequisite crafts to avoid Paper rate-limiting
+                    await delay(CRAFT_STEP_DELAY_MS);
                 }
-                allSteps.push(...prereqResult.steps);
-                allMissing.push(...prereqResult.missing);
-                if (!prereqResult.success) {
-                    prereqFailed = true;
-                    break;
-                }
-                // Delay between prerequisite crafts to avoid Paper rate-limiting
-                await delay(CRAFT_STEP_DELAY_MS);
             }
+            if (prereqFailed || !didWork) break;
         }
 
         if (prereqFailed) {
             lastMissing = allMissing;
+            lastSteps = allSteps;
             continue; // Try the next recipe variant
         }
 
@@ -204,6 +333,7 @@ async function autoCraftWithPrereqs(
             const message = getErrorMessage(err);
             // If this variant failed, try the next one instead of giving up
             lastMissing = [`${displayName}: ${message}`];
+            lastSteps = allSteps;
             continue;
         }
 
@@ -224,7 +354,7 @@ async function autoCraftWithPrereqs(
     return {
         success: false,
         crafted: 0,
-        steps: [],
+        steps: lastSteps,
         missing: lastMissing.length > 0 ? lastMissing : [`${displayName} (unknown reason)`],
     };
 }
@@ -394,6 +524,37 @@ function resolveGenericCraft(
     return bestItem ?? fallbackItem;
 }
 
+/** Stone tools that are NOT the pickaxe. The pickaxe is special-cased because
+ *  partial completion (just the wooden tier) is a useful gift to the player.
+ *  For these, we'd rather reject early than chop a bunch of wood for nothing.
+ */
+const NON_PICKAXE_STONE_TOOLS = new Set([
+    'stone_sword', 'stone_axe', 'stone_shovel', 'stone_hoe',
+]);
+
+const COBBLESTONE_PREREQ_NEEDED = 3;  // All stone tools need 3 cobblestone
+
+/**
+ * Pre-check for non-pickaxe stone tools: if we don't have cobblestone in
+ * inventory AND no stone is reachable nearby, return a friendly rejection
+ * message; otherwise return null and let the chain proceed.
+ */
+function checkNonPickaxeStoneToolPrereq(
+    bot: Bot,
+    mcData: { itemsByName: McDataItems },
+    resolvedName: string,
+): string | null {
+    if (!NON_PICKAXE_STONE_TOOLS.has(resolvedName)) return null;
+    const cobbleInfo = mcData.itemsByName['cobblestone'];
+    if (!cobbleInfo) return null;
+    const haveCobble = countItemInInventory(bot, cobbleInfo.id);
+    if (haveCobble >= COBBLESTONE_PREREQ_NEEDED) return null;
+    const sourceFound = findMineableSource(bot, AUTO_MINEABLE_PREREQS.cobblestone.sourceBlocks);
+    if (sourceFound) return null;
+    const displayName = mcData.itemsByName[resolvedName]?.displayName ?? resolvedName;
+    return `Can't craft ${displayName} — need cobblestone, but no stone is within ${AUTO_MINE_SCAN_RADIUS} blocks. Find some stone first, or ask for the wooden version.`;
+}
+
 export async function craftItem(bot: Bot, itemName: string | undefined, countStr: string | undefined): Promise<string> {
     if (!itemName) return 'No item name provided';
 
@@ -411,6 +572,15 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
     const resolved = genericItem?.name ?? CRAFT_ALIASES[normalized] ?? normalized;
     const itemInfo = genericItem ?? mcData.itemsByName[resolved];
     if (!itemInfo) return `Unknown item: ${itemName}`;
+
+    // Pre-check for non-pickaxe stone tools: if we'd have to mine cobblestone
+    // and there's no stone within scan radius (and no cobblestone in
+    // inventory either), reject early before doing any wood-chopping. The
+    // stone PICKAXE is exempt — for that one, even getting a wooden pickaxe
+    // along the way is a useful outcome the player can act on. For sword/axe/
+    // shovel/hoe, partial progress isn't what they asked for.
+    const earlyReject = checkNonPickaxeStoneToolPrereq(bot, mcData, itemInfo.name);
+    if (earlyReject) return earlyReject;
 
     // Suppress pickup notes for the entire crafting process
     // (equip/unequip/craft all trigger inventory slot changes)
@@ -634,7 +804,16 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
             }
             return m;
         });
-        message = `Tried to craft ${itemInfo.displayName} but ${missingHints.join('; ')}`;
+
+        // Special case: failed to craft stone pickaxe but auto-crafted a
+        // wooden pickaxe along the way. Highlight that as a useful outcome
+        // so the player knows what to do next.
+        const craftedWoodenPickaxe = result.steps.some((s) => /wooden pickaxe/i.test(s));
+        if (itemInfo.name === 'stone_pickaxe' && craftedWoodenPickaxe) {
+            message = `Couldn't finish the stone pickaxe (${missingHints.join('; ')}), but crafted a wooden pickaxe along the way — use it to mine some stone, then ask again.`;
+        } else {
+            message = `Tried to craft ${itemInfo.displayName} but ${missingHints.join('; ')}`;
+        }
     } else {
         message = `Tried to craft ${itemInfo.displayName} but don't have the right materials`;
     }
