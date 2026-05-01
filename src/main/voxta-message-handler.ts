@@ -4,6 +4,9 @@ import type {
     ServerWelcomeMessage,
     ServerVisionCaptureRequestMessage,
     ServerRecordingRequestMessage,
+    ServerErrorMessage,
+    ServerChatSessionErrorMessage,
+    ServerMissingResourcesErrorMessage,
     ServerMessage,
 } from '../bot/voxta/types';
 import type { ChatMessage, McSettings, RecordingStartEvent, InspectorData } from '../shared/ipc-types';
@@ -408,6 +411,54 @@ function handleContextUpdated(message: ServerMessage, ctx: MessageHandlerContext
     ctx.emit('inspector-update', inspectorData);
 }
 
+// ---- Server-side error handlers ----
+// Voxta sends three error message types over the websocket. Without dedicated
+// handlers we'd only see the type name (e.g. "[Server] chatSessionError") and
+// the actual error info would be silently dropped, making bugs unreportable.
+
+const ERROR_LOG_PREVIEW_LENGTH = 500;
+
+function formatErrorSuffix(err: { code?: string; serviceName?: string }): string {
+    const parts: string[] = [];
+    if (err.code) parts.push(`code=${err.code}`);
+    if (err.serviceName) parts.push(`service=${err.serviceName}`);
+    return parts.length > 0 ? ` [${parts.join(', ')}]` : '';
+}
+
+function handleError(message: ServerMessage, ctx: MessageHandlerContext): void {
+    const err = message as ServerErrorMessage;
+    console.error(`[Server ERROR]${formatErrorSuffix(err)} ${err.message}`);
+    if (err.details) {
+        const preview = err.details.length > ERROR_LOG_PREVIEW_LENGTH
+            ? err.details.substring(0, ERROR_LOG_PREVIEW_LENGTH) + '...'
+            : err.details;
+        console.error(`[Server ERROR details] ${preview}`);
+    }
+    ctx.addChat('system', 'Error', err.message);
+}
+
+function handleChatSessionError(message: ServerMessage, ctx: MessageHandlerContext): void {
+    const err = message as ServerChatSessionErrorMessage;
+    const retry = err.retry === false ? ' (will NOT retry)' : '';
+    console.error(`[Server chatSessionError]${formatErrorSuffix(err)}${retry} ${err.message}`);
+    if (err.details) {
+        const preview = err.details.length > ERROR_LOG_PREVIEW_LENGTH
+            ? err.details.substring(0, ERROR_LOG_PREVIEW_LENGTH) + '...'
+            : err.details;
+        console.error(`[Server chatSessionError details] ${preview}`);
+    }
+    ctx.addChat('system', 'Chat Error', err.message);
+}
+
+function handleMissingResourcesError(message: ServerMessage, ctx: MessageHandlerContext): void {
+    const err = message as ServerMissingResourcesErrorMessage;
+    const summary = (err.resources ?? [])
+        .map((r) => `${r.name ?? '?'} (${r.serviceName ?? '?'}${r.status ? `: ${r.status}` : ''})`)
+        .join(', ');
+    console.error(`[Server missingResourcesError] ${summary || '(no resource details)'}`);
+    ctx.addChat('system', 'Missing Resources', summary || 'Required resources are unavailable');
+}
+
 // ---- Handler registry ----
 // Adding a new message type = adding one entry here + one handler function above.
 
@@ -430,6 +481,9 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
     visionCaptureRequest: handleVisionCaptureRequestMsg,
     recordingRequest: handleRecordingRequest,
     contextUpdated: handleContextUpdated,
+    error: handleError,
+    chatSessionError: handleChatSessionError,
+    missingResourcesError: handleMissingResourcesError,
 };
 
 // Quiet message types — don't log these to avoid console noise
