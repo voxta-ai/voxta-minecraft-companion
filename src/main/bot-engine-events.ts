@@ -56,19 +56,39 @@ function handleUrgentEvent(
     void callbacks.getVoxta()?.sendEvent(text, true, URGENT_CONSTRAINTS);
 }
 
+/** Build a disambiguation clause listing who the speaker is NOT — the user and any active bots. */
+function buildOtherPlayerDisambiguation(
+    names: NameRegistry,
+    callbacks: EventBridgeCallbacks,
+): string {
+    const playerMcUsername = callbacks.getPlayerMcUsername();
+    const userVoxtaName = playerMcUsername ? names.resolveToVoxta(playerMcUsername) : null;
+    const bot1 = callbacks.getAssistantName(1);
+    const bot2 = callbacks.getAssistantName(2);
+    const notList: string[] = [];
+    if (userVoxtaName) notList.push(`not ${userVoxtaName}`);
+    if (bot1) notList.push(`not ${bot1}`);
+    if (bot2) notList.push(`not ${bot2}`);
+    return notList.length > 0 ? ` (another Minecraft player on the server, ${notList.join(', ')})` : '';
+}
+
 /** Handle player chat from MC: interrupt if speaking, then forward to Voxta */
 function handlePlayerChat(
     mcUsername: string,
     text: string,
+    names: NameRegistry,
     callbacks: EventBridgeCallbacks,
 ): void {
     if (!callbacks.getVoxta()?.sessionId) return;
 
-    // If the sender is NOT the user, send as an event so the AI knows who's talking
+    // If the sender is NOT the user, send as an event so the AI knows who's talking.
+    // Add a disambiguation clause naming who the speaker is NOT, so the AI doesn't
+    // confuse a third-party player with the user or with one of the bots themselves.
     const playerMcUsername = callbacks.getPlayerMcUsername();
     if (playerMcUsername && mcUsername.toLowerCase() !== playerMcUsername.toLowerCase()) {
+        const disambig = buildOtherPlayerDisambiguation(names, callbacks);
         console.log(`[Other >>] MC chat from ${mcUsername}: "${text}"`);
-        void callbacks.getVoxta()?.sendEvent(`${mcUsername} says: ${text}`);
+        void callbacks.getVoxta()?.sendEvent(`${mcUsername}${disambig} says: ${text}`);
         return;
     }
 
@@ -208,7 +228,7 @@ export function createEventBridge(
             },
             onUrgentEvent: (text) => handleUrgentEvent(text, label, callbacks),
             onPlayerChat: slot === 1
-                ? (mcUsername, text) => handlePlayerChat(mcUsername, text, callbacks)
+                ? (mcUsername, text) => handlePlayerChat(mcUsername, text, names, callbacks)
                 : () => {},
             getSettings: () => callbacks.getSettings(),
             getAssistantName: () => callbacks.getAssistantName(slot) ?? label,

@@ -612,10 +612,18 @@ export function buildContextStrings(state: WorldState, names: NameRegistry, char
     }
 
     if (state.nearbyPlayers.length > 0) {
+        // Label each nearby player so the AI doesn't confuse the user with
+        // other humans on the server (or with companion bots).
+        const labelFor = (mcName: string): string => {
+            if (names.isUserMc(mcName)) return ' [the user]';
+            if (names.isBotMc(mcName)) return ' [your companion bot]';
+            return ' [another player on the server, not the user]';
+        };
+
         const playerList = state.nearbyPlayers
             .map((p) => {
                 const voxtaName = names.resolveToVoxta(p.name);
-                return `${voxtaName} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z})`;
+                return `${voxtaName}${labelFor(p.name)} (${p.distance}m away at ${p.position.x},${p.position.y},${p.position.z})`;
             })
             .join(', ');
         lines.push(`Nearby players: ${playerList}`);

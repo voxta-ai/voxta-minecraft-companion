@@ -106,6 +106,15 @@ export interface McSettings {
     // Action inference system prompt addon
     actionInferencePrompt: string;
 
+    // Proximity silencing (experimental) — when on, companion bots are removed
+    // from the chat session whenever they wander beyond proximitySilenceRange
+    // blocks of the player, and re-added when they return. Useful for voice
+    // realism in multi-bot scenarios (e.g. one bot guarding while you explore
+    // with another) but can leave the chat with zero participants, which some
+    // Voxta server versions don't handle gracefully.
+    enableProximitySilencing: boolean;
+    proximitySilenceRange: number;        // Blocks — beyond this, bot is silenced
+
     // Audio effects
     enableSpatialAudio: boolean;
     spatialNearDistance: number;  // Full volume within this range (blocks)
@@ -144,6 +153,9 @@ export const DEFAULT_SETTINGS: McSettings = {
     actionInferenceTiming: 'afterChar',
 
     actionInferencePrompt: 'CRITICAL: Only select physical actions (mine, craft, build, attack, cook) when the player EXPLICITLY requests it. Questions about inventory, resources, or plans are NOT requests to act — use mc_none for those. Before selecting eat, give, or equip actions, check the inventory in the updated context. Only eat, give, or equip items that are currently listed in the inventory.',
+
+    enableProximitySilencing: false,
+    proximitySilenceRange: 40,
 
     enableSpatialAudio: false,
     spatialNearDistance: 5,

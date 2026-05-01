@@ -561,6 +561,11 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
 export async function lookAtPlayer(bot: Bot, playerName: string | undefined, names: NameRegistry): Promise<string> {
     if (!playerName) return 'No player name provided';
 
+    // Reject self-target — AI sometimes passes the bot's own name
+    if (names.resolveToMc(playerName).toLowerCase() === bot.username.toLowerCase()) {
+        return 'Cannot look at yourself — pick a different player';
+    }
+
     const player = findPlayerEntity(bot, playerName, names);
     const displayName = names.resolveToVoxta(names.resolveToMc(playerName));
     if (!player) return `Cannot find player "${displayName}" nearby`;

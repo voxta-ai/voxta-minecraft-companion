@@ -15,6 +15,7 @@
 
 import type { Bot } from 'mineflayer';
 import type { Vec3 } from 'vec3';
+import { isInWater } from '../../mineflayer-types';
 import {
     STUCK_DETECTION_TIMEOUT_MS,
     STUCK_MAX_CYCLES,
@@ -86,6 +87,17 @@ export function setupStuckDetection(bot: Bot, doorIds: Set<number>): void {
                 }
             }
             lastMovePos = pos.clone();
+
+            // Skip jitter detection while in water — the bot bobs in/out of
+            // the surface every tick, which is real per-tick movement but
+            // near-zero net displacement, so the progress check would falsely
+            // fire stuck recovery. Reset the tracker so we have a clean
+            // baseline once the bot leaves the water.
+            if (isInWater(bot.entity)) {
+                lastProgressPos = pos.clone();
+                lastProgressCheck = now;
+                return;
+            }
 
             // Longer-window progress check: bot moved per-tick but is it
             // making real progress? Catches jittering at obstacles.

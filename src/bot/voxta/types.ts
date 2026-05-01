@@ -280,7 +280,24 @@ export interface ServerActionMessage {
 export interface ServerErrorMessage {
     $type: 'error';
     message: string;
+    code?: string;
+    serviceName?: string;
     details?: string;
+}
+
+export interface ServerChatSessionErrorMessage {
+    $type: 'chatSessionError';
+    sessionId: string;
+    message: string;
+    code?: string;
+    serviceName?: string;
+    details?: string;
+    retry?: boolean;
+}
+
+export interface ServerMissingResourcesErrorMessage {
+    $type: 'missingResourcesError';
+    resources: Array<{ name?: string; serviceName?: string; status?: string; message?: string }>;
 }
 
 export interface ServerVisionCaptureRequestMessage {
@@ -306,6 +323,8 @@ export type ServerMessage =
     | ServerReplyEndMessage
     | ServerActionMessage
     | ServerErrorMessage
+    | ServerChatSessionErrorMessage
+    | ServerMissingResourcesErrorMessage
     | ServerVisionCaptureRequestMessage
     | ServerRecordingRequestMessage
     | { $type: string; [key: string]: unknown };

@@ -405,6 +405,37 @@ export default function SettingsPanel() {
             <SliderGroup title="🎲 Voice Chance" items={VOICE_CHANCE_SLIDERS} />
             <ToggleGroup title="🤖 Bot Behavior" items={BEHAVIOR_TOGGLES} />
             <div class="action-category">
+                <div class="action-category-title">📏 Proximity Silencing (experimental)</div>
+                <SettingCard
+                    name="Silence bots when far from you"
+                    description="When on, companion bots are removed from the chat when they wander too far, and re-added when they return. Useful for multi-bot voice scenarios. Default off."
+                >
+                    <label class="toggle">
+                        <input
+                            type="checkbox"
+                            checked={settings.enableProximitySilencing}
+                            onChange={(e) => updateSetting('enableProximitySilencing', e.currentTarget.checked)}
+                        />
+                        <span class="toggle-slider" />
+                    </label>
+                </SettingCard>
+                <Show when={settings.enableProximitySilencing}>
+                    <SettingCard name="Silence Range" description="Distance in blocks beyond which a bot is silenced">
+                        <div class="slider-control">
+                            <input
+                                type="range"
+                                min="16"
+                                max="128"
+                                step="4"
+                                value={settings.proximitySilenceRange}
+                                onInput={(e) => updateSetting('proximitySilenceRange', parseInt(e.currentTarget.value, 10))}
+                            />
+                            <span class="slider-value">{settings.proximitySilenceRange}</span>
+                        </div>
+                    </SettingCard>
+                </Show>
+            </div>
+            <div class="action-category">
                 <div class="action-category-title">🧠 Action Inference</div>
                 <div class="setting-card setting-card-column">
                     <div class="setting-card-name">Timing</div>
