@@ -88,6 +88,15 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     const hasSession = () => status.sessionId !== null;
     const hasCharacters = () => voxtaInfo.characters.length > 0;
 
+    // The bundled/managed server is mid-transition — wait briefly so the user
+    // doesn't try to connect during startup/shutdown. Any other state (running,
+    // stopped, not-installed) is fine: if the user is pointing at their own
+    // server, the connection attempt will succeed; otherwise it'll fail with a
+    // clear error. Host/port can't reliably distinguish "managed" from "user's
+    // own server on localhost:25565".
+    const isManagedServerTransitioning = () =>
+        serverState() === 'starting' || serverState() === 'stopping';
+
     // Auto-select: saved character if available, otherwise default assistant
     createEffect(() => {
         if (voxtaInfo.characters.length > 0 && !selectedCharacterId()) {
@@ -301,10 +310,10 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
                     <div class="connection-actions">
                         <button
-                            class={`btn btn-connect ${serverState() !== 'running' && !launching() ? 'btn-waiting' : ''}`}
+                            class={`btn btn-connect ${isManagedServerTransitioning() && !launching() ? 'btn-waiting' : ''}`}
                             onClick={handleLaunchBot}
-                            disabled={launching() || !selectedCharacterId() || serverState() !== 'running'}
-                            title={serverState() !== 'running' ? 'Start the server first' : ''}
+                            disabled={launching() || !selectedCharacterId() || isManagedServerTransitioning()}
+                            title={isManagedServerTransitioning() ? 'Wait for the server to finish starting' : ''}
                         >
                             {launching()
                                 ? '⏳ Launching...'
@@ -312,9 +321,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                     ? '⏳ Starting server...'
                                     : serverState() === 'stopping'
                                         ? '⏳ Server stopping...'
-                                        : serverState() !== 'running'
-                                            ? '⏳ Waiting for server...'
-                                            : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
+                                        : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
                         </button>
                         <button class="btn btn-disconnect" onClick={handleDisconnect}>
                             ⏹ Disconnect
