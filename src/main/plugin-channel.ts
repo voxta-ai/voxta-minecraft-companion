@@ -31,18 +31,30 @@ const TYPE_CONTROL = 0x02;
 const CMD_REGISTER_HOST = 0x01;
 const CMD_SET_DISTANCE = 0x02;
 const CMD_STOP = 0x03;
+const CMD_HELLO = 0x04;
+const CMD_VERSION = 0x05;
+
+/** Plugin version we expect to find on the server. Bump in lockstep with
+ *  plugins/voxta-voice-bridge/build.gradle.kts so users on external Minecraft
+ *  servers get a clear notice when their plugins folder needs updating. */
+export const EXPECTED_VOICE_BRIDGE_VERSION = '1.0.1';
+
+/** How long to wait for a CMD_VERSION response before warning the user that
+ *  the plugin is missing or out-of-date. */
+const VERSION_HANDSHAKE_TIMEOUT_MS = 4000;
 
 let chunkIdCounter = 0;
 
-/** Register the voxta:audio plugin channel with the server */
+/** Register the voxta:audio plugin channel with the server.
+ *  Uses mineflayer/minecraft-protocol's typed channel API which (a) sends a
+ *  properly-formatted minecraft:register packet (cstring-encoded) and
+ *  (b) hooks the per-channel emission so listeners on `client.on(CHANNEL, ...)`
+ *  receive incoming messages on this channel. */
 export function registerPluginChannel(bot: MineflayerBot): void {
-    const client = getClient(bot);
-    // In Minecraft 1.13+, channel registration is done via minecraft:register
-    const channelBuf = Buffer.from(CHANNEL, 'utf-8');
-    client.write('custom_payload', {
-        channel: 'minecraft:register',
-        data: channelBuf,
-    });
+    const client = getClient(bot) as unknown as {
+        registerChannel: (name: string, parser: unknown, custom: boolean) => void;
+    };
+    client.registerChannel(CHANNEL, undefined, true);
     console.log(`[PluginChannel] Registered channel: ${CHANNEL} for bot ${bot.username}`);
 }
 
@@ -132,6 +144,92 @@ export function sendStopAudio(bot: MineflayerBot): void {
         data: packet,
     });
     console.log(`[PluginChannel] Sent stop audio for ${bot.username}`);
+}
+
+/**
+ * Outcome of the version handshake — feeds into a user-facing warning
+ * surfaced through the connection panel / chat panel by bot-engine.
+ *
+ * `svcAvailable` is reported by the plugin (1.0.1+) and tells us whether
+ * Simple Voice Chat itself is installed alongside the bridge. Without SVC,
+ * audio bridging silently no-ops, so we surface a different warning.
+ */
+export type VoiceBridgeStatus =
+    | { kind: 'ok'; version: string; svcAvailable: boolean }
+    | { kind: 'outdated'; version: string; svcAvailable: boolean }
+    | { kind: 'missing' };
+
+/**
+ * Send CMD_HELLO to the server-side plugin and wait briefly for a
+ * CMD_VERSION response. Resolves with:
+ *   - 'ok'       — plugin replied with the expected version
+ *   - 'outdated' — plugin replied with a different (older) version
+ *   - 'missing'  — no response within the timeout (plugin missing or 1.0.0)
+ *
+ * Old 1.0.0 plugins log "Unknown control command: 4" and don't reply,
+ * which is exactly what we want — they fall into the 'missing' branch.
+ */
+export function checkVoiceBridgeVersion(bot: MineflayerBot): Promise<VoiceBridgeStatus> {
+    const client = getClient(bot);
+
+    return new Promise<VoiceBridgeStatus>((resolve) => {
+        let resolved = false;
+        const finish = (status: VoiceBridgeStatus): void => {
+            if (resolved) return;
+            resolved = true;
+            client.removeListener(CHANNEL, onChannelMessage);
+            clearTimeout(timeoutHandle);
+            resolve(status);
+        };
+
+        // mineflayer/minecraft-protocol emits incoming custom-channel messages
+        // as channel-named events when the channel is registered via
+        // client.registerChannel(name, parser, true). Argument is the raw
+        // Buffer (no parser was registered, so no decoding is applied).
+        const onChannelMessage = (data: Buffer): void => {
+            console.log(
+                `[VoiceBridge debug] ${CHANNEL} message received — ` +
+                `len=${data?.length ?? 'undefined'}, ` +
+                `firstBytes=${data ? Array.from(data.subarray(0, Math.min(8, data.length))).map((b) => b.toString(16).padStart(2, '0')).join(' ') : 'none'}`,
+            );
+            // Layout from voxta-voice-bridge 1.0.1+:
+            //   [0] TYPE_CONTROL  [1] CMD_VERSION  [2] flags  [3..] utf8 version
+            if (!data || data.length < 3) return;
+            if (data.readUInt8(0) !== TYPE_CONTROL) return;
+            if (data.readUInt8(1) !== CMD_VERSION) return;
+            const flags = data.readUInt8(2);
+            const svcAvailable = (flags & 0x01) !== 0;
+            const version = data.subarray(3).toString('utf8');
+            if (version === EXPECTED_VOICE_BRIDGE_VERSION) {
+                console.log(`[VoiceBridge] Version OK: ${version} (svcAvailable=${svcAvailable})`);
+                finish({ kind: 'ok', version, svcAvailable });
+            } else {
+                console.warn(`[VoiceBridge] Version mismatch: got "${version}", expected "${EXPECTED_VOICE_BRIDGE_VERSION}"`);
+                finish({ kind: 'outdated', version, svcAvailable });
+            }
+        };
+
+        client.on(CHANNEL, onChannelMessage);
+
+        const timeoutHandle = setTimeout(() => {
+            console.warn(
+                `[VoiceBridge] No response to CMD_HELLO after ${VERSION_HANDSHAKE_TIMEOUT_MS}ms — ` +
+                `plugin may be missing or older than ${EXPECTED_VOICE_BRIDGE_VERSION}`,
+            );
+            finish({ kind: 'missing' });
+        }, VERSION_HANDSHAKE_TIMEOUT_MS);
+
+        const packet = Buffer.alloc(2);
+        packet.writeUInt8(TYPE_CONTROL, 0);
+        packet.writeUInt8(CMD_HELLO, 1);
+        try {
+            client.write('custom_payload', { channel: CHANNEL, data: packet });
+            console.log(`[VoiceBridge] Sent CMD_HELLO, awaiting version response (${VERSION_HANDSHAKE_TIMEOUT_MS}ms timeout)`);
+        } catch (err) {
+            console.error('[VoiceBridge] Failed to send CMD_HELLO:', err);
+            finish({ kind: 'missing' });
+        }
+    });
 }
 
 /**

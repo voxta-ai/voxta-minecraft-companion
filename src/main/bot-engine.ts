@@ -38,6 +38,8 @@ import {
     sendSetDistance,
     sendStopAudio,
     extractPcmFromWav,
+    checkVoiceBridgeVersion,
+    EXPECTED_VOICE_BRIDGE_VERSION,
 } from './plugin-channel';
 import { McEventBridge } from '../bot/minecraft/events';
 import type { Bot as MineflayerBot } from 'mineflayer';
@@ -344,6 +346,11 @@ export class BotEngine extends EventEmitter {
             // Sync current distance setting
             sendSetDistance(bot, this.settings.spatialMaxDistance);
 
+            // Version handshake — fire and forget. The plugin (1.0.1+) replies
+            // with its version; older 1.0.0 plugins silently ignore CMD_HELLO,
+            // and a missing plugin times out — both surface as a user warning.
+            void this.runVoiceBridgeVersionCheck(bot);
+
             // Wire up audio forwarding: when AudioPipeline downloads a WAV chunk,
             // also send the raw PCM through the plugin channel for the SVC bridge
             let forwardedChunks = 0;
@@ -370,6 +377,55 @@ export class BotEngine extends EventEmitter {
                 '[PluginChannel] Failed to setup voice bridge (SVC plugin may not be installed):',
                 err instanceof Error ? err.message : err,
             );
+        }
+    }
+
+    /**
+     * Ask the server-side plugin its version and surface a user-visible
+     * warning if it's missing or outdated. Most relevant for users running
+     * their own external Minecraft server, where the plugin JAR is managed
+     * by hand and won't auto-update with the companion app.
+     */
+    private async runVoiceBridgeVersionCheck(bot: MineflayerBot): Promise<void> {
+        try {
+            const status = await checkVoiceBridgeVersion(bot);
+            const expected = EXPECTED_VOICE_BRIDGE_VERSION;
+
+            // All good — plugin loaded, version matches, and SVC is on the server.
+            if (status.kind === 'ok' && status.svcAvailable) return;
+
+            let message: string;
+            if (status.kind === 'missing') {
+                message =
+                    `Voice bridge plugin v${expected} not detected on the server. ` +
+                    `If you want the bot's voice to play through Simple Voice Chat, install ` +
+                    `voxta-voice-bridge-${expected}.jar in your server's plugins folder and restart it.`;
+            } else if (status.kind === 'outdated') {
+                message =
+                    `Voice bridge plugin on the server is v${status.version}, but this companion expects v${expected}. ` +
+                    `Update the voxta-voice-bridge JAR in your server's plugins folder for the bot to appear connected in Simple Voice Chat.`;
+            } else {
+                // status.kind === 'ok' && !svcAvailable — plugin is fine, SVC is missing.
+                message =
+                    `Voice bridge plugin v${status.version} is installed, but Simple Voice Chat is not. ` +
+                    `Install the Simple Voice Chat plugin on your server (https://modrinth.com/plugin/simple-voice-chat) ` +
+                    `if you want the bot's voice to be heard in-game.`;
+            }
+
+            console.warn(`[VoiceBridge] ${message}`);
+
+            // Surface as a toast so it's hard to miss and isn't wiped by the
+            // chat-start clear. 15s gives the user time to read.
+            this.toast('warning', message, 15_000);
+
+            // Also drop a permanent record into the chat panel, but with a small
+            // delay so it lands AFTER the chatStarting clear-chat event (which
+            // fires within ~100ms of the version handshake completing).
+            setTimeout(() => {
+                this.addChat('system', 'Voice Bridge', message);
+            }, 1500);
+        } catch (err) {
+            console.warn('[VoiceBridge] Version check failed:', err instanceof Error ? err.message : err);
         }
     }
 
