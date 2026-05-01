@@ -1,7 +1,7 @@
 import type { Bot as MineflayerBot } from 'mineflayer';
 import type { NameRegistry } from '../bot/name-registry';
 import type { VoxtaClient } from '../bot/voxta/client';
-import type { BotStatus } from '../shared/ipc-types';
+import type { BotStatus, McSettings } from '../shared/ipc-types';
 import type { ContextDefinition, ScenarioAction } from '../bot/voxta/types';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { getVehicle, getEntityVehicle } from '../bot/minecraft/mineflayer-types';
@@ -9,7 +9,6 @@ import { getVehicle, getEntityVehicle } from '../bot/minecraft/mineflayer-types'
 // ---- Loop interval constants ----
 const SPATIAL_LOOP_INTERVAL_MS = 100;    // Fast — responsive spatial audio positioning
 const PROXIMITY_LOOP_INTERVAL_MS = 5000; // How often to check bot-player distance
-const PROXIMITY_RANGE = 40;              // Blocks — beyond this, bot is silenced
 const OUT_OF_RANGE_OFFSET = 9999;        // Offset to signal "player not visible"
 const CONTEXT_KEY_BOT1 = 'minecraft-bot1';
 const CONTEXT_KEY_BOT2 = 'minecraft-bot2';
@@ -34,6 +33,7 @@ export interface LoopCallbacks {
     getActionInferenceAddon(): ContextDefinition | null;
     isInCave(slot: 1 | 2): boolean;
     setInCave(slot: 1 | 2, inCave: boolean): void;
+    getSettings(): McSettings;
 }
 
 /**
@@ -167,14 +167,20 @@ export function createSpatialLoop(
 
 /**
  * Creates the proximity loop that silences/activates characters based on distance to the player.
- * When a bot is farther than PROXIMITY_RANGE blocks from the player, it gets
- * disabled in Voxta so it doesn't speak about things it can't see.
+ * Off by default (settings.enableProximitySilencing). When on, bots beyond
+ * settings.proximitySilenceRange blocks of the player are removed from the
+ * chat session via Voxta's removeChatParticipant, and re-added when they
+ * return. Useful for multi-bot voice scenarios but can leave the chat
+ * empty, which not all Voxta server versions handle gracefully.
  */
 export function createProximityLoop(
     isDualBot: boolean,
     callbacks: LoopCallbacks,
 ): ReturnType<typeof setInterval> {
     let proximityLogTick = 0;
+    // Local state — when the user toggles silencing OFF mid-session, we need
+    // to re-add any bot we previously removed so the chat goes back to normal.
+    const previouslyRemoved = new Set<1 | 2>();
 
     return setInterval(() => {
         const voxta = callbacks.getVoxta();
@@ -182,13 +188,29 @@ export function createProximityLoop(
         const playerMcUsername = callbacks.getPlayerMcUsername();
         if (!playerMcUsername) return;
 
+        const settings = callbacks.getSettings();
+        const charIds = callbacks.getActiveCharacterIds();
+
+        // Toggle is OFF: ensure any previously-removed bot is re-added,
+        // mark all slots in-range, then skip distance checks entirely.
+        if (!settings.enableProximitySilencing) {
+            if (previouslyRemoved.size > 0) {
+                for (const slot of previouslyRemoved) {
+                    const charId = charIds[slot - 1];
+                    if (charId) void voxta.addChatParticipant(charId);
+                    callbacks.setBotInRange(slot, true);
+                }
+                previouslyRemoved.clear();
+            }
+            return;
+        }
+
         const findPlayer = (b: MineflayerBot) =>
             Object.values(b.entities).find(
                 (e) => e.type === 'player' && e.username?.toLowerCase() === playerMcUsername.toLowerCase(),
             );
 
         const slotsToCheck: (1 | 2)[] = isDualBot ? [1, 2] : [1];
-        const charIds = callbacks.getActiveCharacterIds();
 
         for (const slot of slotsToCheck) {
             const bot = callbacks.getMcBot(slot);
@@ -200,7 +222,7 @@ export function createProximityLoop(
                 ? playerEntity.position.distanceTo(bot.entity.position)
                 : Infinity;
             const name = callbacks.getAssistantName(slot) ?? `Bot${slot}`;
-            const inRange = dist <= PROXIMITY_RANGE;
+            const inRange = dist <= settings.proximitySilenceRange;
 
             if (proximityLogTick % 6 === 0) {
                 console.log(`[Proximity] ${name}: ${dist === Infinity ? 'not visible' : `${dist.toFixed(1)} blocks`} (${inRange ? 'in range' : 'OUT OF RANGE'})`);
@@ -211,11 +233,13 @@ export function createProximityLoop(
                 if (inRange) {
                     console.log(`[Proximity] ${name} back in range — rejoining`);
                     void voxta.addChatParticipant(charId);
+                    previouslyRemoved.delete(slot);
                     callbacks.addChat('system', 'System', `${name} is back in range.`);
                     callbacks.queueNote(`${name} rejoined — back within range of the player.`);
                 } else {
                     console.log(`[Proximity] ${name} out of range — removing`);
                     void voxta.removeChatParticipant(charId);
+                    previouslyRemoved.add(slot);
                     callbacks.addChat('system', 'System', `${name} is too far away to hear.`);
                 }
             }

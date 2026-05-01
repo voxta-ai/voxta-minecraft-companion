@@ -405,6 +405,7 @@ export class BotEngine extends EventEmitter {
             getActionInferenceAddon: () => buildActionInferenceAddon(this.settings.actionInferencePrompt),
             isInCave: (slot) => this.slot(slot).inCave,
             setInCave: (slot, inCave) => { this.slot(slot).inCave = inCave; },
+            getSettings: () => this.settings,
         };
     }
 
