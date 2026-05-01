@@ -37,6 +37,14 @@ const registerPromise = (async () => {
     }
 })();
 
+/** Errors from getUserMedia that mean "this device will never work" — no point retrying. */
+const PERMANENT_MIC_ERRORS = new Set([
+    'NotFoundError',          // No microphone hardware on this machine
+    'NotAllowedError',         // User (or policy) denied microphone permission
+    'OverconstrainedError',    // Requested constraints can't be satisfied
+    'SecurityError',           // Insecure context or similar policy block
+]);
+
 export class AudioInputService {
     public sessionId: string | null = null;
     public enabled = false;
@@ -51,9 +59,15 @@ export class AudioInputService {
     private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
     private recordingOffTimeout: ReturnType<typeof setTimeout> | null = null;
     private chunksSent = 0;
+    /** When set, mic acquisition has permanently failed in this session — skip
+     *  retries so the log doesn't fill with the same error every time the
+     *  server requests recording. Common cause: companion running on a
+     *  headless machine with no microphone hardware. Cleared by dispose(). */
+    private micUnavailableReason: string | null = null;
 
     /** Start streaming — acquires mic, connects WebSocket, starts MediaRecorder */
     async startStreaming(sessionId: string, voxtaBaseUrl: string, apiKey: string | null): Promise<void> {
+        if (this.micUnavailableReason) return;
         await registerPromise;
 
         if (this.enabled) {
@@ -120,7 +134,18 @@ export class AudioInputService {
                 );
             }
         } catch (error) {
-            log(`[AudioInput] Error starting: ${error instanceof Error ? error.message : String(error)}`);
+            const errorName = error instanceof Error ? error.name : '';
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            if (PERMANENT_MIC_ERRORS.has(errorName)) {
+                this.micUnavailableReason = `${errorName}: ${errorMessage}`;
+                log(
+                    `[AudioInput] Microphone unavailable (${errorName}: ${errorMessage}). ` +
+                    `Voice input will be disabled for this session. ` +
+                    `If you plug in a microphone or grant permission, restart the companion to retry.`,
+                );
+            } else {
+                log(`[AudioInput] Error starting: ${errorMessage}`);
+            }
             this.stopStreaming();
         }
     }
@@ -350,5 +375,8 @@ export class AudioInputService {
 
     dispose(): void {
         this.stopStreaming();
+        // Clear the permanent-failure flag so a fresh service instance (e.g.
+        // after a session restart) can attempt mic acquisition again.
+        this.micUnavailableReason = null;
     }
 }
