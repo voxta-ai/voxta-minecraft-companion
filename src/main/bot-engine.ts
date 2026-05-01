@@ -147,6 +147,15 @@ export class BotEngine extends EventEmitter {
     private pendingEvents: string[] = [];
     private followingPlayer: string | null = null; // Track who we're following to resume after tasks
     private toastCounter = 0;
+    /** Most recent MC connection info, used to decide whether the bot is
+     *  connected to our bundled server (where we manage plugins) or an
+     *  external one (where the user does). */
+    private currentMcHost: string | null = null;
+    private currentMcPort: number | null = null;
+    /** Optional probe wired by the host (ipc-handlers) — returns the bundled
+     *  server's status so we can suppress user-action warnings that don't
+     *  apply to the local managed-server case. */
+    private bundledServerInfoProvider: (() => { running: boolean; port: number } | null) | null = null;
     // Maps Voxta character ID → MC bot slot (1 or 2) — populated after chatStarted
     private readonly characterBotMap: Map<string, 1 | 2> = new Map();
     // Which bot slot spoke last — actions are routed to this bot
@@ -386,6 +395,21 @@ export class BotEngine extends EventEmitter {
      * their own external Minecraft server, where the plugin JAR is managed
      * by hand and won't auto-update with the companion app.
      */
+    /** True when the bot is currently connected to our bundled Minecraft
+     *  server (companion-managed). For that case we don't surface plugin
+     *  warnings — the companion installs/updates the plugin folder itself,
+     *  and the warnings only apply to externally-managed servers where the
+     *  user has to install plugins by hand. */
+    private isUsingBundledServer(): boolean {
+        const provider = this.bundledServerInfoProvider;
+        if (!provider) return false;
+        const info = provider();
+        if (!info?.running) return false;
+        const host = (this.currentMcHost ?? '').toLowerCase().trim();
+        const isLocalHost = host === '' || host === 'localhost' || host === '127.0.0.1';
+        return isLocalHost && this.currentMcPort === info.port;
+    }
+
     private async runVoiceBridgeVersionCheck(bot: MineflayerBot): Promise<void> {
         try {
             const status = await checkVoiceBridgeVersion(bot);
@@ -393,6 +417,19 @@ export class BotEngine extends EventEmitter {
 
             // All good — plugin loaded, version matches, and SVC is on the server.
             if (status.kind === 'ok' && status.svcAvailable) return;
+
+            // Don't badger users who run the companion's bundled server — the
+            // companion already manages that plugin folder. The warning is
+            // only useful when the user runs an external Minecraft server and
+            // has to install the plugin themselves.
+            if (this.isUsingBundledServer()) {
+                console.log(
+                    `[VoiceBridge] Bundled server detected — suppressing user warning (status=${status.kind}, svc=${
+                        status.kind === 'missing' ? 'unknown' : status.svcAvailable
+                    })`,
+                );
+                return;
+            }
 
             let message: string;
             if (status.kind === 'missing') {
@@ -685,9 +722,20 @@ export class BotEngine extends EventEmitter {
         this.pendingEvents = [];
     }
 
+    /** Wire up a probe so the engine can detect "bot is connected to our
+     *  bundled server" and suppress warnings that only apply to externally-
+     *  managed servers (where the user has to install plugins themselves). */
+    public setBundledServerInfoProvider(
+        provider: () => { running: boolean; port: number } | null,
+    ): void {
+        this.bundledServerInfoProvider = provider;
+    }
+
     private buildCompanionConfig(uiConfig: BotConfig): CompanionConfig {
         this.playerMcUsername = uiConfig.playerMcUsername || null;
         this.activeScenarioId = uiConfig.scenarioId;
+        this.currentMcHost = uiConfig.mcHost;
+        this.currentMcPort = uiConfig.mcPort;
         return {
             mc: {
                 host: uiConfig.mcHost,

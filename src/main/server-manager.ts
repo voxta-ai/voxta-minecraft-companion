@@ -273,6 +273,12 @@ export class ServerManager extends EventEmitter {
         return this.childProcess !== null;
     }
 
+    /** Currently-bound port (parsed from Paper's startup line, or the
+     *  default 25565 until the server reports otherwise). */
+    getPort(): number {
+        return this.port;
+    }
+
     // ---- Public API: Properties & Config ----
 
     async getProperties(): Promise<ServerProperties> {

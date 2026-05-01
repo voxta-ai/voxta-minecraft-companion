@@ -29,6 +29,15 @@ export function registerIpcHandlers(win: BrowserWindow): { serverManager: Server
     const serverManager = new ServerManager();
     const tunnelManager = new TunnelManager(serverManager);
 
+    // Let the bot engine ask "is the bundled server running, and on what
+    // port?" so it can suppress plugin warnings that don't apply when the
+    // companion is managing its own server.
+    engine.setBundledServerInfoProvider(() =>
+        serverManager.isRunning()
+            ? { running: true, port: serverManager.getPort() }
+            : null,
+    );
+
     // Safe send — skip if window is already destroyed (e.g. during quit)
     function send(channel: string, ...args: unknown[]): void {
         if (!win.isDestroyed()) win.webContents.send(channel, ...args);
