@@ -35,9 +35,13 @@ public class VoxtaVoicechatPlugin implements VoicechatPlugin {
         registration.registerEvent(de.maxhenkel.voicechat.api.events.VoicechatServerStartedEvent.class, event -> {
             serverApi = event.getVoicechat();
             VoxtaVoiceBridge bridge = VoxtaVoiceBridge.getInstance();
-            if (bridge != null) {
-                bridge.getLogger().info("Simple Voice Chat server ready — audio bridge active");
-                bridge.getAudioChannelManager().onVoicechatReady(serverApi);
+            if (bridge == null) return;
+            bridge.getLogger().info("Simple Voice Chat server ready — audio bridge active");
+            // SvcIntegration always installs an AudioChannelManager when SVC is
+            // present, so this cast is safe within the SVC-loaded code path.
+            AudioBridge audio = bridge.getAudioBridge();
+            if (audio instanceof AudioChannelManager mgr) {
+                mgr.onVoicechatReady(serverApi);
             }
         });
     }

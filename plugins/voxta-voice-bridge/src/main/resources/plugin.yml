@@ -4,5 +4,10 @@ main: com.voxta.voicebridge.VoxtaVoiceBridge
 api-version: "1.21"
 description: Bridges Voxta bot TTS audio into Simple Voice Chat for all players
 author: Voxta
-depend:
+# Soft-depend on Simple Voice Chat — we want the plugin to load and respond to
+# the companion's version handshake even when SVC isn't installed, so the
+# companion can show a clear "SVC not detected" message instead of "plugin
+# missing". Audio bridging just no-ops until SVC is added (handled in
+# AudioChannelManager.sendAudio: returns early when serverApi is null).
+softdepend:
   - voicechat

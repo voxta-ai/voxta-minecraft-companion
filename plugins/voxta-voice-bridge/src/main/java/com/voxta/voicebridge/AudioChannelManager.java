@@ -1,5 +1,6 @@
 package com.voxta.voicebridge;
 
+import de.maxhenkel.voicechat.api.VoicechatConnection;
 import de.maxhenkel.voicechat.api.VoicechatServerApi;
 import de.maxhenkel.voicechat.api.audiochannel.EntityAudioChannel;
 import de.maxhenkel.voicechat.api.opus.OpusEncoder;
@@ -16,8 +17,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * Manages per-bot SVC audio channels.
  * Receives raw PCM audio, resamples to 48kHz mono 16-bit,
  * encodes with Opus, and sends through EntityAudioChannel.
+ *
+ * Implements AudioBridge so the rest of the plugin can interact with this
+ * functionality without holding direct references to SVC API types — that
+ * way the main plugin class can be loaded by Paper even when SVC is missing.
  */
-public class AudioChannelManager {
+public class AudioChannelManager implements AudioBridge {
 
     // SVC uses 48kHz, 960 samples per 20ms frame
     private static final int SVC_SAMPLE_RATE = 48000;
@@ -89,6 +94,12 @@ public class AudioChannelManager {
                 } else {
                     bridge.getLogger().severe("serverApi.createEntityAudioChannel returned null for " + botPlayer.getName());
                 }
+                // Mark the bot as voice-chat-connected in SVC's UI. Without this,
+                // the bot's voice icon shows as disconnected for everyone — even
+                // though audio is being received — because Mineflayer doesn't run
+                // the SVC client mod. setConnected() exists specifically for this
+                // case (non-mod players); see VoicechatConnection javadoc.
+                markBotAsVoiceConnected(botPlayer);
                 return ch;
             } catch (Exception e) {
                 bridge.getLogger().severe("Exception creating SVC audio channel for " + botPlayer.getName()
@@ -157,6 +168,35 @@ public class AudioChannelManager {
                 + " (total: " + totalFramesSent + ", leftover: " + leftoverSamples + " samples)");
     }
 
+    /**
+     * Force the bot's SVC voice-chat icon to "connected" state. SVC normally
+     * marks players as connected only when their SVC client mod handshakes
+     * over UDP — Mineflayer can't do that, so by default the bot appears
+     * grey/disconnected to other players even though audio is flowing.
+     * VoicechatConnection.setConnected() is the SVC-sanctioned escape hatch
+     * for non-mod players (its javadoc explicitly says it only works for
+     * players without the mod installed).
+     */
+    private void markBotAsVoiceConnected(Player botPlayer) {
+        try {
+            VoicechatConnection conn = serverApi.getConnectionOf(botPlayer.getUniqueId());
+            if (conn == null) {
+                bridge.getLogger().warning("No VoicechatConnection for bot " + botPlayer.getName()
+                        + " — voice-chat icon may stay disconnected");
+                return;
+            }
+            if (conn.isInstalled()) {
+                // Real SVC client — leave it alone, user is on actual voice chat
+                return;
+            }
+            conn.setConnected(true);
+            bridge.getLogger().info("Marked bot as voice-chat connected: " + botPlayer.getName());
+        } catch (Exception e) {
+            bridge.getLogger().warning("Failed to mark bot as voice-chat connected for "
+                    + botPlayer.getName() + ": " + e.getMessage());
+        }
+    }
+
     /** Set the SVC audio channel distance for a bot */
     public void setDistance(UUID botUuid, int distance) {
         EntityAudioChannel channel = channels.get(botUuid);
@@ -173,6 +213,21 @@ public class AudioChannelManager {
             encoder.close();
         }
         hostExclusions.remove(botUuid);
+
+        // Clear the voice-chat-connected flag we set in markBotAsVoiceConnected.
+        // Best-effort: if the player is already off the server SVC has cleaned
+        // up the connection and getConnectionOf returns null — nothing to do.
+        if (serverApi != null) {
+            try {
+                VoicechatConnection conn = serverApi.getConnectionOf(botUuid);
+                if (conn != null && !conn.isInstalled()) {
+                    conn.setConnected(false);
+                }
+            } catch (Exception e) {
+                bridge.getLogger().fine("Failed to clear voice-chat connected flag on removeBot: " + e.getMessage());
+            }
+        }
+
         bridge.getLogger().info("Removed audio channel for bot: " + botUuid);
     }
 
