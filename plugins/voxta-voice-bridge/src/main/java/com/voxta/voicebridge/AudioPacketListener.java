@@ -38,6 +38,8 @@ public class AudioPacketListener implements PluginMessageListener {
     private static final byte CMD_REGISTER_HOST = 0x01;
     private static final byte CMD_SET_DISTANCE = 0x02;
     private static final byte CMD_STOP = 0x03;
+    private static final byte CMD_HELLO = 0x04;       // bot → plugin: request version handshake
+    private static final byte CMD_VERSION = 0x05;     // plugin → bot: UTF-8 version string
 
     private final VoxtaVoiceBridge bridge;
 
@@ -103,11 +105,18 @@ public class AudioPacketListener implements PluginMessageListener {
         if (assembly.isComplete()) {
             pendingChunks.remove(key);
             byte[] fullPcm = assembly.assemble();
+            AudioBridge audio = bridge.getAudioBridge();
+            if (audio == null) {
+                // SVC not installed — drop audio silently (a one-time warning was
+                // already printed in onEnable). The plugin still serves the
+                // version handshake so the companion can surface a clear notice.
+                return;
+            }
             bridge.getLogger().info("Audio chunk " + chunkId + " complete: "
                     + fullPcm.length + " bytes PCM from " + sender.getName()
                     + " — sending to SVC");
             try {
-                bridge.getAudioChannelManager().sendAudio(sender, fullPcm, sampleRate);
+                audio.sendAudio(sender, fullPcm, sampleRate);
             } catch (Exception e) {
                 bridge.getLogger().severe("Failed to send audio to SVC for " + sender.getName()
                         + ": " + e.getMessage());
@@ -122,14 +131,17 @@ public class AudioPacketListener implements PluginMessageListener {
         byte command = data[1];
         UUID botUuid = sender.getUniqueId();
 
+        AudioBridge audio = bridge.getAudioBridge();
+
         switch (command) {
             case CMD_REGISTER_HOST -> {
+                if (audio == null) return; // SVC not installed — nothing to configure
                 // Read host username from remaining bytes
                 if (data.length > 2) {
                     String hostUsername = new String(data, 2, data.length - 2, StandardCharsets.UTF_8);
                     Player hostPlayer = bridge.getServer().getPlayerExact(hostUsername);
                     if (hostPlayer != null) {
-                        bridge.getAudioChannelManager().setHostExclusion(botUuid, hostPlayer.getUniqueId());
+                        audio.setHostExclusion(botUuid, hostPlayer.getUniqueId());
                         bridge.getLogger().info("Registered host exclusion: " + hostUsername + " for bot " + sender.getName());
                     } else {
                         bridge.getLogger().warning("Host player not found: " + hostUsername);
@@ -137,17 +149,49 @@ public class AudioPacketListener implements PluginMessageListener {
                 }
             }
             case CMD_SET_DISTANCE -> {
+                if (audio == null) return;
                 if (data.length >= 4) {
                     int distance = ByteBuffer.wrap(data, 2, 2).order(ByteOrder.LITTLE_ENDIAN).getShort() & 0xFFFF;
-                    bridge.getAudioChannelManager().setDistance(botUuid, distance);
+                    audio.setDistance(botUuid, distance);
                     bridge.getLogger().info("Set distance for bot " + sender.getName() + ": " + distance);
                 }
             }
             case CMD_STOP -> {
-                bridge.getAudioChannelManager().removeBot(botUuid);
-                bridge.getLogger().info("Stopped audio for bot " + sender.getName());
+                if (audio != null) {
+                    audio.removeBot(botUuid);
+                    bridge.getLogger().info("Stopped audio for bot " + sender.getName());
+                }
             }
+            case CMD_HELLO -> sendVersionResponse(sender);
             default -> bridge.getLogger().warning("Unknown control command: " + command);
+        }
+    }
+
+    /**
+     * Reply to the bot with a CMD_VERSION control packet:
+     *   [0]      TYPE_CONTROL
+     *   [1]      CMD_VERSION
+     *   [2]      flags byte — bit 0 = SVC available
+     *   [3..]    UTF-8 version string
+     * Lets the companion warn the user about both an outdated JAR and a
+     * missing Simple Voice Chat install.
+     */
+    private void sendVersionResponse(Player target) {
+        String version = bridge.getDescription().getVersion();
+        byte[] versionBytes = version.getBytes(StandardCharsets.UTF_8);
+        boolean svcAvailable = bridge.getServer().getPluginManager().getPlugin("voicechat") != null;
+        byte flags = (byte) (svcAvailable ? 0x01 : 0x00);
+        byte[] packet = new byte[3 + versionBytes.length];
+        packet[0] = TYPE_CONTROL;
+        packet[1] = CMD_VERSION;
+        packet[2] = flags;
+        System.arraycopy(versionBytes, 0, packet, 3, versionBytes.length);
+        try {
+            target.sendPluginMessage(bridge, VoxtaVoiceBridge.CHANNEL, packet);
+            bridge.getLogger().info("Sent version " + version + " (svc=" + svcAvailable + ") to " + target.getName());
+        } catch (Exception e) {
+            bridge.getLogger().warning("Failed to send version response to "
+                    + target.getName() + ": " + e.getMessage());
         }
     }
 

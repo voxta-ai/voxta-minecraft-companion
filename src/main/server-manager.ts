@@ -28,8 +28,16 @@ import type {
 
 const PAPER_API = 'https://api.papermc.io';
 
-// Bundled voice bridge JAR — built from plugins/voxta-voice-bridge/
-const VOICE_BRIDGE_JAR = 'voxta-voice-bridge-1.0.0.jar';
+// Bundled voice bridge JAR — built from plugins/voxta-voice-bridge/.
+// Bump this filename in lockstep with the plugin's version in
+// plugins/voxta-voice-bridge/build.gradle.kts. The companion checks the
+// version reported by the server-side plugin against EXPECTED_VOICE_BRIDGE_VERSION
+// (in plugin-channel.ts) and warns the user when they need to update an
+// externally-managed server's plugin folder.
+const VOICE_BRIDGE_JAR = 'voxta-voice-bridge-1.0.1.jar';
+// Older plugin filenames we should remove when installing the current one,
+// to avoid Paper loading two versions of the same plugin.
+const VOICE_BRIDGE_OLD_JARS = ['voxta-voice-bridge-1.0.0.jar'];
 
 // Default server.properties for a fresh Voxta-optimized setup
 const DEFAULT_SERVER_PROPERTIES = `online-mode=false
@@ -263,6 +271,12 @@ export class ServerManager extends EventEmitter {
 
     isRunning(): boolean {
         return this.childProcess !== null;
+    }
+
+    /** Currently-bound port (parsed from Paper's startup line, or the
+     *  default 25565 until the server reports otherwise). */
+    getPort(): number {
+        return this.port;
     }
 
     // ---- Public API: Properties & Config ----
@@ -526,6 +540,18 @@ export class ServerManager extends EventEmitter {
         const pluginsDir = path.join(this.serverDir, 'plugins');
         await fs.mkdir(pluginsDir, { recursive: true });
         const dest = path.join(pluginsDir, VOICE_BRIDGE_JAR);
+
+        // Remove older JAR versions first so Paper doesn't try to load two copies.
+        for (const oldJar of VOICE_BRIDGE_OLD_JARS) {
+            const oldPath = path.join(pluginsDir, oldJar);
+            try {
+                await fs.unlink(oldPath);
+                console.log(`[VoiceBridge] Removed old JAR: ${oldJar}`);
+                this.emitConsoleLine(`Removed old voice bridge plugin: ${oldJar}`, 'info');
+            } catch {
+                // Not present — fine
+            }
+        }
 
         const candidates = [
             path.join(process.resourcesPath, 'plugins', VOICE_BRIDGE_JAR),
