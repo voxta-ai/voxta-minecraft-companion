@@ -8,6 +8,7 @@ import { parseProperties, updatePropertiesContent } from './server-properties';
 import { PluginManager } from './plugin-manager';
 import { WorldManager } from './world-manager';
 import { PlayerManager } from './player-manager';
+import { JavaManager } from './java-manager';
 import type {
     ServerState,
     ServerStatus,
@@ -77,6 +78,7 @@ export class ServerManager extends EventEmitter {
     readonly plugins: PluginManager;
     readonly worlds: WorldManager;
     readonly players: PlayerManager;
+    private readonly java: JavaManager;
 
     constructor() {
         super();
@@ -84,6 +86,7 @@ export class ServerManager extends EventEmitter {
         this.plugins = new PluginManager(this.serverDir);
         this.worlds = new WorldManager(this.serverDir);
         this.players = new PlayerManager(this.serverDir);
+        this.java = new JavaManager();
     }
 
     // ---- Public API: Server Lifecycle ----
@@ -114,23 +117,30 @@ export class ServerManager extends EventEmitter {
     }
 
     async setup(version: string): Promise<void> {
-        const totalSteps = 4;
+        const totalSteps = 5;
 
         // Step 1: Create server directory
         this.emitProgress({ step: 1, totalSteps, label: 'Creating server directory...' });
         await fs.mkdir(this.serverDir, { recursive: true });
         await fs.mkdir(path.join(this.serverDir, 'plugins'), { recursive: true });
 
-        // Step 2: Download Paper JAR
-        this.emitProgress({ step: 2, totalSteps, label: `Downloading Paper ${version}...` });
+        // Step 2: Ensure a Java runtime is available (auto-downloads one if needed)
+        this.emitProgress({ step: 2, totalSteps, label: 'Checking Java runtime...' });
+        await this.java.resolveJavaPath(
+            (text, level) => this.emitConsoleLine(text, level),
+            (p) => this.emitProgress(p),
+        );
+
+        // Step 3: Download Paper JAR
+        this.emitProgress({ step: 3, totalSteps, label: `Downloading Paper ${version}...` });
         await this.downloadPaper(version);
 
-        // Step 3: Write config files
-        this.emitProgress({ step: 3, totalSteps, label: 'Writing server configuration...' });
+        // Step 4: Write config files
+        this.emitProgress({ step: 4, totalSteps, label: 'Writing server configuration...' });
         await this.writeDefaultConfigs();
 
-        // Step 4: Download default plugins (SkinsRestorer, Simple Voice Chat, Voice Bridge)
-        this.emitProgress({ step: 4, totalSteps, label: 'Installing plugins...' });
+        // Step 5: Download default plugins (SkinsRestorer, Simple Voice Chat, Voice Bridge)
+        this.emitProgress({ step: 5, totalSteps, label: 'Installing plugins...' });
         const skinsRestorer = this.plugins.getCatalog().find((p) => p.id === 'skinsrestorer');
         if (skinsRestorer) {
             const dest = path.join(this.serverDir, 'plugins', skinsRestorer.fileName);
@@ -173,9 +183,24 @@ export class ServerManager extends EventEmitter {
 
         this.setState('starting');
 
+        // Resolve a usable Java runtime (auto-downloads one if the user has none).
+        let javaPath: string;
+        try {
+            javaPath = await this.java.resolveJavaPath(
+                (text, level) => this.emitConsoleLine(text, level),
+                (p) => this.emitProgress(p),
+            );
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.error = msg;
+            this.setState('error');
+            this.emitConsoleLine(`Failed to start server: ${msg}`, 'error');
+            throw err;
+        }
+
         const jarPath = path.join(this.serverDir, 'paper.jar');
         const memoryMb = await this.getMemoryMb();
-        this.childProcess = spawn('java', [`-Xmx${memoryMb}M`, `-Xms${memoryMb}M`, '-jar', jarPath, '--nogui'], {
+        this.childProcess = spawn(javaPath, [`-Xmx${memoryMb}M`, `-Xms${memoryMb}M`, '-jar', jarPath, '--nogui'], {
             cwd: this.serverDir,
             stdio: ['pipe', 'pipe', 'pipe'],
             windowsHide: true,
