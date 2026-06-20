@@ -5,7 +5,7 @@ const { goals } = pkg;
 import type { NameRegistry } from '../../name-registry';
 import { findPlayerEntity, getBestWeapon, getBestBow, getArrowCount } from './action-helpers.js';
 import { getActionAbort, setCurrentCombatTarget, getCurrentCombatTarget, setCurrentActivity } from './action-state.js';
-import { ENTITY_ALIASES, LOW_HEALTH_THRESHOLD, RANGED_MOBS } from '../game-data';
+import { ENTITY_ALIASES, LOW_HEALTH_THRESHOLD, PASSIVE_ANIMALS, RANGED_MOBS } from '../game-data';
 import { ensureDismounted } from './movement.js';
 import { getClient } from '../mineflayer-types';
 
@@ -504,8 +504,10 @@ export async function attackEntity(bot: Bot, entityName: string | undefined, nam
             }
 
             // ---- Low health / creeper → transition to kiting ----
+            // Passive animals deal no damage, so never kite them — just keep attacking.
             const isCreeper = normalizedTarget === 'creeper' || normalizedTarget === 'charged_creeper';
-            if (bot.health > 0 && (bot.health <= LOW_HEALTH_THRESHOLD || isCreeper)) {
+            const isPassiveAnimal = PASSIVE_ANIMALS.has(normalizedTarget);
+            if (bot.health > 0 && !isPassiveAnimal && (bot.health <= LOW_HEALTH_THRESHOLD || isCreeper)) {
                 clearInterval(attackLoop);
                 cleanupExplosionListener();
                 await cancelBowDraw(bot, state, equip.weapon);

@@ -293,6 +293,19 @@ export const AGGRO_SKIP_MOBS = ['enderman', 'spider', 'cave_spider', 'zombified_
 export const HUNTABLE_ANIMALS = ['pig', 'cow', 'mooshroom', 'sheep', 'chicken', 'rabbit'];
 
 /**
+ * Passive mobs that never deal damage. The bot must NOT kite these — even at low
+ * health, fighting a cow or sheep is risk-free, so it just attacks them normally
+ * instead of doing a pointless hit-and-run dance.
+ */
+export const PASSIVE_ANIMALS = new Set([
+    'cow', 'mooshroom', 'sheep', 'pig', 'chicken', 'rabbit',
+    'horse', 'donkey', 'mule', 'camel', 'cat', 'ocelot', 'parrot',
+    'fox', 'squid', 'glow_squid', 'cod', 'salmon', 'tropical_fish',
+    'bat', 'turtle', 'frog', 'tadpole', 'allay', 'axolotl', 'sniffer',
+    'armadillo', 'villager', 'wandering_trader', 'strider',
+]);
+
+/**
  * Mobs that split into smaller versions on death (slime → babies, magma_cube → babies).
  * Used for post-kill cooldowns to avoid chasing tiny split babies.
  */
