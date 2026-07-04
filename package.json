@@ -55,6 +55,7 @@
     },
     "dependencies": {
         "@microsoft/signalr": "^9.0.0",
+        "@voxta/voxta-client": "^1.7.1",
         "bootstrap-icons": "^1.13.1",
         "extendable-media-recorder": "^9.2.36",
         "extendable-media-recorder-wav-encoder": "^7.0.136",

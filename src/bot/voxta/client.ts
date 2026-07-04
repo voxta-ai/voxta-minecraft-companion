@@ -1,4 +1,4 @@
-import * as signalR from '@microsoft/signalr';
+import { VoxtaWebSocketClient } from '@voxta/voxta-client';
 import { MinecraftCompanionIconBase64Url } from './minecraft-icon.js';
 import type { CompanionConfig } from '../config.js';
 import type {
@@ -14,8 +14,13 @@ import type {
 
 type MessageHandler = (message: ServerMessage) => void;
 
+// The companion's messages/scopes are a superset of what the published client types today, so we
+// cast at the package boundary. Runtime is unchanged — the server accepts the same payloads.
+type PackageSendMessage = Parameters<VoxtaWebSocketClient['send']>[0];
+type PackageConnectMessage = Parameters<VoxtaWebSocketClient['connect']>[0];
+
 export class VoxtaClient {
-    private connection: signalR.HubConnection;
+    private client: VoxtaWebSocketClient;
     private handlers: MessageHandler[] = [];
     private closeHandlers: Array<() => void> = [];
     private reconnectingHandlers: Array<() => void> = [];
@@ -47,38 +52,34 @@ export class VoxtaClient {
     }
 
     constructor(private config: CompanionConfig) {
-        const hubOptions: signalR.IHttpConnectionOptions = {};
         if (config.voxta.apiKey) {
             console.log(`[Voxta] API key present (${config.voxta.apiKey.length} chars)`);
-            hubOptions.accessTokenFactory = () => config.voxta.apiKey;
         } else {
             console.log('[Voxta] No API key configured');
         }
 
-        this.connection = new signalR.HubConnectionBuilder()
-            .withUrl(config.voxta.url, hubOptions)
-            .withAutomaticReconnect([1000, 1000, 2000, 2000, 5000, 5000, 5000, 10000, 10000, 10000])
-            .configureLogging(signalR.LogLevel.Information)
-            .build();
-
-        this.connection.on('ReceiveMessage', (message: ServerMessage) => {
-            this.handleMessage(message);
+        this.client = new VoxtaWebSocketClient(config.voxta.url, {
+            accessTokenFactory: config.voxta.apiKey ? () => config.voxta.apiKey : undefined,
         });
 
-        this.connection.onreconnecting(() => {
+        this.client.onAnyMessage((message) => {
+            this.handleMessage(message as unknown as ServerMessage);
+        });
+
+        this.client.addEventListener('reconnecting', () => {
             console.log('[Voxta] Reconnecting...');
             this._authenticated = false;
             this._sessionId = null;
             for (const handler of this.reconnectingHandlers) handler();
         });
 
-        this.connection.onreconnected(() => {
-            console.log('[Voxta] Reconnected, re-authenticating...');
-            void this.authenticate();
+        // The package re-sends the authenticate message on reconnect; handlers here re-resume the chat.
+        this.client.addEventListener('reconnected', () => {
+            console.log('[Voxta] Reconnected');
             for (const handler of this.reconnectedHandlers) handler();
         });
 
-        this.connection.onclose(() => {
+        this.client.addEventListener('close', () => {
             console.log('[Voxta] Connection closed');
             this._authenticated = false;
             this._sessionId = null;
@@ -141,26 +142,11 @@ export class VoxtaClient {
 
     async connect(): Promise<void> {
         console.log(`[Voxta] Connecting to ${this.config.voxta.url}...`);
-        for (let attempt = 0; attempt < 30; attempt++) {
-            try {
-                await this.connection.start();
-                console.log('[Voxta] Connected');
-                break;
-            } catch {
-                if (attempt < 29) {
-                    console.log(`[Voxta] Connection attempt ${attempt + 1} failed, retrying...`);
-                    await new Promise((resolve) => setTimeout(resolve, 1000));
-                } else {
-                    throw new Error('[Voxta] Failed to connect after 30 attempts');
-                }
-            }
-        }
-
-        await this.authenticate();
+        await this.client.connect(this.buildAuthenticateMessage());
     }
 
-    private async authenticate(): Promise<void> {
-        await this.send({
+    private buildAuthenticateMessage(): PackageConnectMessage {
+        return {
             $type: 'authenticate',
             client: this.config.voxta.clientName,
             clientVersion: this.config.voxta.clientVersion,
@@ -172,12 +158,12 @@ export class VoxtaClient {
                 visionCapture: 'PostImage',
                 visionSources: ['Screen'],
             },
-        });
+        } as unknown as PackageConnectMessage;
     }
 
     async send(message: ClientMessage): Promise<void> {
         try {
-            await this.connection.send('SendMessage', message);
+            await this.client.send(message as unknown as PackageSendMessage);
         } catch (e) {
             console.error('[Voxta] Error sending message:', e);
         }
@@ -363,6 +349,6 @@ export class VoxtaClient {
     }
 
     async disconnect(): Promise<void> {
-        await this.connection.stop();
+        await this.client.disconnect();
     }
 }
