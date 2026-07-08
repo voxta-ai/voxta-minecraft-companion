@@ -242,7 +242,7 @@ async function validateAndEquipTool(
                   ? 'shovel'
                   : null;
         if (preferred) {
-            const tool = getBestTool(bot, preferred as ToolCategory);
+            const tool = getBestTool(bot, preferred);
             if (tool) {
                 try {
                     await bot.equip(tool.item as number, 'hand');

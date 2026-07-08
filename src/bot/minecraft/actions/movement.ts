@@ -272,11 +272,11 @@ async function collectSpecificItem(bot: Bot, itemName: string): Promise<string> 
                         resolve();
                     }
                 };
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                bot.on('playerCollect', onCollect as any);
+                 
+                bot.on('playerCollect', onCollect);
                 setTimeout(() => {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    bot.removeListener('playerCollect', onCollect as any);
+                     
+                    bot.removeListener('playerCollect', onCollect);
                     resolve();
                 }, 2000);
             });

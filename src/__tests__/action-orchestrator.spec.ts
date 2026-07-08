@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { ServerActionMessage } from '../bot/voxta/types';
 import type { ActionOrchestratorCallbacks } from '../main/action-orchestrator';
-import type { McSettings } from '../shared/ipc-types';
 import { DEFAULT_SETTINGS } from '../shared/ipc-types';
 
 // Mock all external dependencies before importing the module under test
@@ -39,7 +38,7 @@ function createMockBot(): Record<string, unknown> {
 function createMockCallbacks(overrides: Partial<ActionOrchestratorCallbacks> = {}): ActionOrchestratorCallbacks {
     return {
         getAssistantName: vi.fn().mockReturnValue('TestBot'),
-        getSettings: vi.fn().mockReturnValue({ ...DEFAULT_SETTINGS } as McSettings),
+        getSettings: vi.fn().mockReturnValue({ ...DEFAULT_SETTINGS }),
         isReplying: vi.fn().mockReturnValue(false),
         getFollowingPlayer: vi.fn().mockReturnValue(null),
         setFollowingPlayer: vi.fn(),
@@ -59,7 +58,7 @@ function createAction(name: string, args?: Array<{ name: string; value: string }
         sessionId: 'test-session',
         value: name,
         arguments: args,
-    } as ServerActionMessage;
+    };
 }
 
 describe('Action Orchestrator', () => {

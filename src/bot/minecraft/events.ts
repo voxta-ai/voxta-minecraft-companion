@@ -197,7 +197,7 @@ export class McEventBridge {
                 }
             }
             this.lastHealth = currentHealth;
-        }) as (...args: never[]) => void);
+        }));
 
         // ---- Death ----
         this.on('death', (() => {
@@ -222,7 +222,7 @@ export class McEventBridge {
                 this.damageTimer = null;
             }
             // Don't log death separately — respawn handler sends one combined message
-        }) as (...args: never[]) => void);
+        }));
 
         // ---- Respawn (fires immediately after death) ----
         this.on('spawn', (() => {
@@ -235,13 +235,13 @@ export class McEventBridge {
             this.callbacks.onUrgentEvent(
                 `[URGENT] ${botName} just DIED (killed by ${cause}), lost all items, and respawned at full health. The fight is over — ${botName} is no longer in danger.`,
             );
-        }) as (...args: never[]) => void);
+        }));
 
         this.on('wake', (() => {
             const botName = this.callbacks.getAssistantName();
             this.callbacks.onChat('event', 'Event', `${botName} woke up!`);
             this.callbacks.onEvent(`${botName} woke up. It is now morning.`);
-        }) as (...args: never[]) => void);
+        }));
     }
 
     // ---- Combat: swing tracking, auto-defense, player protection, companion assist, proximity ----
@@ -265,7 +265,7 @@ export class McEventBridge {
                 this.lastSwingAttacker = this.names.resolveToVoxta(mcName);
                 this.lastSwingTime = Date.now();
             }
-        }) as (...args: never[]) => void);
+        }));
     }
 
     /** Detect when the bot takes damage, attribute the source, notify AI, and trigger auto-defense */
@@ -345,7 +345,7 @@ export class McEventBridge {
                     this.startAutoDefense(targetName);
                 }
             }
-        }) as (...args: never[]) => void);
+        }));
     }
 
     /** Auto-defend nearby players being attacked by hostile mobs */
@@ -391,7 +391,7 @@ export class McEventBridge {
                 this.callbacks.onNote(msg);
             }
             this.startAutoDefense(mobName);
-        }) as (...args: never[]) => void);
+        }));
     }
 
     /** Join fights when the followed player attacks a mob repeatedly */
@@ -438,7 +438,7 @@ export class McEventBridge {
             console.log(`[Bot] Companion assist: ${followingPlayer} is fighting ${mobName}, joining!`);
             this.callbacks.onChat('action', 'Action', `${botName} is joining the fight against ${mobName}!`);
             this.startAutoDefense(mobName);
-        }) as (...args: never[]) => void);
+        }));
     }
 
     /** Periodically scan for hostile mobs at melee range and auto-attack them */
@@ -522,7 +522,7 @@ export class McEventBridge {
         };
 
         // Trigger auto-eating when health/food changes
-        this.on('health', (() => tryAutoEat()) as (...args: never[]) => void);
+        this.on('health', (() => tryAutoEat()));
 
         // Also check on spawn (health event doesn't fire for initial values)
         setTimeout(() => tryAutoEat(), AUTO_EAT_INITIAL_DELAY_MS);
@@ -808,7 +808,7 @@ export class McEventBridge {
                 if (message.startsWith(`<${name}>`)) return;
             }
             console.log(`[MC Server] ${message}`);
-        }) as (...args: never[]) => void);
+        }));
 
         this.on('chat', ((username: string, message: string) => {
             console.log(`[MC Chat] <${username ?? 'server'}> ${message}`);
@@ -835,7 +835,7 @@ export class McEventBridge {
             const resolvedMsg = this.names.resolveNamesInText(message);
             this.callbacks.onChat('player', voxtaName, resolvedMsg);
             this.callbacks.onPlayerChat(username, resolvedMsg);
-        }) as (...args: never[]) => void);
+        }));
 
         this.on('whisper', ((username: string, message: string) => {
             if (this.allBotUsernames.has(username)) return;
@@ -845,7 +845,7 @@ export class McEventBridge {
             const resolvedMsg = this.names.resolveNamesInText(message);
             this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
             this.callbacks.onPlayerChat(username, resolvedMsg);
-        }) as (...args: never[]) => void);
+        }));
     }
 
     /** Send accumulated damage as a single note and start cooldown */
@@ -946,7 +946,7 @@ export class McEventBridge {
             this.damageTimer = null;
         }
         for (const { event, fn } of this.boundListeners) {
-            this.bot.removeListener(event as 'health', fn as (...args: never[]) => void);
+            this.bot.removeListener(event as 'health', fn);
         }
         this.boundListeners.length = 0;
     }

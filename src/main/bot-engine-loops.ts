@@ -79,7 +79,7 @@ export function createPerceptionLoop(
                     : {}),
                 [statusHealthKey]: state.health,
                 [statusFoodKey]: state.food,
-            } as Partial<BotStatus>);
+            });
 
             if (contextHash !== lastContextHash) {
                 lastContextHash = contextHash;
