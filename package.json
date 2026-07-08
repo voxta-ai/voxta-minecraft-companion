@@ -67,7 +67,7 @@
         "@electron-toolkit/preload": "^3.0.1",
         "@electron-toolkit/utils": "^4.0.0",
         "@eslint/js": "^10.0.1",
-        "electron": "^33.0.0",
+        "electron": "^43.1.0",
         "electron-builder": "^25.1.8",
         "electron-vite": "^2.3.0",
         "eslint": "^10.0.3",
