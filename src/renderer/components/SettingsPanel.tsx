@@ -96,7 +96,7 @@ function SliderCard(props: { item: SliderItem }) {
                     value={settings[props.item.key] as number}
                     onInput={(e) => updateSetting(props.item.key, parseInt(e.currentTarget.value, 10))}
                 />
-                <span class="slider-value">{settings[props.item.key] as number}%</span>
+                <span class="slider-value">{settings[props.item.key]}%</span>
             </div>
         </SettingCard>
     );
