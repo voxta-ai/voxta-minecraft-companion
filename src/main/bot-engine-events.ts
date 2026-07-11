@@ -82,10 +82,13 @@ function handlePlayerChat(
     if (!callbacks.getVoxta()?.sessionId) return;
 
     // If the sender is NOT the user, send as an event so the AI knows who's talking.
-    // Add a disambiguation clause naming who the speaker is NOT, so the AI doesn't
-    // confuse a third-party player with the user or with one of the bots themselves.
+    // When no player username is configured we can't know which MC account is the
+    // user, so never attribute chat to them either — otherwise every player on the
+    // server would speak as the user. Add a disambiguation clause naming who the
+    // speaker is NOT, so the AI doesn't confuse a third-party player with the user
+    // or with one of the bots themselves.
     const playerMcUsername = callbacks.getPlayerMcUsername();
-    if (playerMcUsername && mcUsername.toLowerCase() !== playerMcUsername.toLowerCase()) {
+    if (!playerMcUsername || mcUsername.toLowerCase() !== playerMcUsername.toLowerCase()) {
         const disambig = buildOtherPlayerDisambiguation(names, callbacks);
         console.log(`[Other >>] MC chat from ${mcUsername}: "${text}"`);
         void callbacks.getVoxta()?.sendEvent(`${mcUsername}${disambig} says: ${text}`);
