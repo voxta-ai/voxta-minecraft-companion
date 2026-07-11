@@ -63,6 +63,9 @@
         "mineflayer": "^4.35.0",
         "mineflayer-pathfinder": "^2.4.5"
     },
+    "overrides": {
+        "whatwg-url": "^13.0.0"
+    },
     "devDependencies": {
         "@electron-toolkit/preload": "^3.0.1",
         "@electron-toolkit/utils": "^4.0.0",
