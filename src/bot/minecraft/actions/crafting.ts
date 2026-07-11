@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 import { CRAFT_ALIASES } from '../game-data';
 import { setSuppressPickups } from './action-state.js';
+import { mineBlock } from './mining.js';
 import { getErrorMessage } from '../utils';
 
 // Delay between crafting steps to avoid Paper's place_recipe rate limiter
@@ -186,7 +187,6 @@ async function autoCraftWithPrereqs(
 
             // Mine the source block.
             craftProgressCallback?.(`Mining ${stillNeed} ${sourceFound} for ${displayName}...`);
-            const { mineBlock } = await import('./mining.js');
             const beforeMine = countItemInInventory(bot, itemId);
             const mineResult = await mineBlock(bot, sourceFound, String(stillNeed));
             const minedCount = countItemInInventory(bot, itemId) - beforeMine;
@@ -642,7 +642,6 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
                 if (logsNeeded > 0) {
                     console.log(`[MC Craft] Need ${logsNeeded} more logs, chopping trees...`);
                     craftProgressCallback?.(`Need ${logsNeeded} more logs, chopping trees...`);
-                    const { mineBlock } = await import('./mining.js');
                     const mineResult = await mineBlock(bot, 'wood', String(logsNeeded + 3)); // +3 extra buffer
                     console.log(`[MC Craft] Mining result: ${mineResult}`);
                     if (mineResult.includes('couldn\'t find') || mineResult.includes('couldn\'t reach')) {

@@ -10,6 +10,15 @@ export default defineConfig({
         build: {
             rollupOptions: {
                 external: ['mineflayer', 'mineflayer-pathfinder', 'minecraft-data'],
+                onwarn(warning, defaultHandler) {
+                    // @microsoft/signalr (bundled transitively via voxta-client) ships
+                    // /*#__PURE__*/ annotations in positions Rollup can't attach; it drops
+                    // them harmlessly. Silence just those to keep build output clean.
+                    if (warning.code === 'INVALID_ANNOTATION' && warning.message.includes('@microsoft/signalr')) {
+                        return;
+                    }
+                    defaultHandler(warning);
+                },
             },
         },
     },
