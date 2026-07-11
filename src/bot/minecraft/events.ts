@@ -41,6 +41,7 @@ export function isHostileEntity(e: Entity): boolean {
 // ---- Timing constants ----
 const DAMAGE_CONSOLIDATION_MS = 3000;  // Accumulate damage hits before sending one note
 const PICKUP_FLUSH_MS = 3000;          // Batch pickup notifications before sending
+const CHAT_DEDUP_WINDOW_MS = 1000;     // Drop identical chat lines re-delivered within this window
 const AUTO_EAT_THRESHOLD = 14;         // Eat when food drops below this (20 = full)
 const AUTO_EAT_RETRY_DELAY_MS = 2000;  // Retry auto-eat after this delay
 const AUTO_EAT_INITIAL_DELAY_MS = 5000; // Check food on spawn after this delay
@@ -95,6 +96,11 @@ export class McEventBridge {
     private autoLookLoop: ReturnType<typeof setInterval> | null = null;
     private pickupCheckTimer: ReturnType<typeof setInterval> | null = null;
     private proximityScanTimer: ReturnType<typeof setInterval> | null = null;
+
+    // Chat dedup: some server setups (signed + unsigned chat paths, chat-modifying
+    // plugins) deliver the same chat line twice within milliseconds.
+    private lastChatKey = '';
+    private lastChatTime = 0;
 
     // Companion assist: track how many times the player hits each mob
     private readonly playerAssistHits = new Map<number, { count: number; lastHit: number }>();
@@ -811,6 +817,12 @@ export class McEventBridge {
         }));
 
         this.on('chat', ((username: string, message: string) => {
+            // Forwarding a re-delivered line makes the AI see every message doubled,
+            // so drop exact repeats inside the dedup window.
+            if (this.isDuplicateChatLine('chat', username, message)) {
+                console.log(`[MC Chat] Suppressed duplicate from <${username ?? 'server'}>`);
+                return;
+            }
             console.log(`[MC Chat] <${username ?? 'server'}> ${message}`);
             if (!username || this.allBotUsernames.has(username)) return;
             const settings = this.callbacks.getSettings();
@@ -831,21 +843,40 @@ export class McEventBridge {
                 return;
             }
 
-            const voxtaName = this.names.resolveToVoxta(username);
             const resolvedMsg = this.names.resolveNamesInText(message);
-            this.callbacks.onChat('player', voxtaName, resolvedMsg);
+            this.callbacks.onChat('player', this.displayNameFor(username), resolvedMsg);
             this.callbacks.onPlayerChat(username, resolvedMsg);
         }));
 
         this.on('whisper', ((username: string, message: string) => {
+            if (this.isDuplicateChatLine('whisper', username, message)) return;
             if (this.allBotUsernames.has(username)) return;
             const settings = this.callbacks.getSettings();
             if (!settings.enableNoteChat) return;
-            const voxtaName = this.names.resolveToVoxta(username);
             const resolvedMsg = this.names.resolveNamesInText(message);
-            this.callbacks.onChat('player', `${voxtaName} (whisper)`, resolvedMsg);
+            this.callbacks.onChat('player', `${this.displayNameFor(username)} (whisper)`, resolvedMsg);
             this.callbacks.onPlayerChat(username, resolvedMsg);
         }));
+    }
+
+    /** True when the same chat line was already handled within CHAT_DEDUP_WINDOW_MS. */
+    private isDuplicateChatLine(kind: string, username: string, message: string): boolean {
+        const now = Date.now();
+        const key = `${kind}\u0000${username}\u0000${message}`;
+        const duplicate = key === this.lastChatKey && now - this.lastChatTime < CHAT_DEDUP_WINDOW_MS;
+        this.lastChatKey = key;
+        this.lastChatTime = now;
+        return duplicate;
+    }
+
+    /**
+     * Chat display name: "VoxtaName (McName)" when the mapped name differs from the MC
+     * account, so identity routing stays visible in the UI and a misconfigured player
+     * mapping is easy to spot (e.g. "Hakaisha (ShadowNeko)").
+     */
+    private displayNameFor(username: string): string {
+        const voxtaName = this.names.resolveToVoxta(username);
+        return voxtaName.toLowerCase() === username.toLowerCase() ? voxtaName : `${voxtaName} (${username})`;
     }
 
     /** Send accumulated damage as a single note and start cooldown */
