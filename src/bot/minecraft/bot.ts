@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url);
 import type { CompanionConfig } from '../config.js';
 import { DOOR_BLOCKS } from './game-data';
 import { setupNaNGuards, setupDoorAutomation, setupAutoSwim, setupNonFullBlockGroundFix, setupStuckDetection, setupShelterProtection, handleTreeSpawn } from './spawn-handlers';
+import { setupConnectionDiagnostics } from './connection-diagnostics';
 
 export interface MinecraftBot {
     bot: mineflayer.Bot;
@@ -32,6 +33,10 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         ...(config.mc.version ? { version: config.mc.version } : {}),
         hideErrors: false,
     });
+
+    // Surface handshake/protocol details so an unsupported server version (e.g. a Minecraft
+    // newer than mineflayer supports) produces a legible failure instead of a silent drop.
+    setupConnectionDiagnostics(bot, config.mc.version ?? '', mineflayer.testedVersions ?? []);
 
     // Load pathfinder plugin
     bot.loadPlugin(pathfinder);
@@ -247,12 +252,14 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         console.log('[MC] Bot died, respawning...');
     });
 
-    bot.on('kicked', (reason) => {
-        console.error(`[MC] Kicked: ${reason}`);
+    bot.on('kicked', (reason, loggedIn) => {
+        // loggedIn distinguishes a kick during login/handshake (protocol/version mismatch)
+        // from one during play (gameplay/anticheat), which narrows down the cause fast.
+        console.error(`[MC] Kicked (${loggedIn ? 'in-play' : 'during login'}): ${reason}`);
     });
 
     bot.on('error', (err) => {
-        console.error('[MC] Error:', err.message);
+        console.error('[MC] Error:', err.stack ?? err.message);
         if (rejectSpawn) {
             rejectSpawn(err);
             resolveSpawn = null;
