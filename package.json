@@ -10,6 +10,7 @@
         "start": "electron-vite dev",
         "lint": "eslint src/",
         "lint:fix": "eslint src/ --fix",
+        "typecheck": "tsc --noEmit",
         "format": "prettier --check src/",
         "format:fix": "prettier --write src/",
         "pack": "electron-vite build && electron-builder --dir",
