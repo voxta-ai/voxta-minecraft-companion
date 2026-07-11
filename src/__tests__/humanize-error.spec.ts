@@ -29,6 +29,15 @@ describe('humanizeError', () => {
         expect(result).toContain('1.21.1');
     });
 
+    it('detects unsupported protocol version and avoids the misleading npm update advice', () => {
+        const err = new Error("Unsupported protocol version '776'; try updating your packages with 'npm update'");
+        const result = humanizeError(err, 'MC');
+        expect(result).toContain('too new');
+        expect(result).toContain('776');
+        expect(result).toContain('1.21.11');
+        expect(result).not.toContain('npm update');
+    });
+
     it('detects Voxta negotiation failure', () => {
         const err = new Error('Failed to complete negotiation with the server');
         expect(humanizeError(err, 'Voxta')).toContain('Cannot connect to Voxta');
