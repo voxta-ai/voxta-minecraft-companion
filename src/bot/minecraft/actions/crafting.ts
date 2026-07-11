@@ -336,18 +336,6 @@ async function autoCraftWithPrereqs(
             lastSteps = allSteps;
             continue;
         }
-
-        // Collect what's still missing for this variant
-        const missingDetails: string[] = [];
-        for (const ingredient of ingredients) {
-            const totalNeeded = ingredient.countPerCraft * craftRuns;
-            const have = countItemInInventory(bot, ingredient.id);
-            if (have < totalNeeded) {
-                const name = getItemDisplayName(mcData, ingredient.id);
-                missingDetails.push(`${totalNeeded - have} ${name}`);
-            }
-        }
-        lastMissing = missingDetails;
     }
 
     // No recipe variant worked
