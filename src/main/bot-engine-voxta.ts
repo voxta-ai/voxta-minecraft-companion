@@ -197,6 +197,14 @@ export function humanizeError(err: unknown, context: string): string {
     if (versionMatch) {
         return `Version mismatch — the server runs ${versionMatch[1]}. Set "Game Version" to ${versionMatch[1]} and try again.`;
     }
+    // Server protocol is newer than mineflayer supports. nmp's raw message tells users to
+    // "npm update", which is misleading — there is no mineflayer release that supports these
+    // versions yet (the whole PrismarineJS stack currently tops out at 1.21.11). Give an
+    // honest, actionable message instead.
+    const unsupportedProtocol = raw.match(/Unsupported protocol version '?(\d+)'?/i);
+    if (unsupportedProtocol) {
+        return `This Minecraft server is too new — the bot doesn't support protocol ${unsupportedProtocol[1]} yet. Use a supported server version (up to 1.21.11).`;
+    }
 
     // Voxta connection errors
     if (raw.includes('Failed to complete negotiation') || raw.includes('Status code')) {
