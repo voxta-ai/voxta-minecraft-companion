@@ -584,22 +584,52 @@ export class ServerManager extends EventEmitter {
             path.join(process.cwd(), 'plugins', 'voxta-voice-bridge', 'build', 'libs', VOICE_BRIDGE_JAR),
         ];
 
-        console.log(`[VoiceBridge] Looking for JAR: ${VOICE_BRIDGE_JAR}`);
-        for (const src of candidates) {
+        // Locate the source JAR. The candidates cover the packaged (resourcesPath) and dev
+        // (repo) layouts; only one exists in a given context, so probe quietly and only report
+        // the checked paths if none is found.
+        let src: string | null = null;
+        for (const candidate of candidates) {
             try {
-                await fs.access(src);
-                await fs.copyFile(src, dest);
-                console.log(`[VoiceBridge] Installed from: ${src}`);
-                this.emitConsoleLine(`Installed voice bridge plugin: ${VOICE_BRIDGE_JAR}`, 'info');
-                return;
+                await fs.access(candidate);
+                src = candidate;
+                break;
             } catch {
-                console.log(`[VoiceBridge] Not found at: ${src}`);
+                // Try the next candidate.
             }
         }
 
-        console.warn(`[VoiceBridge] JAR not found in any candidate path — SVC integration unavailable`);
-        console.warn(`[VoiceBridge] Build it with: cd plugins/voxta-voice-bridge && ./gradlew.bat build`);
-        this.emitConsoleLine('Voice bridge JAR not found — SVC integration will be unavailable', 'warn');
+        if (!src) {
+            console.warn('[VoiceBridge] JAR not found — SVC integration unavailable. Checked:');
+            for (const candidate of candidates) console.warn(`[VoiceBridge]   ${candidate}`);
+            console.warn('[VoiceBridge] Build it with: cd plugins/voxta-voice-bridge && ./gradlew.bat build');
+            this.emitConsoleLine('Voice bridge JAR not found — SVC integration will be unavailable', 'warn');
+            return;
+        }
+
+        // installVoiceBridge runs on every server start to keep the plugin current, but the JAR
+        // rarely changes. Skip the copy when the deployed JAR already matches the source so a
+        // normal launch doesn't redundantly reinstall it. mtime is preserved on copy so the
+        // up-to-date check stays stable across launches.
+        if (await this.jarIsUpToDate(src, dest)) {
+            console.log(`[VoiceBridge] Plugin already up to date: ${VOICE_BRIDGE_JAR}`);
+            return;
+        }
+
+        await fs.copyFile(src, dest);
+        const srcStat = await fs.stat(src);
+        await fs.utimes(dest, srcStat.atime, srcStat.mtime);
+        console.log(`[VoiceBridge] Installed from: ${src}`);
+        this.emitConsoleLine(`Installed voice bridge plugin: ${VOICE_BRIDGE_JAR}`, 'info');
+    }
+
+    /** True when the deployed plugin JAR matches the source (same size and mtime). */
+    private async jarIsUpToDate(src: string, dest: string): Promise<boolean> {
+        try {
+            const [s, d] = await Promise.all([fs.stat(src), fs.stat(dest)]);
+            return s.size === d.size && Math.floor(s.mtimeMs) === Math.floor(d.mtimeMs);
+        } catch {
+            return false;
+        }
     }
 
     private async writeDefaultConfigs(): Promise<void> {
