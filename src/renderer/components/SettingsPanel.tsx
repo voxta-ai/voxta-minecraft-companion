@@ -3,6 +3,7 @@ import type { McSettings, VisionMode, ActionInferenceTiming } from '../../shared
 import { DEFAULT_SETTINGS } from '../../shared/ipc-types';
 import { settings, updateSetting } from '../stores/settings-store';
 import { SettingCard } from './SettingCard';
+import { SpatialAudioEngine } from '../services/SpatialAudioEngine';
 
 interface ToggleItem {
     key: keyof McSettings;
@@ -212,11 +213,10 @@ function AudioEffects() {
     const [playingIndex, setPlayingIndex] = createSignal(-1);
 
     // Lazy-init a dedicated engine for test previews
-    let testEngine: import('../services/SpatialAudioEngine').SpatialAudioEngine | null = null;
+    let testEngine: SpatialAudioEngine | null = null;
 
-    const getTestEngine = async (): Promise<import('../services/SpatialAudioEngine').SpatialAudioEngine> => {
+    const getTestEngine = (): SpatialAudioEngine => {
         if (!testEngine) {
-            const { SpatialAudioEngine } = await import('../services/SpatialAudioEngine');
             testEngine = new SpatialAudioEngine();
         }
         testEngine.applySettings(settings);
@@ -226,7 +226,7 @@ function AudioEffects() {
     const playSample = async (index: number): Promise<void> => {
         setPlayingIndex(index);
         try {
-            const engine = await getTestEngine();
+            const engine = getTestEngine();
             const { onEnded } = await engine.playChunk(PREVIEW_SAMPLES[index]);
             await onEnded;
         } catch (err) {
