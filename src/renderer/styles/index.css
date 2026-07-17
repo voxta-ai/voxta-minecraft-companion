@@ -3,6 +3,7 @@
 /* ---- Component Styles ---- */
 @import './base.css';
 @import './modal.css';
+@import './startup-modal.css';
 @import './connection-panel.css';
 @import './chat-view.css';
 @import './audio-icons.css';

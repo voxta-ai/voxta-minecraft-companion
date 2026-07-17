@@ -171,19 +171,17 @@ export class ServerManager extends EventEmitter {
             throw new Error('Server not installed. Run setup first.');
         }
 
-        // Write eula.txt every time to ensure it's accepted
-        await fs.writeFile(path.join(this.serverDir, 'eula.txt'), 'eula=true\n');
-
-        // Kill orphaned Java processes from a previous crash, then remove stale lock files
-        await this.killOrphanedJava();
-        await this.cleanStaleLocks();
-
-        // Ensure voice bridge plugin is up to date
-        await this.installVoiceBridge();
-
         this.setState('starting');
 
-        // Resolve a usable Java runtime (auto-downloads one if the user has none).
+        // Step 1: Prepare server files (accept EULA, clean up after crashes, sync plugins)
+        this.emitProgress({ phase: 'startup', step: 1, totalSteps: 4, label: 'Preparing server files...' });
+        await fs.writeFile(path.join(this.serverDir, 'eula.txt'), 'eula=true\n');
+        await this.killOrphanedJava();
+        await this.cleanStaleLocks();
+        await this.installVoiceBridge();
+
+        // Step 2: Resolve a usable Java runtime (auto-downloads one if the user has none).
+        this.emitProgress({ phase: 'startup', step: 2, totalSteps: 4, label: 'Checking Java runtime...' });
         let javaPath: string;
         try {
             javaPath = await this.java.resolveJavaPath(
@@ -198,6 +196,8 @@ export class ServerManager extends EventEmitter {
             throw err;
         }
 
+        // Step 3: Launch the server process
+        this.emitProgress({ phase: 'startup', step: 3, totalSteps: 4, label: 'Launching server...' });
         const jarPath = path.join(this.serverDir, 'paper.jar');
         const memoryMb = await this.getMemoryMb();
         this.childProcess = spawn(javaPath, [`-Xmx${memoryMb}M`, `-Xms${memoryMb}M`, '-jar', jarPath, '--nogui'], {
@@ -206,6 +206,9 @@ export class ServerManager extends EventEmitter {
             windowsHide: true,
         });
 
+        // Step 4: Wait for the world to finish loading (marked ready on the "Done" line)
+        this.emitProgress({ phase: 'startup', step: 4, totalSteps: 4, label: 'Loading world...' });
+
         this.childProcess.stdout?.on('data', (data: Buffer) => {
             const lines = data.toString().split('\n').filter((l) => l.trim());
             for (const line of lines) {
@@ -213,6 +216,7 @@ export class ServerManager extends EventEmitter {
 
                 if (line.includes('Done (') || line.includes('Done!')) {
                     this.setState('running');
+                    this.emitProgress({ phase: 'startup', step: 4, totalSteps: 4, label: 'Server ready!' });
                 }
 
                 const portMatch = line.match(/Starting Minecraft server on \*:(\d+)/);
