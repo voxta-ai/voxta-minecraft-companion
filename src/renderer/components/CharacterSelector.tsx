@@ -96,24 +96,26 @@ export default function CharacterSelector(props: CharacterSelectorProps) {
                 <div class="field-label-row">
                     <label>Voxta Character</label>
                     <div class="field-label-row-actions">
+                        <Show when={sortedCharacters().some((c) => c.hasMcConfig)}>
+                            <button
+                                type="button"
+                                class="filter-pill"
+                                classList={{ active: mcOnly() }}
+                                title="Show only characters with Minecraft Companion configured"
+                                onClick={() => handleMcOnlyChange(!mcOnly())}
+                            >
+                                <i class="bi bi-funnel"></i>
+                                MC only
+                            </button>
+                        </Show>
                         <button
-                            class="char-refresh-btn"
+                            class="icon-btn"
                             title="Refresh characters and scenarios"
                             disabled={refreshing()}
                             onClick={handleRefresh}
                         >
-                            {refreshing() ? '⏳' : '🔄'}
+                            <i class="bi bi-arrow-clockwise" classList={{ spin: refreshing() }}></i>
                         </button>
-                        <Show when={sortedCharacters().some((c) => c.hasMcConfig)}>
-                            <label class="mc-only-toggle" title="Show only characters with Minecraft Companion configured">
-                                <input
-                                    type="checkbox"
-                                    checked={mcOnly()}
-                                    onChange={(e) => handleMcOnlyChange(e.currentTarget.checked)}
-                                />
-                                <span class="mc-only-label">⛏️ MC only</span>
-                            </label>
-                        </Show>
                     </div>
                 </div>
                 <CustomDropdown
