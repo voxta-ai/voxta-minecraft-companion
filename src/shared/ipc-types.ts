@@ -274,6 +274,8 @@ export interface SetupProgress {
     label: string;
     bytesDownloaded?: number;
     bytesTotal?: number;
+    /** Distinguishes install/setup progress from live server-startup progress. */
+    phase?: 'setup' | 'startup';
 }
 
 export interface PluginInfo {

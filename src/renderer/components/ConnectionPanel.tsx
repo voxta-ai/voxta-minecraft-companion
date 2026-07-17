@@ -323,11 +323,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                     >
                         {launching()
                             ? '⏳ Launching...'
-                            : serverState() === 'starting'
-                                ? '⏳ Starting server...'
-                                : serverState() === 'stopping'
-                                    ? '⏳ Server stopping...'
-                                    : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
+                            : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
                     </button>
                     <button class="btn btn-disconnect" onClick={handleDisconnect}>
                         ⏹ Disconnect

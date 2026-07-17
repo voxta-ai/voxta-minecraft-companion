@@ -11,6 +11,8 @@ const [serverError, setServerError] = createSignal<string | undefined>();
 const [isInstalled, setIsInstalled] = createSignal(false);
 const [setupProgress, setSetupProgress] = createSignal<SetupProgress | null>(null);
 const [isSettingUp, setIsSettingUp] = createSignal(false);
+// Live server-startup progress (distinct from install/setup progress above).
+const [startupProgress, setStartupProgress] = createSignal<SetupProgress | null>(null);
 
 // ---- Tunnel status ----
 const [tunnelState, setTunnelState] = createSignal<TunnelState>('not-installed');
@@ -41,6 +43,13 @@ export function initServerStore(): void {
     // Subscribe to console lines globally (persists when Server panel is closed)
     window.api.onServerConsoleLine((line) => {
         addServerConsoleLine(line);
+    });
+
+    // Track live server-startup progress globally so the startup popup can show
+    // even when the Server panel is closed. Install/setup progress is handled
+    // separately inside ServerPanel.
+    window.api.onServerSetupProgress((progress) => {
+        if (progress.phase === 'startup') setStartupProgress(progress);
     });
 
     // Fetch initial tunnel status
@@ -84,6 +93,8 @@ export {
     setSetupProgress,
     isSettingUp,
     setIsSettingUp,
+    startupProgress,
+    setStartupProgress,
     serverConsole,
     tunnelState,
     tunnelUrl,

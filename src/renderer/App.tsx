@@ -15,6 +15,7 @@ import AudioPlayer from './components/AudioPlayer';
 import InspectorDrawer from './components/InspectorDrawer';
 import TerminalPanel from './components/TerminalPanel';
 import ServerPanel from './components/ServerPanel';
+import ServerStartupModal from './components/ServerStartupModal';
 
 type Popup = 'connection' | 'actions' | 'settings' | 'server' | null;
 
@@ -156,6 +157,8 @@ export default function App() {
             <Modal open={activePopup() === 'server'} title="Server Manager" onClose={() => setActivePopup(null)}>
                 <ServerPanel />
             </Modal>
+
+            <ServerStartupModal />
         </div>
     );
 }
