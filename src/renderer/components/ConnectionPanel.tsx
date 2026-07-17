@@ -204,135 +204,139 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
 
     return (
         <div class="connection-panel">
-            <div class="connection-compat-badge">
-                <i class="bi bi-controller"></i> Supported Minecraft: 1.8 – 1.21.11
-            </div>
-            {/* Phase 1: Voxta Connection */}
-            <div class="connection-section">
-                <div class="section-title">Voxta Server</div>
-                <div class="connection-fields">
-                    <div class="field full-width">
-                        <label>Voxta URL</label>
-                        <input
-                            type="text"
-                            value={voxtaUrl()}
-                            onInput={(e) => setVoxtaUrl(e.currentTarget.value)}
-                            placeholder="http://localhost:5384/hub"
-                            disabled={isVoxtaConnected()}
-                        />
-                    </div>
-                    <div class="field full-width">
-                        <label>Voxta API Key</label>
-                        <input
-                            type="password"
-                            value={apiKey()}
-                            onInput={(e) => setApiKey(e.currentTarget.value.trim())}
-                            placeholder="Leave empty if no password set"
-                            disabled={isVoxtaConnected()}
-                        />
-                        <span class="field-hint">Only needed if you set a password in Voxta</span>
+            <div class="connection-scroll">
+                <div class="connection-compat-badge">
+                    <i class="bi bi-controller"></i> Supported Minecraft: 1.8 – 1.21.11
+                </div>
+                {/* Phase 1: Voxta Connection */}
+                <div class="connection-section">
+                    <div class="section-title">Voxta Server</div>
+                    <div class="connection-fields">
+                        <div class="field full-width">
+                            <label>Voxta URL</label>
+                            <input
+                                type="text"
+                                value={voxtaUrl()}
+                                onInput={(e) => setVoxtaUrl(e.currentTarget.value)}
+                                placeholder="http://localhost:5384/hub"
+                                disabled={isVoxtaConnected()}
+                            />
+                        </div>
+                        <div class="field full-width">
+                            <label>Voxta API Key</label>
+                            <input
+                                type="password"
+                                value={apiKey()}
+                                onInput={(e) => setApiKey(e.currentTarget.value.trim())}
+                                placeholder="Leave empty if no password set"
+                                disabled={isVoxtaConnected()}
+                            />
+                            <span class="field-hint">Only needed if you set a password in Voxta</span>
+                        </div>
                     </div>
                 </div>
 
-                <Show when={!isVoxtaConnected()}>
-                    <div class="connection-actions">
-                        <button class="btn btn-connect" onClick={handleConnectVoxta} disabled={isVoxtaConnecting()}>
-                            {isVoxtaConnecting() ? '⏳ Connecting...' : '🔗 Connect to Voxta'}
-                        </button>
+                {/* Phase 2: Character + Chat + MC Connection */}
+                <Show when={isVoxtaConnected() && hasCharacters() && !hasSession()}>
+                    <div class="connection-section">
+                        <div class="section-title">Minecraft Setup</div>
+                        <div class="connection-fields">
+                            <CharacterSelector
+                                selectedCharacterId={selectedCharacterId}
+                                setSelectedCharacterId={setSelectedCharacterId}
+                                selectedCharacterId2={selectedCharacterId2}
+                                setSelectedCharacterId2={setSelectedCharacterId2}
+                                onMcOnlyChange={(checked) => setMcOnly(checked)}
+                                onScenariosLoaded={(list) => setScenarios(list)}
+                            />
+
+                            <ChatList
+                                characterId={selectedCharacterId}
+                                isVoxtaConnected={isVoxtaConnected}
+                                scenarios={scenarios}
+                                loadingScenarios={loadingScenarios}
+                                selectedScenarioId={selectedScenarioId}
+                                setSelectedScenarioId={setSelectedScenarioId}
+                                selectedChatId={selectedChatId}
+                                setSelectedChatId={setSelectedChatId}
+                                mcOnly={mcOnly}
+                            />
+
+                            <button
+                                class="advanced-toggle"
+                                onClick={() => setShowAdvanced(!showAdvanced())}
+                            >
+                                <i class={`bi bi-chevron-${showAdvanced() ? 'up' : 'down'}`}></i>
+                                Advanced
+                            </button>
+                            <Show when={showAdvanced()}>
+                                <div class="field">
+                                    <label>Server Host</label>
+                                    <input
+                                        type="text"
+                                        value={mcHost()}
+                                        onInput={(e) => setMcHost(e.currentTarget.value)}
+                                        placeholder="localhost"
+                                    />
+                                </div>
+                                <div class="field">
+                                    <label>Server Port</label>
+                                    <input
+                                        type="text"
+                                        value={mcPort()}
+                                        onInput={(e) => setMcPort(e.currentTarget.value)}
+                                        placeholder={`Default: ${managedServerPort()}`}
+                                    />
+                                </div>
+                                <div class="field">
+                                    <label>Game Version</label>
+                                    <input
+                                        type="text"
+                                        value={mcVersion()}
+                                        onInput={(e) => setMcVersion(e.currentTarget.value)}
+                                        placeholder="Auto-detect"
+                                    />
+                                    <span class="field-hint">Leave empty to auto-detect from server</span>
+                                </div>
+                            </Show>
+                        </div>
                     </div>
                 </Show>
             </div>
 
-            {/* Phase 2: Character + Chat + MC Connection */}
-            <Show when={isVoxtaConnected() && hasCharacters() && !hasSession()}>
-                <div class="connection-section">
-                    <div class="section-title">Minecraft Setup</div>
-                    <div class="connection-fields">
-                        <CharacterSelector
-                            selectedCharacterId={selectedCharacterId}
-                            setSelectedCharacterId={setSelectedCharacterId}
-                            selectedCharacterId2={selectedCharacterId2}
-                            setSelectedCharacterId2={setSelectedCharacterId2}
-                            onMcOnlyChange={(checked) => setMcOnly(checked)}
-                            onScenariosLoaded={(list) => setScenarios(list)}
-                        />
-
-                        <ChatList
-                            characterId={selectedCharacterId}
-                            isVoxtaConnected={isVoxtaConnected}
-                            scenarios={scenarios}
-                            loadingScenarios={loadingScenarios}
-                            selectedScenarioId={selectedScenarioId}
-                            setSelectedScenarioId={setSelectedScenarioId}
-                            selectedChatId={selectedChatId}
-                            setSelectedChatId={setSelectedChatId}
-                            mcOnly={mcOnly}
-                        />
-
-                        <button
-                            class="advanced-toggle"
-                            onClick={() => setShowAdvanced(!showAdvanced())}
-                        >
-                            <i class={`bi bi-chevron-${showAdvanced() ? 'up' : 'down'}`}></i>
-                            Advanced
-                        </button>
-                        <Show when={showAdvanced()}>
-                            <div class="field">
-                                <label>Server Host</label>
-                                <input
-                                    type="text"
-                                    value={mcHost()}
-                                    onInput={(e) => setMcHost(e.currentTarget.value)}
-                                    placeholder="localhost"
-                                />
-                            </div>
-                            <div class="field">
-                                <label>Server Port</label>
-                                <input
-                                    type="text"
-                                    value={mcPort()}
-                                    onInput={(e) => setMcPort(e.currentTarget.value)}
-                                    placeholder={`Default: ${managedServerPort()}`}
-                                />
-                            </div>
-                            <div class="field">
-                                <label>Game Version</label>
-                                <input
-                                    type="text"
-                                    value={mcVersion()}
-                                    onInput={(e) => setMcVersion(e.currentTarget.value)}
-                                    placeholder="Auto-detect"
-                                />
-                                <span class="field-hint">Leave empty to auto-detect from server</span>
-                            </div>
-                        </Show>
-                    </div>
-
-                    <div class="connection-actions">
-                        <button
-                            class={`btn btn-connect ${isManagedServerTransitioning() && !launching() ? 'btn-waiting' : ''}`}
-                            onClick={handleLaunchBot}
-                            disabled={launching() || !selectedCharacterId() || isManagedServerTransitioning()}
-                            title={isManagedServerTransitioning() ? 'Wait for the server to finish starting' : ''}
-                        >
-                            {launching()
-                                ? '⏳ Launching...'
-                                : serverState() === 'starting'
-                                    ? '⏳ Starting server...'
-                                    : serverState() === 'stopping'
-                                        ? '⏳ Server stopping...'
-                                        : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
-                        </button>
-                        <button class="btn btn-disconnect" onClick={handleDisconnect}>
-                            ⏹ Disconnect
-                        </button>
-                    </div>
+            {/* Action footer — sits outside the scroll region */}
+            <Show when={!isVoxtaConnected()}>
+                <div class="connection-actions">
+                    <button class="btn btn-connect" onClick={handleConnectVoxta} disabled={isVoxtaConnecting()}>
+                        {isVoxtaConnecting() ? '⏳ Connecting...' : '🔗 Connect to Voxta'}
+                    </button>
                 </div>
             </Show>
 
-            {/* Disconnect button (shown when connected but Phase 2 is not visible) */}
+            <Show when={isVoxtaConnected() && hasCharacters() && !hasSession()}>
+                <div class="connection-actions">
+                    <button
+                        class={`btn btn-connect ${isManagedServerTransitioning() && !launching() ? 'btn-waiting' : ''}`}
+                        onClick={handleLaunchBot}
+                        disabled={launching() || !selectedCharacterId() || isManagedServerTransitioning()}
+                        title={isManagedServerTransitioning() ? 'Wait for the server to finish starting' : ''}
+                    >
+                        {launching()
+                            ? '⏳ Launching...'
+                            : serverState() === 'starting'
+                                ? '⏳ Starting server...'
+                                : serverState() === 'stopping'
+                                    ? '⏳ Server stopping...'
+                                    : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
+                    </button>
+                    <button class="btn btn-disconnect" onClick={handleDisconnect}>
+                        ⏹ Disconnect
+                    </button>
+                </div>
+            </Show>
+
             <Show when={(isVoxtaConnected() || isMcConnected()) && (!hasCharacters() || hasSession())}>
-                <div class="connection-actions" style={{ 'margin-top': '12px' }}>
+                <div class="connection-actions">
                     <button class="btn btn-disconnect" onClick={handleDisconnect}>
                         ⏹ Disconnect
                     </button>

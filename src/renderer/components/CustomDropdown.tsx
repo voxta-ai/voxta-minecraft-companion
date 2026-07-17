@@ -1,4 +1,6 @@
-import { createSignal, createMemo, For, Show, onCleanup } from 'solid-js';
+import { createSignal, createMemo, createEffect, For, Show, onCleanup } from 'solid-js';
+import { Portal } from 'solid-js/web';
+import type { JSX } from 'solid-js';
 
 export interface DropdownOption {
     value: string;
@@ -14,10 +16,15 @@ interface CustomDropdownProps {
     searchable?: boolean;
 }
 
+// Approx. max menu height (search box + options list) used for flip decisions.
+const MENU_MAX_HEIGHT = 300;
+
 export default function CustomDropdown(props: CustomDropdownProps) {
     const [isOpen, setIsOpen] = createSignal(false);
     const [searchQuery, setSearchQuery] = createSignal('');
+    const [menuStyle, setMenuStyle] = createSignal<JSX.CSSProperties>({});
     let containerRef: HTMLDivElement | undefined;
+    let menuRef: HTMLDivElement | undefined;
     let searchInputRef: HTMLInputElement | undefined;
 
     const selectedLabel = () => {
@@ -29,6 +36,36 @@ export default function CustomDropdown(props: CustomDropdownProps) {
         const query = searchQuery().toLowerCase().trim();
         if (!query) return props.options;
         return props.options.filter((o) => o.label.toLowerCase().includes(query));
+    });
+
+    // The menu is portaled to <body> so it escapes the modal's scroll clipping;
+    // anchor it to the trigger with fixed positioning and flip up near the edge.
+    const updatePosition = () => {
+        if (!containerRef) return;
+        const rect = containerRef.getBoundingClientRect();
+        const gap = 4;
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const openUp = spaceBelow < MENU_MAX_HEIGHT && rect.top > spaceBelow;
+        setMenuStyle({
+            position: 'fixed',
+            left: `${rect.left}px`,
+            width: `${rect.width}px`,
+            'z-index': '1000',
+            ...(openUp
+                ? { bottom: `${window.innerHeight - rect.top + gap}px` }
+                : { top: `${rect.bottom + gap}px` }),
+        });
+    };
+
+    createEffect(() => {
+        if (!isOpen()) return;
+        updatePosition();
+        window.addEventListener('scroll', updatePosition, true);
+        window.addEventListener('resize', updatePosition);
+        onCleanup(() => {
+            window.removeEventListener('scroll', updatePosition, true);
+            window.removeEventListener('resize', updatePosition);
+        });
     });
 
     const handleToggle = () => {
@@ -62,9 +99,15 @@ export default function CustomDropdown(props: CustomDropdownProps) {
         }
     };
 
-    // Close on click outside
+    // Close on click outside — the menu lives outside containerRef (portaled),
+    // so check it too, otherwise clicking an option would count as "outside".
     const handleClickOutside = (e: MouseEvent) => {
-        if (containerRef && !containerRef.contains(e.target as Node)) {
+        const target = e.target as Node;
+        if (
+            containerRef &&
+            !containerRef.contains(target) &&
+            (!menuRef || !menuRef.contains(target))
+        ) {
             setIsOpen(false);
             setSearchQuery('');
         }
@@ -82,36 +125,38 @@ export default function CustomDropdown(props: CustomDropdownProps) {
                 <span class="custom-dropdown-arrow">{isOpen() ? '▲' : '▼'}</span>
             </div>
             <Show when={isOpen()}>
-                <div class="custom-dropdown-list">
-                    <Show when={isSearchable()}>
-                        <div class="custom-dropdown-search">
-                            <input
-                                ref={(el) => (searchInputRef = el)}
-                                type="text"
-                                class="custom-dropdown-search-input"
-                                placeholder="Search..."
-                                value={searchQuery()}
-                                onInput={(e) => setSearchQuery(e.currentTarget.value)}
-                                onKeyDown={handleSearchKeyDown}
-                            />
-                        </div>
-                    </Show>
-                    <div class="custom-dropdown-options">
-                        <For each={filteredOptions()}>
-                            {(option) => (
-                                <div
-                                    class={`custom-dropdown-item ${option.value === props.value ? 'active' : ''}`}
-                                    onClick={() => handleSelect(option.value)}
-                                >
-                                    {option.label}
-                                </div>
-                            )}
-                        </For>
-                        <Show when={filteredOptions().length === 0}>
-                            <div class="custom-dropdown-empty">No matches found</div>
+                <Portal>
+                    <div class="custom-dropdown-list" style={menuStyle()} ref={(el) => (menuRef = el)}>
+                        <Show when={isSearchable()}>
+                            <div class="custom-dropdown-search">
+                                <input
+                                    ref={(el) => (searchInputRef = el)}
+                                    type="text"
+                                    class="custom-dropdown-search-input"
+                                    placeholder="Search..."
+                                    value={searchQuery()}
+                                    onInput={(e) => setSearchQuery(e.currentTarget.value)}
+                                    onKeyDown={handleSearchKeyDown}
+                                />
+                            </div>
                         </Show>
+                        <div class="custom-dropdown-options">
+                            <For each={filteredOptions()}>
+                                {(option) => (
+                                    <div
+                                        class={`custom-dropdown-item ${option.value === props.value ? 'active' : ''}`}
+                                        onClick={() => handleSelect(option.value)}
+                                    >
+                                        {option.label}
+                                    </div>
+                                )}
+                            </For>
+                            <Show when={filteredOptions().length === 0}>
+                                <div class="custom-dropdown-empty">No matches found</div>
+                            </Show>
+                        </div>
                     </div>
-                </div>
+                </Portal>
             </Show>
         </div>
     );
