@@ -59,7 +59,7 @@
 }
 
 .inspector-tab.active .inspector-tab-count {
-    background: rgba(96, 165, 250, 0.2);
+    background: rgba(43, 199, 123, 0.2);
     color: var(--accent-blue);
 }
 
