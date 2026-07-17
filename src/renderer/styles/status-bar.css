@@ -36,7 +36,7 @@
     height: 80px;
     object-fit: contain;
     opacity: 0.8;
-    filter: drop-shadow(0 0 12px rgba(96, 165, 250, 0.3));
+    filter: drop-shadow(0 0 12px rgba(43, 199, 123, 0.3));
 }
 
 .empty-chat-content p {

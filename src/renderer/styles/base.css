@@ -1,20 +1,23 @@
-/* ---- CSS Variables (Voxta-inspired dark theme) ---- */
+/* ---- CSS Variables (Voxta dark theme) ---- */
 :root {
-    --bg-primary: #0f0f1a;
-    --bg-secondary: #16162a;
-    --bg-surface: #1e1e38;
-    --bg-hover: #262645;
-    --border-color: #2a2a4a;
-    --border-active: #4a4a8a;
-    --text-primary: #e8e8f0;
-    --text-secondary: #9898b4;
-    --text-muted: #686888;
-    --accent-green: #4ade80;
-    --accent-green-dim: #22c55e33;
-    --accent-blue: #60a5fa;
-    --accent-amber: #fbbf24;
+    /* Voxta graphite surfaces */
+    --bg-primary: #101316;
+    --bg-secondary: #16191c;
+    --bg-surface: #1e2124;
+    --bg-hover: #262a2e;
+    --border-color: #2a2f34;
+    --border-active: rgba(43, 199, 123, 0.45);
+    --text-primary: #e6eaed;
+    --text-secondary: #9aa3ab;
+    --text-muted: #69727a;
+    /* Voxta brand accent */
+    --accent-green: #2bc77b;
+    --accent-green-dim: rgba(43, 199, 123, 0.2);
+    --accent-amber: #e6a73d;
     --accent-red: #dc2626;
-    --accent-purple: #a78bfa;
+    /* Legacy accent slots now follow the Voxta green */
+    --accent-blue: var(--accent-green);
+    --accent-purple: var(--accent-green);
     --radius-sm: 6px;
     --radius-md: 10px;
     --radius-lg: 14px;
