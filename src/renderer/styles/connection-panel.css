@@ -1,5 +1,20 @@
 /* ---- Connection Panel (inside modal) ---- */
 
+.connection-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+}
+
+/* Own scroll region so the scrollbar never runs alongside the footer bar. */
+.connection-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 20px;
+}
+
 .connection-fields {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -109,15 +124,11 @@
     display: flex;
     gap: 8px;
     align-items: center;
-    position: sticky;
-    bottom: -16px;
-    padding: 12px 0;
-    margin: 0 -20px;
-    padding-left: 20px;
-    padding-right: 20px;
+    padding: 12px 20px;
     background: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
-    z-index: 10;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    flex-shrink: 0;
 }
 
 .connection-compat-badge {

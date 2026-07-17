@@ -85,6 +85,15 @@
     overflow-y: overlay;
 }
 
+/* Connection modal manages its own scroll (see .connection-scroll) so the
+   scrollbar stops above the action footer instead of running past it. */
+.modal-body:has(> .connection-panel) {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+    min-height: 0;
+}
+
 .app-body {
     display: flex;
     flex: 1;

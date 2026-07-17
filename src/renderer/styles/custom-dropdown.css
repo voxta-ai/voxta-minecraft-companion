@@ -37,13 +37,12 @@
     margin-left: 8px;
 }
 
+/* Positioned inline (fixed) from JS and portaled to <body> so it renders
+   above the modal instead of being clipped by the scroll container. */
 .custom-dropdown-list {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    z-index: 100;
-    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    max-height: 300px;
     background: var(--bg-surface);
     border: 1px solid var(--border-active);
     border-radius: var(--radius-sm);
