@@ -1,9 +1,12 @@
 import { createSignal, createEffect, Show } from 'solid-js';
 import { status, connectVoxta, launchBot, disconnect, voxtaInfo } from '../stores/connection-store';
-import { serverState, serverPort as managedServerPort } from '../stores/server-store';
+import { serverState, serverPort as managedServerPort, isInstalled } from '../stores/server-store';
 import type { BotConfig, ScenarioInfo, VoxtaConnectConfig } from '../../shared/ipc-types';
 import CharacterSelector from './CharacterSelector';
 import ChatList from './ChatList';
+import ConnectionStepper from './ConnectionStepper';
+
+type WizardStep = 'companion' | 'chat';
 
 const STORAGE_KEY = 'voxta-mc-config';
 
@@ -76,8 +79,18 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     const [mcVersion, setMcVersion] = createSignal(saved.mcVersion ?? '');
     const [mcUsername, setMcUsername] = createSignal(saved.mcUsername ?? '');
     const [secondMcUsername, setSecondMcUsername] = createSignal(saved.secondMcUsername ?? '');
-    const [showAdvanced, setShowAdvanced] = createSignal(false);
     const [launching, setLaunching] = createSignal(false);
+
+    // Which Minecraft server the bot connects to. Defaults to the app's
+    // built-in server when it's installed, otherwise a custom (external) one.
+    // null = follow the default; true/false = user override.
+    const [customServerOverride, setCustomServerOverride] = createSignal<boolean | null>(null);
+    const useCustomServer = () => customServerOverride() ?? !isInstalled();
+
+    // Wizard navigation: which guided step is showing, and whether the user
+    // chose to edit their saved setup instead of using Quick Start.
+    const [step, setStep] = createSignal<WizardStep>('companion');
+    const [changeSetup, setChangeSetup] = createSignal(false);
 
     // MC-only filter state (toggled by CharacterSelector, read here for ChatList)
     const [mcOnly, setMcOnly] = createSignal(saved.mcOnly ?? false);
@@ -87,6 +100,26 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     const isMcConnected = () => status.mc === 'connected';
     const hasSession = () => status.sessionId !== null;
     const hasCharacters = () => voxtaInfo.characters.length > 0;
+
+    const characterName = () =>
+        voxtaInfo.characters.find((c) => c.id === selectedCharacterId())?.name ?? '';
+
+    // True when a previously-used character is available to one-click launch.
+    const savedCharValid = () =>
+        !!saved.lastCharacterId && voxtaInfo.characters.some((c) => c.id === saved.lastCharacterId);
+
+    const showQuickStart = () =>
+        isVoxtaConnected() && hasCharacters() && !hasSession() && savedCharValid() && !changeSetup();
+
+    // Which top-level view the panel renders.
+    const view = (): 'connect' | 'quickstart' | 'guided' | 'connected' => {
+        if (!isVoxtaConnected() && !isMcConnected()) return 'connect';
+        if (hasSession() || !hasCharacters()) return 'connected';
+        if (showQuickStart()) return 'quickstart';
+        return 'guided';
+    };
+
+    const currentStepKey = () => (view() === 'connect' ? 'connect' : step());
 
     // The bundled/managed server is mid-transition — wait briefly so the user
     // doesn't try to connect during startup/shutdown. Any other state (running,
@@ -105,6 +138,11 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
             setSelectedCharacterId(
                 savedExists ? savedId : (voxtaInfo.defaultAssistantId ?? voxtaInfo.characters[0]?.id ?? null),
             );
+            // Restore the saved second companion so Quick Start launches the same pair.
+            const savedId2 = saved.lastCharacterId2;
+            if (savedId2 && voxtaInfo.characters.some((c) => c.id === savedId2)) {
+                setSelectedCharacterId2(savedId2);
+            }
         }
     });
 
@@ -158,11 +196,12 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         const charId = selectedCharacterId();
         if (!charId) return;
 
+        const custom = useCustomServer();
         const config: BotConfig = {
-            mcHost: mcHost() || 'localhost',
-            mcPort: parseInt(mcPort(), 10) || managedServerPort(),
+            mcHost: custom ? (mcHost() || 'localhost') : 'localhost',
+            mcPort: custom ? (parseInt(mcPort(), 10) || managedServerPort()) : managedServerPort(),
             mcUsername: mcUsername(),
-            mcVersion: mcVersion(),
+            mcVersion: custom ? mcVersion() : '',
             playerMcUsername: '',
             characterId: charId,
             secondCharacterId: selectedCharacterId2() || undefined,
@@ -205,41 +244,75 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     return (
         <div class="connection-panel">
             <div class="connection-scroll">
-                <div class="connection-compat-badge">
-                    <i class="bi bi-controller"></i> Supported Minecraft: 1.8 – 1.21.11
-                </div>
-                {/* Phase 1: Voxta Connection */}
-                <div class="connection-section">
-                    <div class="section-title">Voxta Server</div>
-                    <div class="connection-fields">
-                        <div class="field full-width">
-                            <label>Voxta URL</label>
-                            <input
-                                type="text"
-                                value={voxtaUrl()}
-                                onInput={(e) => setVoxtaUrl(e.currentTarget.value)}
-                                placeholder="http://localhost:5384/hub"
-                                disabled={isVoxtaConnected()}
-                            />
-                        </div>
-                        <div class="field full-width">
-                            <label>Voxta API Key</label>
-                            <input
-                                type="password"
-                                value={apiKey()}
-                                onInput={(e) => setApiKey(e.currentTarget.value.trim())}
-                                placeholder="Leave empty if no password set"
-                                disabled={isVoxtaConnected()}
-                            />
-                            <span class="field-hint">Only needed if you set a password in Voxta</span>
+                <Show when={view() === 'connect' || view() === 'guided'}>
+                    <ConnectionStepper current={currentStepKey} />
+                </Show>
+
+                {/* Step 1: Connect to Voxta */}
+                <Show when={view() === 'connect'}>
+                    <div class="connection-compat-badge">
+                        <i class="bi bi-controller"></i> Supported Minecraft: 1.8 – 1.21.11
+                    </div>
+                    <div class="connection-section">
+                        <div class="section-title">Voxta Server</div>
+                        <div class="connection-fields">
+                            <div class="field full-width">
+                                <label>Voxta URL</label>
+                                <input
+                                    type="text"
+                                    value={voxtaUrl()}
+                                    onInput={(e) => setVoxtaUrl(e.currentTarget.value)}
+                                    placeholder="http://localhost:5384/hub"
+                                />
+                            </div>
+                            <div class="field full-width">
+                                <label>Voxta API Key</label>
+                                <input
+                                    type="password"
+                                    value={apiKey()}
+                                    onInput={(e) => setApiKey(e.currentTarget.value.trim())}
+                                    placeholder="Leave empty if no password set"
+                                />
+                                <span class="field-hint">Only needed if you set a password in Voxta</span>
+                            </div>
                         </div>
                     </div>
-                </div>
+                </Show>
 
-                {/* Phase 2: Character + Chat + MC Connection */}
-                <Show when={isVoxtaConnected() && hasCharacters() && !hasSession()}>
+                {/* Quick Start: one-click launch for a returning setup */}
+                <Show when={view() === 'quickstart'}>
+                    <div class="quick-start">
+                        <div class="quick-start-emblem"><i class="bi bi-controller"></i></div>
+                        <h3>Ready to play</h3>
+                        <p>Jump straight back in with <strong>{characterName()}</strong>.</p>
+                        <div class="quick-start-links">
+                            <button
+                                class="link-btn"
+                                onClick={() => {
+                                    setChangeSetup(true);
+                                    setStep('chat');
+                                }}
+                            >
+                                Resume a previous chat
+                            </button>
+                            <span class="quick-start-sep">·</span>
+                            <button
+                                class="link-btn"
+                                onClick={() => {
+                                    setChangeSetup(true);
+                                    setStep('companion');
+                                }}
+                            >
+                                Change setup
+                            </button>
+                        </div>
+                    </div>
+                </Show>
+
+                {/* Step 2: Choose companion */}
+                <Show when={view() === 'guided' && step() === 'companion'}>
                     <div class="connection-section">
-                        <div class="section-title">Minecraft Setup</div>
+                        <div class="section-title">Choose your companion</div>
                         <div class="connection-fields">
                             <CharacterSelector
                                 selectedCharacterId={selectedCharacterId}
@@ -249,7 +322,15 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                 onMcOnlyChange={(checked) => setMcOnly(checked)}
                                 onScenariosLoaded={(list) => setScenarios(list)}
                             />
+                        </div>
+                    </div>
+                </Show>
 
+                {/* Step 3: Scenario & chat */}
+                <Show when={view() === 'guided' && step() === 'chat'}>
+                    <div class="connection-section">
+                        <div class="section-title">Scenario &amp; chat</div>
+                        <div class="connection-fields">
                             <ChatList
                                 characterId={selectedCharacterId}
                                 isVoxtaConnected={isVoxtaConnected}
@@ -262,14 +343,34 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                 mcOnly={mcOnly}
                             />
 
-                            <button
-                                class="advanced-toggle"
-                                onClick={() => setShowAdvanced(!showAdvanced())}
-                            >
-                                <i class={`bi bi-chevron-${showAdvanced() ? 'up' : 'down'}`}></i>
-                                Advanced
-                            </button>
-                            <Show when={showAdvanced()}>
+                            <div class="field full-width">
+                                <label>Minecraft Server</label>
+                                <div class="server-mode">
+                                    <button
+                                        type="button"
+                                        class="server-mode-btn"
+                                        classList={{ active: !useCustomServer() }}
+                                        onClick={() => setCustomServerOverride(false)}
+                                    >
+                                        Built-in
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="server-mode-btn"
+                                        classList={{ active: useCustomServer() }}
+                                        onClick={() => setCustomServerOverride(true)}
+                                    >
+                                        Custom
+                                    </button>
+                                </div>
+                                <span class="field-hint">
+                                    {useCustomServer()
+                                        ? 'Connect the bot to your own Minecraft server.'
+                                        : "Use this app's built-in server (auto-started for you)."}
+                                </span>
+                            </div>
+
+                            <Show when={useCustomServer()}>
                                 <div class="field">
                                     <label>Server Host</label>
                                     <input
@@ -302,19 +403,67 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                         </div>
                     </div>
                 </Show>
+
+                {/* Connected + running session */}
+                <Show when={view() === 'connected'}>
+                    <div class="quick-start">
+                        <div class="quick-start-emblem connected"><i class="bi bi-check-circle-fill"></i></div>
+                        <h3>Connected</h3>
+                        <p>Your companion session is running.</p>
+                    </div>
+                </Show>
             </div>
 
             {/* Action footer — sits outside the scroll region */}
-            <Show when={!isVoxtaConnected()}>
+            <Show when={view() === 'connect'}>
                 <div class="connection-actions">
-                    <button class="btn btn-connect" onClick={handleConnectVoxta} disabled={isVoxtaConnecting()}>
+                    <button class="btn btn-connect push-right" onClick={handleConnectVoxta} disabled={isVoxtaConnecting()}>
                         {isVoxtaConnecting() ? '⏳ Connecting...' : '🔗 Connect to Voxta'}
                     </button>
                 </div>
             </Show>
 
-            <Show when={isVoxtaConnected() && hasCharacters() && !hasSession()}>
+            <Show when={view() === 'quickstart'}>
                 <div class="connection-actions">
+                    <button class="btn btn-disconnect" onClick={handleDisconnect}>
+                        ⏹ Disconnect
+                    </button>
+                    <button
+                        class={`btn btn-connect push-right ${isManagedServerTransitioning() && !launching() ? 'btn-waiting' : ''}`}
+                        onClick={() => {
+                            setSelectedChatId(null);
+                            void handleLaunchBot();
+                        }}
+                        disabled={launching() || !selectedCharacterId() || isManagedServerTransitioning()}
+                        title={isManagedServerTransitioning() ? 'Wait for the server to finish starting' : ''}
+                    >
+                        {launching() ? '⏳ Launching...' : `🚀 Start with ${characterName()}`}
+                    </button>
+                </div>
+            </Show>
+
+            <Show when={view() === 'guided' && step() === 'companion'}>
+                <div class="connection-actions">
+                    <Show when={savedCharValid()}>
+                        <button class="wizard-back" onClick={() => setChangeSetup(false)}>
+                            ← Back
+                        </button>
+                    </Show>
+                    <button
+                        class="btn btn-connect"
+                        onClick={() => setStep('chat')}
+                        disabled={!selectedCharacterId()}
+                    >
+                        Next: Chat →
+                    </button>
+                </div>
+            </Show>
+
+            <Show when={view() === 'guided' && step() === 'chat'}>
+                <div class="connection-actions">
+                    <button class="wizard-back" onClick={() => setStep('companion')}>
+                        ← Back
+                    </button>
                     <button
                         class={`btn btn-connect ${isManagedServerTransitioning() && !launching() ? 'btn-waiting' : ''}`}
                         onClick={handleLaunchBot}
@@ -325,15 +474,12 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                             ? '⏳ Launching...'
                             : selectedChatId() ? '▶️ Resume Chat' : '🚀 New Chat'}
                     </button>
-                    <button class="btn btn-disconnect" onClick={handleDisconnect}>
-                        ⏹ Disconnect
-                    </button>
                 </div>
             </Show>
 
-            <Show when={(isVoxtaConnected() || isMcConnected()) && (!hasCharacters() || hasSession())}>
+            <Show when={view() === 'connected'}>
                 <div class="connection-actions">
-                    <button class="btn btn-disconnect" onClick={handleDisconnect}>
+                    <button class="btn btn-disconnect push-right" onClick={handleDisconnect}>
                         ⏹ Disconnect
                     </button>
                 </div>

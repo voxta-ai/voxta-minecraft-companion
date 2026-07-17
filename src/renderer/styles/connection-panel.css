@@ -15,6 +15,151 @@
     padding: 16px 20px;
 }
 
+/* ---- Wizard stepper ---- */
+.wizard-stepper {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 20px;
+}
+
+.wizard-step {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text-muted);
+    transition: color var(--transition);
+}
+
+.wizard-step.active {
+    color: var(--text-primary);
+}
+
+.wizard-step.done {
+    color: var(--accent-green);
+}
+
+.wizard-step-dot {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.wizard-step.active .wizard-step-dot {
+    background: var(--accent-green-dim);
+    border-color: var(--accent-green);
+    color: var(--accent-green);
+}
+
+.wizard-step.done .wizard-step-dot {
+    background: var(--accent-green);
+    border-color: var(--accent-green);
+    color: #101316;
+}
+
+.wizard-step-name {
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.wizard-step-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
+    transition: background var(--transition);
+}
+
+.wizard-step-line.done {
+    background: var(--accent-green);
+}
+
+/* ---- Quick Start card ---- */
+.quick-start {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 20px 8px 8px;
+}
+
+.quick-start-emblem {
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    font-size: 26px;
+    color: var(--accent-green);
+    background: var(--accent-green-dim);
+    margin-bottom: 14px;
+}
+
+.quick-start h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 4px;
+}
+
+.quick-start p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0 0 14px;
+}
+
+.quick-start-links {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.quick-start-sep {
+    color: var(--text-muted);
+}
+
+.link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--accent-green);
+    font-family: var(--font), sans-serif;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.link-btn:hover {
+    text-decoration: underline;
+}
+
+/* Back button in the wizard footer — pushes the primary action to the right. */
+.wizard-back {
+    margin-right: auto;
+    padding: 8px 14px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font-family: var(--font), sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.wizard-back:hover {
+    color: var(--text-primary);
+    border-color: var(--border-active);
+    background: var(--bg-hover);
+}
+
 .connection-fields {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -51,53 +196,72 @@
     gap: 6px;
 }
 
-.char-refresh-btn {
+/* Square icon button (e.g. refresh) in a field's label row. */
+.icon-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     background: transparent;
     border: 1px solid var(--border-color);
-    border-radius: 4px;
-    font-size: 12px;
-    cursor: pointer;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
     transition: all var(--transition);
 }
 
-.char-refresh-btn:hover {
-    border-color: var(--accent-green);
+.icon-btn:hover:not(:disabled) {
+    color: var(--text-primary);
+    border-color: var(--border-active);
     background: var(--bg-hover);
 }
 
-.char-refresh-btn:disabled {
+.icon-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
 }
 
-.mc-only-toggle {
-    display: flex;
+.icon-btn .bi.spin {
+    animation: icon-spin 0.8s linear infinite;
+}
+
+@keyframes icon-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Toggleable filter chip (e.g. "MC only"). */
+.filter-pill {
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
-    cursor: pointer;
-    text-transform: none;
-}
-
-.mc-only-toggle input[type='checkbox'] {
-    width: 14px;
-    height: 14px;
-    accent-color: var(--accent-green);
-    cursor: pointer;
-}
-
-.mc-only-label {
+    gap: 5px;
+    height: 28px;
+    padding: 0 11px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    font-family: var(--font), sans-serif;
     font-size: 11px;
     font-weight: 500;
-    color: var(--text-secondary);
-    letter-spacing: 0;
-    text-transform: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.filter-pill:hover {
+    color: var(--text-primary);
+    border-color: var(--border-active);
+}
+
+.filter-pill.active {
+    color: var(--accent-green);
+    border-color: rgba(43, 199, 123, 0.5);
+    background: var(--accent-green-dim);
 }
 
 .field input {
@@ -129,6 +293,11 @@
     border-top: 1px solid var(--border-color);
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     flex-shrink: 0;
+}
+
+/* Pins the primary action to the right, matching the Back/Next layout. */
+.connection-actions .push-right {
+    margin-left: auto;
 }
 
 .connection-compat-badge {
@@ -165,21 +334,36 @@
     margin-top: 2px;
 }
 
-.advanced-toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 12px;
-    cursor: pointer;
-    padding: 4px 0;
-    margin-top: 4px;
+/* Segmented control: built-in vs custom Minecraft server. */
+.server-mode {
+    display: inline-flex;
+    gap: 3px;
+    padding: 3px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
 }
 
-.advanced-toggle:hover {
+.server-mode-btn {
+    padding: 6px 16px;
+    background: transparent;
+    border: none;
+    border-radius: 5px;
+    color: var(--text-secondary);
+    font-family: var(--font), sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+}
+
+.server-mode-btn:hover:not(.active) {
     color: var(--text-primary);
+}
+
+.server-mode-btn.active {
+    background: var(--accent-green-dim);
+    color: var(--accent-green);
 }
 
 .character-select {
