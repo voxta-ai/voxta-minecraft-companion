@@ -24,6 +24,8 @@ const PLUGIN_CATALOG: CatalogPlugin[] = [
     },
 ];
 
+type ConsoleEmit = (text: string, level: 'info' | 'warn') => void;
+
 interface PluginMeta {
     fileName: string;
     hangarOwner: string;
@@ -132,9 +134,10 @@ export class PluginManager {
         return data as unknown as HangarProjectDetail;
     }
 
-    async hangarGetVersions(owner: string, slug: string): Promise<HangarVersion[]> {
+    async hangarGetVersions(owner: string, slug: string, channel?: string): Promise<HangarVersion[]> {
+        const channelFilter = channel ? `&channel=${channel}` : '';
         const data = await fetchJson(
-            `${HANGAR_API}/projects/${owner}/${slug}/versions?limit=5&platform=PAPER`,
+            `${HANGAR_API}/projects/${owner}/${slug}/versions?limit=5&platform=PAPER${channelFilter}`,
         );
         const result = data as unknown as { result: HangarVersion[] };
         return result.result;
@@ -213,31 +216,49 @@ export class PluginManager {
     /**
      * Auto-install Simple Voice Chat from Hangar during setup.
      */
-    async installSimpleVoiceChat(
-        emitConsoleLine: (text: string, level: 'info' | 'warn') => void,
+    async installSimpleVoiceChat(emitConsoleLine: ConsoleEmit): Promise<void> {
+        await this.installFromHangarIfMissing('henkelmax', 'SimpleVoiceChat', 'Simple Voice Chat', emitConsoleLine);
+    }
+
+    /**
+     * Auto-install ViaVersion from Hangar. The bot can only join servers up to the newest
+     * version mineflayer supports; ViaVersion lets players on newer Minecraft releases join
+     * that same server, so they can keep playing on the launcher's "Latest release".
+     * Stable releases only: the newest Hangar builds are usually dev snapshots.
+     */
+    async installViaVersion(emitConsoleLine: ConsoleEmit): Promise<void> {
+        await this.installFromHangarIfMissing('ViaVersion', 'ViaVersion', 'ViaVersion', emitConsoleLine, 'Release');
+    }
+
+    private async installFromHangarIfMissing(
+        owner: string,
+        slug: string,
+        displayName: string,
+        emitConsoleLine: ConsoleEmit,
+        channel?: string,
     ): Promise<void> {
         const meta = await this.loadPluginMeta();
-        const existing = meta.find((m) => m.hangarSlug === 'SimpleVoiceChat');
+        const existing = meta.find((m) => m.hangarSlug === slug);
         if (existing) {
-            console.log(`[Setup] Simple Voice Chat already installed (${existing.installedVersion})`);
+            console.log(`[Setup] ${displayName} already installed (${existing.installedVersion})`);
             return;
         }
 
         try {
-            console.log('[Setup] Installing Simple Voice Chat from Hangar...');
-            const versions = await this.hangarGetVersions('henkelmax', 'SimpleVoiceChat');
+            console.log(`[Setup] Installing ${displayName} from Hangar...`);
+            const versions = await this.hangarGetVersions(owner, slug, channel);
             if (versions.length === 0) {
-                console.warn('[Setup] No Simple Voice Chat versions found on Hangar');
+                console.warn(`[Setup] No ${displayName} versions found on Hangar`);
                 return;
             }
             const latest = versions[0];
-            emitConsoleLine(`Installing Simple Voice Chat ${latest.name}...`, 'info');
-            await this.hangarInstallPlugin('henkelmax', 'SimpleVoiceChat', latest.name);
-            console.log(`[Setup] Simple Voice Chat ${latest.name} installed`);
+            emitConsoleLine(`Installing ${displayName} ${latest.name}...`, 'info');
+            await this.hangarInstallPlugin(owner, slug, latest.name);
+            console.log(`[Setup] ${displayName} ${latest.name} installed`);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            console.warn(`[Setup] Failed to install Simple Voice Chat: ${message}`);
-            emitConsoleLine(`Could not install Simple Voice Chat: ${message}`, 'warn');
+            console.warn(`[Setup] Failed to install ${displayName}: ${message}`);
+            emitConsoleLine(`Could not install ${displayName}: ${message}`, 'warn');
         }
     }
 }

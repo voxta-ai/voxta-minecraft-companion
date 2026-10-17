@@ -365,7 +365,7 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                 </div>
                                 <span class="field-hint">
                                     {useCustomServer()
-                                        ? 'Connect the bot to your own Minecraft server.'
+                                        ? 'Connect the bot to your own Minecraft server. It must run Minecraft 26.1 or older; add ViaVersion to it so newer game versions can join.'
                                         : "Use this app's built-in server (auto-started for you)."}
                                 </span>
                             </div>
