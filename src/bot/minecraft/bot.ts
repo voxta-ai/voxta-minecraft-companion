@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 import type { CompanionConfig } from '../config.js';
 import { DOOR_BLOCKS } from './game-data';
 import { setupNaNGuards, setupDoorAutomation, setupAutoSwim, setupNonFullBlockGroundFix, setupStuckDetection, setupShelterProtection, handleTreeSpawn } from './spawn-handlers';
-import { setupConnectionDiagnostics } from './connection-diagnostics';
+import { setupConnectionDiagnostics, kickReasonText } from './connection-diagnostics';
 
 export interface MinecraftBot {
     bot: mineflayer.Bot;
@@ -25,6 +25,15 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
     let botSpawned = false;
     let skinApplied = false;
     let companionBot: mineflayer.Bot | null = null;
+
+    // Fail connect() if the bot never makes it to spawn. Only the first failure counts;
+    // after spawn this is a no-op.
+    const failSpawn = (err: Error): void => {
+        if (!rejectSpawn) return;
+        rejectSpawn(err);
+        resolveSpawn = null;
+        rejectSpawn = null;
+    };
 
     const bot = mineflayer.createBot({
         host: config.mc.host,
@@ -256,19 +265,23 @@ export function createMinecraftBot(config: CompanionConfig): MinecraftBot {
         // loggedIn distinguishes a kick during login/handshake (protocol/version mismatch)
         // from one during play (gameplay/anticheat), which narrows down the cause fast.
         console.error(`[MC] Kicked (${loggedIn ? 'in-play' : 'during login'}): ${reason}`);
+        failSpawn(new Error(`Kicked by the Minecraft server: ${kickReasonText(reason)}`));
     });
 
     bot.on('error', (err) => {
         console.error('[MC] Error:', err.stack ?? err.message);
-        if (rejectSpawn) {
-            rejectSpawn(err);
-            resolveSpawn = null;
-            rejectSpawn = null;
-        }
+        failSpawn(err);
     });
 
     bot.on('end', (reason) => {
         console.log(`[MC] Disconnected: ${reason}`);
+        // A login rejected by a server-side exception closes the socket without a kick packet
+        failSpawn(
+            new Error(
+                `The Minecraft server closed the connection before the bot joined (${reason}). ` +
+                    'Check the server console for the reason.',
+            ),
+        );
     });
 
     return {

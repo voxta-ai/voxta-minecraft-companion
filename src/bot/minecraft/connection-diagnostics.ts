@@ -48,3 +48,24 @@ export function setupConnectionDiagnostics(
         console.error(`[MC Conn] Protocol client error: ${err.stack ?? err.message}`);
     });
 }
+
+// Kick reasons arrive as Minecraft chat components: a JSON string on older versions, an object
+// (from NBT) on 1.20.3+, or plain text. Flatten whichever arrives into readable text.
+export function kickReasonText(reason: unknown): string {
+    if (typeof reason === 'string') {
+        try {
+            return kickReasonText(JSON.parse(reason));
+        } catch {
+            return reason;
+        }
+    }
+    if (Array.isArray(reason)) return reason.map(kickReasonText).join('');
+    if (reason && typeof reason === 'object') {
+        const component = reason as { text?: unknown; translate?: unknown; extra?: unknown };
+        let own = '';
+        if (typeof component.text === 'string' && component.text) own = component.text;
+        else if (typeof component.translate === 'string') own = component.translate;
+        return own + (component.extra ? kickReasonText(component.extra) : '');
+    }
+    return typeof reason === 'number' || typeof reason === 'boolean' ? String(reason) : '';
+}
