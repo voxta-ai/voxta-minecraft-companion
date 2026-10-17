@@ -34,7 +34,7 @@ describe('humanizeError', () => {
         const result = humanizeError(err, 'MC');
         expect(result).toContain('too new');
         expect(result).toContain('776');
-        expect(result).toContain('1.21.11');
+        expect(result).toContain('26.1');
         expect(result).not.toContain('npm update');
     });
 

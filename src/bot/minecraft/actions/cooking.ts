@@ -82,7 +82,7 @@ export async function cookFood(bot: Bot, itemName: string | undefined): Promise<
             await new Promise((r) => setTimeout(r, 200));
         }
 
-        furnace.close();
+        await furnace.close();
 
         const cookedName = COOKABLE_ITEMS[rawItem.name] ?? 'cooked food';
         if (totalTaken === 0) return `Put ${cookCount} ${rawItem.name.replace(/_/g, ' ')} in the furnace but it is still cooking`;

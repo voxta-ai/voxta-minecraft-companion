@@ -35,19 +35,19 @@ export async function storeItem(bot: Bot, itemName: string | undefined, countStr
                     break;
                 }
             }
-            container.close();
+            await container.close();
             if (stored === 0) return 'Opened the chest but could not store anything — it may be full';
             return `Stored ${stored} items into the chest`;
         } else {
             // Store specific item
             const item = bot.inventory.items().find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()));
             if (!item) {
-                container.close();
+                await container.close();
                 return `Checked inventory but has no ${itemName}`;
             }
             const count = countStr ? Math.min(parseInt(countStr, 10), item.count) : item.count;
             await container.deposit(item.type, null, count);
-            container.close();
+            await container.close();
             return `Put ${count} ${item.name.replace(/_/g, ' ')} into the chest`;
         }
     } catch (err) {
@@ -70,13 +70,13 @@ export async function takeItem(bot: Bot, itemName: string | undefined, countStr:
         const chestItems = container.containerItems();
         const item = chestItems.find((i) => i.name.toLowerCase().includes(itemName.toLowerCase()));
         if (!item) {
-            container.close();
+            await container.close();
             return `Looked through the chest but couldn't find any ${itemName} inside`;
         }
 
         const count = countStr ? Math.min(parseInt(countStr, 10), item.count) : item.count;
         await container.withdraw(item.type, null, count);
-        container.close();
+        await container.close();
         return `Took ${count} ${item.name.replace(/_/g, ' ')} from the chest`;
     } catch (err) {
         const message = getErrorMessage(err);
@@ -154,7 +154,7 @@ async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: st
             if (input) parts.push(`Input: ${input.count}x ${input.name.replace(/_/g, ' ')}`);
             if (fuel) parts.push(`Fuel: ${fuel.count}x ${fuel.name.replace(/_/g, ' ')}`);
             if (output) parts.push(`Output: ${output.count}x ${output.name.replace(/_/g, ' ')}`);
-            furnace.close();
+            await furnace.close();
             if (parts.length === 0) return `Opened the ${block.name.replace(/_/g, ' ')} — it is empty`;
             return `Opened the ${block.name.replace(/_/g, ' ')} and found: ${parts.join(', ')}`;
         } catch (err) {
@@ -167,7 +167,7 @@ async function doInspect(bot: Bot, matcher: (name: string) => boolean, label: st
     try {
         const container = await bot.openContainer(block);
         const items = container.containerItems();
-        container.close();
+        await container.close();
         if (items.length === 0) return `Opened the ${label} — it is empty`;
         const list = items.map((i) => `${i.count}x ${(i.displayName ?? i.name).replace(/_/g, ' ')}`).join(', ');
         return `Opened a ${label} and found: ${list}`;
