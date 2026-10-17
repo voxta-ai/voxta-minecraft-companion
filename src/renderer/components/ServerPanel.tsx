@@ -1,78 +1,40 @@
-import { createSignal, onMount, onCleanup, Show } from 'solid-js';
+import { createSignal, onMount, Show } from 'solid-js';
 import SetupProgressBar from './SetupProgressBar';
-import {
-    serverState,
-    serverPort,
-    serverError,
-    isInstalled,
-    setIsInstalled,
-    setupProgress,
-    setSetupProgress,
-    isSettingUp,
-    setIsSettingUp,
-} from '../stores/server-store';
-import { addToast } from '../stores/toast-store';
+import { serverState, isInstalled, setupProgress, isSettingUp } from '../stores/server-store';
 import { loadPropertiesAndConfig } from '../stores/server-properties-store';
 import PluginBrowser from './PluginBrowser';
 import ServerSetup from './server/ServerSetup';
+import ServerStatusBar from './server/ServerStatusBar';
 import TunnelSection from './server/TunnelSection';
 import ConsoleSection from './server/ConsoleSection';
 import PlayersSection from './server/PlayersSection';
 import PropertiesSection from './server/PropertiesSection';
 import WorldsSection from './server/WorldsSection';
+import { useServerSetup } from './server/use-server-setup';
 import type { WorldInfo } from '../../shared/ipc-types';
 
 type ServerSection = 'console' | 'properties' | 'plugins' | 'worlds' | 'players';
 
-function getStateLabel(state: string): string {
-    switch (state) {
-        case 'not-installed': return 'Not Installed';
-        case 'idle': return 'Stopped';
-        case 'starting': return 'Starting...';
-        case 'running': return 'Running';
-        case 'stopping': return 'Stopping...';
-        case 'error': return 'Error';
-        default: return state;
-    }
-}
-
-function getStateDotClass(state: string): string {
-    switch (state) {
-        case 'running': return 'connected';
-        case 'starting':
-        case 'stopping': return 'connecting';
-        case 'error': return 'error';
-        default: return 'disconnected';
-    }
-}
-
 export default function ServerPanel() {
     const [activeSection, setActiveSection] = createSignal<ServerSection>('worlds');
     const [worlds, setWorlds] = createSignal<WorldInfo[]>([]);
-    const [availableVersions, setAvailableVersions] = createSignal<string[]>([]);
-    const [selectedVersion, setSelectedVersion] = createSignal('');
-    const [loadingVersions, setLoadingVersions] = createSignal(false);
-    const [installedVersion, setInstalledVersion] = createSignal<string | null>(null);
     const [changingVersion, setChangingVersion] = createSignal(false);
+    const {
+        availableVersions,
+        selectedVersion,
+        setSelectedVersion,
+        loadingVersions,
+        installedVersion,
+        fetchVersions,
+        runSetup,
+    } = useServerSetup();
 
-    // Subscribe to IPC events
     onMount(() => {
-        const unsubProgress = window.api.onServerSetupProgress((progress) => {
-            setSetupProgress(progress);
-        });
-
-        void window.api.serverGetInstalledVersion().then((version) => {
-            setInstalledVersion(version);
-        });
         if (isInstalled()) {
             void loadServerData();
         } else {
             void fetchVersions();
         }
-
-        onCleanup(() => {
-            unsubProgress();
-        });
     });
 
     async function loadServerData(): Promise<void> {
@@ -83,52 +45,10 @@ export default function ServerPanel() {
         setWorlds(worldList);
     }
 
-    async function fetchVersions(): Promise<void> {
-        setLoadingVersions(true);
-        try {
-            const versions = await window.api.serverGetVersions();
-            setAvailableVersions(versions);
-            if (versions.length > 0 && !selectedVersion()) {
-                setSelectedVersion(versions[0]);
-            }
-        } catch (err) {
-            console.error('Failed to fetch versions:', err);
-        } finally {
-            setLoadingVersions(false);
-        }
-    }
-
     async function handleSetup(): Promise<void> {
-        const version = selectedVersion();
-        if (!version) return;
-        setIsSettingUp(true);
-        try {
-            await window.api.serverSetup(version);
-            setIsInstalled(true);
-            setInstalledVersion(version);
+        if (await runSetup()) {
             setChangingVersion(false);
             void loadServerData();
-        } catch (err) {
-            console.error('Setup failed:', err);
-        } finally {
-            setIsSettingUp(false);
-            setSetupProgress(null);
-        }
-    }
-
-    async function handleStart(): Promise<void> {
-        try {
-            await window.api.serverStart();
-        } catch (err) {
-            addToast('error', `Failed to start server: ${err instanceof Error ? err.message : 'Unknown error'}`);
-        }
-    }
-
-    async function handleStop(): Promise<void> {
-        try {
-            await window.api.serverStop();
-        } catch (err) {
-            addToast('error', `Failed to stop server: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
     }
 
@@ -151,22 +71,9 @@ export default function ServerPanel() {
                 />
             }
         >
-            {/* Status Bar */}
-            <div class="server-status-bar">
-                <div class="server-status-info">
-                    <span class={`status-dot ${getStateDotClass(serverState())}`} />
-                    <span class="server-status-label">{getStateLabel(serverState())}</span>
-                    <Show when={serverState() === 'running'}>
-                        <span class="server-port">:{serverPort()}</span>
-                    </Show>
-                    <span class="server-version-badge">
-                        Paper {installedVersion() ?? ''}
-                    </span>
-                    <Show when={serverError()}>
-                        <span class="server-error-msg">{serverError()}</span>
-                    </Show>
-                </div>
-                <div class="server-status-actions">
+            <ServerStatusBar
+                installedVersion={installedVersion}
+                actions={
                     <Show when={serverState() === 'idle' || serverState() === 'error'}>
                         <button
                             class="server-change-version-btn"
@@ -179,28 +86,8 @@ export default function ServerPanel() {
                             <i class="bi bi-arrow-repeat"></i>
                         </button>
                     </Show>
-                    <Show
-                        when={serverState() !== 'running' && serverState() !== 'starting'}
-                        fallback={
-                            <button
-                                class="btn btn-disconnect"
-                                onClick={() => void handleStop()}
-                                disabled={serverState() === 'stopping'}
-                            >
-                                {serverState() === 'stopping' ? 'Stopping...' : 'Stop'}
-                            </button>
-                        }
-                    >
-                        <button
-                            class="btn btn-connect"
-                            onClick={() => void handleStart()}
-                            disabled={serverState() === 'stopping'}
-                        >
-                            Start
-                        </button>
-                    </Show>
-                </div>
-            </div>
+                }
+            />
 
             {/* Version Change Panel */}
             <Show when={changingVersion()}>
