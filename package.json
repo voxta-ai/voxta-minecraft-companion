@@ -55,12 +55,12 @@
         }
     },
     "dependencies": {
-        "@voxta/voxta-client": "^1.7.2",
-        "bootstrap-icons": "^1.13.1",
-        "extendable-media-recorder": "^9.2.36",
-        "extendable-media-recorder-wav-encoder": "^7.0.136",
-        "marked": "^18.0.0",
-        "mineflayer": "^4.35.0",
+        "@voxta/voxta-client": "^1.12.0",
+        "bootstrap-icons": "^1.13.2",
+        "extendable-media-recorder": "^9.2.40",
+        "extendable-media-recorder-wav-encoder": "^7.0.140",
+        "marked": "^18.1.1",
+        "mineflayer": "^4.39.0",
         "mineflayer-pathfinder": "^2.4.5"
     },
     "overrides": {
@@ -70,17 +70,17 @@
         "@electron-toolkit/preload": "^3.0.1",
         "@electron-toolkit/utils": "^4.0.0",
         "@eslint/js": "^10.0.1",
-        "electron": "^43.1.0",
+        "electron": "^43.8.0",
         "electron-builder": "^26.15.3",
         "electron-vite": "^5.0.0",
-        "eslint": "^10.0.3",
+        "eslint": "^10.13.0",
         "eslint-config-prettier": "^10.1.8",
         "patch-package": "^8.0.1",
-        "prettier": "^3.8.1",
-        "solid-js": "^1.9.0",
+        "prettier": "^3.9.10",
+        "solid-js": "^1.9.17",
         "typescript": "^5.7.0",
-        "typescript-eslint": "^8.56.1",
-        "vite": "^7.3.6",
+        "typescript-eslint": "^8.71.2",
+        "vite": "^7.3.7",
         "vite-plugin-solid": "^2.11.0",
         "vitest": "^4.1.4"
     }

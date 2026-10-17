@@ -22,7 +22,7 @@ export default function ServerSetup(props: ServerSetupProps) {
             </p>
             <div class="server-compat-note">
                 <i class="bi bi-info-circle"></i>
-                Mineflayer bots currently support Minecraft 1.8 – 1.21.11.
+                Mineflayer bots currently support Minecraft 1.8 – 26.1.
                 Pick a version that matches your Minecraft client.
             </div>
             <div class="server-setup-details">

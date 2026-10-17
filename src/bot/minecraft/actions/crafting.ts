@@ -741,7 +741,7 @@ export async function craftItem(bot: Bot, itemName: string | undefined, countStr
     // because it sees the window as still "open" and reverts on force-close.
     if (bot.currentWindow) {
         try {
-            bot.closeWindow(bot.currentWindow);
+            await bot.closeWindow(bot.currentWindow);
         } catch {
             /* best effort */
         }

@@ -382,7 +382,7 @@ export async function goToEntity(bot: Bot, entityName: string | undefined): Prom
             }
 
             const trades = villager.trades ?? [];
-            bot.closeWindow(villager);
+            await bot.closeWindow(villager);
 
             if (trades.length > 0) {
                 const tradeList = trades.map((t, i) => {

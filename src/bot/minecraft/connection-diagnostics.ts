@@ -1,6 +1,6 @@
 // ---- Connection / protocol diagnostics ----
 // mineflayer only supports a fixed set of Minecraft versions (mineflayer.testedVersions).
-// Pointing it at a newer server (e.g. 26.1 / protocol 775) fails mid-handshake with cryptic
+// Pointing it at a newer server (as with 26.1 / protocol 775 before mineflayer 4.38) fails mid-handshake with cryptic
 // packet-decode errors: protocol 775 added ~15 serverbound packets that shift every later
 // packet ID, but minecraft-data's IDs are wrong for it, so the server misreads the bot's
 // packets and kicks it (see mineflayer#3888, minecraft-data#1174).
