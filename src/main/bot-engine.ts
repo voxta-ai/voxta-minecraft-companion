@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { createMinecraftBot } from '../bot/minecraft/bot';
+import { toMinecraftUsername, toSecondMinecraftUsername } from '../bot/minecraft/username';
 import { readWorldState, buildContextStrings } from '../bot/minecraft/perception';
 import { MINECRAFT_ACTIONS } from '../bot/minecraft/action-definitions';
 import { executeAction, initHomePosition } from '../bot/minecraft/action-dispatcher';
@@ -678,9 +679,10 @@ export class BotEngine extends EventEmitter {
 
     // ---- Phase 2: Launch MC bot + start chat ----
 
-    async launchBot(uiConfig: BotConfig): Promise<void> {
+    async launchBot(requestedConfig: BotConfig): Promise<void> {
         if (!this.voxta) throw new Error('Must connect to Voxta first');
 
+        const uiConfig = this.withValidMcUsernames(requestedConfig);
         this.resetSessionState();
         const config = this.buildCompanionConfig(uiConfig);
 
@@ -712,6 +714,23 @@ export class BotEngine extends EventEmitter {
         if (!this.playerMcUsername) {
             this.setupLatePlayerDetection(this.botSlots[0].mcBot!.bot, config, uiConfig);
         }
+    }
+
+    /** Bot usernames come from character names, which Minecraft often rejects (spaces, accents, length). */
+    private withValidMcUsernames(uiConfig: BotConfig): BotConfig {
+        const mcUsername = toMinecraftUsername(uiConfig.mcUsername, 'Companion');
+        const secondMcUsername = uiConfig.secondMcUsername
+            ? toSecondMinecraftUsername(uiConfig.secondMcUsername, mcUsername)
+            : undefined;
+        if (mcUsername !== uiConfig.mcUsername) {
+            console.log(`[MC] Bot username "${uiConfig.mcUsername}" is not valid in Minecraft, using "${mcUsername}"`);
+        }
+        if (secondMcUsername && secondMcUsername !== uiConfig.secondMcUsername) {
+            console.log(
+                `[MC] Bot 2 username "${uiConfig.secondMcUsername}" is not valid in Minecraft, using "${secondMcUsername}"`,
+            );
+        }
+        return { ...uiConfig, mcUsername, secondMcUsername };
     }
 
     private resetSessionState(): void {
