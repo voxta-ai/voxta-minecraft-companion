@@ -1,6 +1,7 @@
 import { createSignal } from 'solid-js';
 import { createStore } from 'solid-js/store';
 import type { ServerState, ServerConsoleLine, SetupProgress, TunnelState } from '../../shared/ipc-types';
+import { addToast } from './toast-store';
 
 const MAX_CONSOLE_LINES = 1000;
 
@@ -78,6 +79,22 @@ export function addServerConsoleLine(line: ServerConsoleLine): void {
 
 export function clearServerConsole(): void {
     setServerConsole('lines', []);
+}
+
+export async function startServer(): Promise<void> {
+    try {
+        await window.api.serverStart();
+    } catch (err) {
+        addToast('error', `Failed to start server: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+}
+
+export async function stopServer(): Promise<void> {
+    try {
+        await window.api.serverStop();
+    } catch (err) {
+        addToast('error', `Failed to stop server: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
 }
 
 export {
