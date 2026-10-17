@@ -22,8 +22,8 @@ export default function ServerSetup(props: ServerSetupProps) {
             </p>
             <div class="server-compat-note">
                 <i class="bi bi-info-circle"></i>
-                Mineflayer bots currently support Minecraft 1.8 – 26.1.
-                Pick a version that matches your Minecraft client.
+                The bot can join servers up to Minecraft 26.1. ViaVersion is installed too,
+                so you can play on the latest Minecraft release.
             </div>
             <div class="server-setup-details">
                 <div class="server-setup-item">
@@ -51,6 +51,9 @@ export default function ServerSetup(props: ServerSetupProps) {
                 </div>
                 <div class="server-setup-item">
                     <i class="bi bi-palette"></i> SkinsRestorer Plugin
+                </div>
+                <div class="server-setup-item">
+                    <i class="bi bi-arrow-left-right"></i> ViaVersion Plugin
                 </div>
                 <div class="server-setup-item">
                     <i class="bi bi-gear"></i> Pre-configured settings

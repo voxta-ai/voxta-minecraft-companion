@@ -143,7 +143,7 @@ export class ServerManager extends EventEmitter {
         this.emitProgress({ step: 4, totalSteps, label: 'Writing server configuration...' });
         await this.writeDefaultConfigs();
 
-        // Step 5: Download default plugins (SkinsRestorer, Simple Voice Chat, Voice Bridge)
+        // Step 5: Download default plugins (SkinsRestorer, Simple Voice Chat, ViaVersion, Voice Bridge)
         this.emitProgress({ step: 5, totalSteps, label: 'Installing plugins...' });
         const skinsRestorer = this.plugins.getCatalog().find((p) => p.id === 'skinsrestorer');
         if (skinsRestorer) {
@@ -157,6 +157,7 @@ export class ServerManager extends EventEmitter {
         await this.plugins.installSimpleVoiceChat(
             (text, level) => this.emitConsoleLine(text, level),
         );
+        await this.plugins.installViaVersion((text, level) => this.emitConsoleLine(text, level));
         await this.installVoiceBridge();
 
         // Save installed version
@@ -183,6 +184,8 @@ export class ServerManager extends EventEmitter {
         await this.killOrphanedJava();
         await this.cleanStaleLocks();
         await this.installVoiceBridge();
+        // Servers set up before ViaVersion was bundled get it on their next start
+        await this.plugins.installViaVersion((text, level) => this.emitConsoleLine(text, level));
 
         // Step 2: Resolve a usable Java runtime (auto-downloads one if the user has none).
         this.emitProgress({ phase: 'startup', step: 2, totalSteps: 4, label: 'Checking Java runtime...' });
