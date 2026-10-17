@@ -5,16 +5,19 @@ import * as fs from 'fs/promises';
 import { downloadFile } from './server-http';
 import type { SetupProgress } from '../shared/ipc-types';
 
-// Paper 1.20.5+ / 1.21 require Java 21. We download a managed Temurin JRE 21
-// when the user has no suitable Java on PATH so the server runs out of the box.
-const JAVA_FEATURE_VERSION = 21;
+// Paper 1.20.5+ / 1.21 require Java 21, Paper 26.1+ requires Java 25. We download a managed
+// Temurin JRE when the user has no suitable Java on PATH so the server runs out of the box.
+export function requiredJavaMajor(minecraftVersion: string | null): number {
+    const major = parseInt(minecraftVersion?.split('.')[0] ?? '', 10);
+    return major >= 26 ? 25 : 21;
+}
 
 // Adoptium redirects this to the actual GitHub asset (a .zip on Windows).
 // downloadFile follows the 302, so we can use the stable "latest" endpoint.
-const ADOPTIUM_JRE_URL =
-    `https://api.adoptium.net/v3/binary/latest/${JAVA_FEATURE_VERSION}/ga/windows/x64/jre/hotspot/normal/eclipse`;
+const adoptiumJreUrl = (javaMajor: number): string =>
+    `https://api.adoptium.net/v3/binary/latest/${javaMajor}/ga/windows/x64/jre/hotspot/normal/eclipse`;
 
-const MANUAL_DOWNLOAD_URL = 'https://adoptium.net/temurin/releases/?version=' + JAVA_FEATURE_VERSION;
+const manualDownloadUrl = (javaMajor: number): string => 'https://adoptium.net/temurin/releases/?version=' + javaMajor;
 
 type ConsoleEmit = (text: string, level: 'info' | 'warn' | 'error') => void;
 type ProgressEmit = (progress: SetupProgress) => void;
@@ -33,21 +36,21 @@ export class JavaManager {
     }
 
     /** Returns an absolute path to java.exe (or bare 'java' when using a suitable system install). */
-    async resolveJavaPath(onConsole: ConsoleEmit, onProgress: ProgressEmit): Promise<string> {
+    async resolveJavaPath(javaMajor: number, onConsole: ConsoleEmit, onProgress: ProgressEmit): Promise<string> {
         // 1. Managed JRE we downloaded on a previous run.
-        const managed = await this.findManagedJavaPath();
-        if (managed && (await this.probeJavaMajor(managed)) !== null) {
+        const managed = await this.findManagedJavaPath(javaMajor);
+        if (managed) {
             return managed;
         }
 
         // 2. A recent-enough Java already on the system PATH.
         const systemMajor = await this.probeJavaMajor('java');
-        if (systemMajor !== null && systemMajor >= JAVA_FEATURE_VERSION) {
+        if (systemMajor !== null && systemMajor >= javaMajor) {
             return 'java';
         }
         if (systemMajor !== null) {
             onConsole(
-                `Found Java ${systemMajor} on PATH, but Paper needs Java ${JAVA_FEATURE_VERSION}+. Downloading a compatible runtime...`,
+                `Found Java ${systemMajor} on PATH, but Paper needs Java ${javaMajor}+. Downloading a compatible runtime...`,
                 'warn',
             );
         } else {
@@ -56,23 +59,27 @@ export class JavaManager {
 
         // 3. Download and extract a managed JRE.
         try {
-            return await this.downloadAndExtractJre(onConsole, onProgress);
+            return await this.downloadAndExtractJre(javaMajor, onConsole, onProgress);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             throw new Error(
                 `Could not set up a Java runtime automatically (${msg}). ` +
-                    `Please install Java ${JAVA_FEATURE_VERSION} from ${MANUAL_DOWNLOAD_URL} and try again.`,
+                    `Please install Java ${javaMajor} from ${manualDownloadUrl(javaMajor)} and try again.`,
                 { cause: err },
             );
         }
     }
 
-    private async downloadAndExtractJre(onConsole: ConsoleEmit, onProgress: ProgressEmit): Promise<string> {
+    private async downloadAndExtractJre(
+        javaMajor: number,
+        onConsole: ConsoleEmit,
+        onProgress: ProgressEmit,
+    ): Promise<string> {
         await fs.mkdir(this.javaDir, { recursive: true });
         const zipPath = path.join(this.javaDir, 'jre.zip');
 
-        onConsole(`Downloading Java ${JAVA_FEATURE_VERSION} runtime...`, 'info');
-        await downloadFile(ADOPTIUM_JRE_URL, zipPath, onProgress);
+        onConsole(`Downloading Java ${javaMajor} runtime...`, 'info');
+        await downloadFile(adoptiumJreUrl(javaMajor), zipPath, onProgress);
 
         onConsole('Extracting Java runtime...', 'info');
         await this.extractZip(zipPath, this.javaDir);
@@ -80,7 +87,7 @@ export class JavaManager {
             /* best effort */
         });
 
-        const javaPath = await this.findManagedJavaPath();
+        const javaPath = await this.findManagedJavaPath(javaMajor);
         if (!javaPath) {
             throw new Error('java.exe could not be located after extraction');
         }
@@ -88,8 +95,11 @@ export class JavaManager {
         return javaPath;
     }
 
-    /** Locate bin/java.exe inside any extracted JRE folder (e.g. jdk-21.0.x+y-jre/). */
-    private async findManagedJavaPath(): Promise<string | null> {
+    /**
+     * Locate bin/java.exe inside an extracted JRE folder (e.g. jdk-21.0.x+y-jre/) that is at
+     * least the given major version. Several JREs can sit side by side (21 for 1.21, 25 for 26.1).
+     */
+    private async findManagedJavaPath(javaMajor: number): Promise<string | null> {
         try {
             const entries = await fs.readdir(this.javaDir, { withFileTypes: true });
             for (const entry of entries) {
@@ -97,10 +107,11 @@ export class JavaManager {
                 const candidate = path.join(this.javaDir, entry.name, 'bin', 'java.exe');
                 try {
                     await fs.access(candidate);
-                    return candidate;
                 } catch {
-                    // Keep looking
+                    continue;
                 }
+                const major = await this.probeJavaMajor(candidate);
+                if (major !== null && major >= javaMajor) return candidate;
             }
         } catch {
             // java dir doesn't exist yet
