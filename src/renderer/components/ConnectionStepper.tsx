@@ -3,11 +3,12 @@ import { For, Show } from 'solid-js';
 const STEPS = [
     { key: 'connect', label: 'Connect' },
     { key: 'companion', label: 'Companion' },
+    { key: 'server', label: 'Server' },
     { key: 'chat', label: 'Chat' },
 ];
 
 interface ConnectionStepperProps {
-    /** Key of the currently active step: 'connect' | 'companion' | 'chat'. */
+    /** Key of the currently active step: 'connect' | 'companion' | 'server' | 'chat'. */
     current: () => string;
 }
 

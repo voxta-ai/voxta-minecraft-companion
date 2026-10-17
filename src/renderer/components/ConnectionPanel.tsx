@@ -1,12 +1,13 @@
 import { createSignal, createEffect, Show } from 'solid-js';
 import { status, connectVoxta, launchBot, disconnect, voxtaInfo } from '../stores/connection-store';
-import { serverState, serverPort as managedServerPort, isInstalled } from '../stores/server-store';
+import { serverState, serverPort as managedServerPort, isInstalled, startServer } from '../stores/server-store';
 import type { BotConfig, ScenarioInfo, VoxtaConnectConfig } from '../../shared/ipc-types';
 import CharacterSelector from './CharacterSelector';
 import ChatList from './ChatList';
 import ConnectionStepper from './ConnectionStepper';
+import ServerStep from './ServerStep';
 
-type WizardStep = 'companion' | 'chat';
+type WizardStep = 'companion' | 'server' | 'chat';
 
 const STORAGE_KEY = 'voxta-mc-config';
 
@@ -129,6 +130,16 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
     // own server on localhost:25565".
     const isManagedServerTransitioning = () =>
         serverState() === 'starting' || serverState() === 'stopping';
+
+    // On the Server step, a stopped built-in server is started on the way to the Chat step,
+    // so it boots while the user picks a chat instead of making them press Start first.
+    const builtInNeedsStart = () =>
+        !useCustomServer() && isInstalled() && (serverState() === 'idle' || serverState() === 'error');
+
+    const handleServerNext = () => {
+        if (builtInNeedsStart()) void startServer();
+        setStep('chat');
+    };
 
     // Auto-select: saved character if available, otherwise default assistant
     createEffect(() => {
@@ -326,7 +337,21 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                     </div>
                 </Show>
 
-                {/* Step 3: Scenario & chat */}
+                {/* Step 3: Minecraft server */}
+                <Show when={view() === 'guided' && step() === 'server'}>
+                    <ServerStep
+                        useCustomServer={useCustomServer}
+                        setUseCustomServer={setCustomServerOverride}
+                        mcHost={mcHost}
+                        setMcHost={setMcHost}
+                        mcPort={mcPort}
+                        setMcPort={setMcPort}
+                        mcVersion={mcVersion}
+                        setMcVersion={setMcVersion}
+                    />
+                </Show>
+
+                {/* Step 4: Scenario & chat */}
                 <Show when={view() === 'guided' && step() === 'chat'}>
                     <div class="connection-section">
                         <div class="section-title">Scenario &amp; chat</div>
@@ -342,64 +367,6 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                                 setSelectedChatId={setSelectedChatId}
                                 mcOnly={mcOnly}
                             />
-
-                            <div class="field full-width">
-                                <label>Minecraft Server</label>
-                                <div class="server-mode">
-                                    <button
-                                        type="button"
-                                        class="server-mode-btn"
-                                        classList={{ active: !useCustomServer() }}
-                                        onClick={() => setCustomServerOverride(false)}
-                                    >
-                                        Built-in
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="server-mode-btn"
-                                        classList={{ active: useCustomServer() }}
-                                        onClick={() => setCustomServerOverride(true)}
-                                    >
-                                        Custom
-                                    </button>
-                                </div>
-                                <span class="field-hint">
-                                    {useCustomServer()
-                                        ? 'Connect the bot to your own Minecraft server. It must run Minecraft 26.1 or older; add ViaVersion to it so newer game versions can join.'
-                                        : "Use this app's built-in server (auto-started for you)."}
-                                </span>
-                            </div>
-
-                            <Show when={useCustomServer()}>
-                                <div class="field">
-                                    <label>Server Host</label>
-                                    <input
-                                        type="text"
-                                        value={mcHost()}
-                                        onInput={(e) => setMcHost(e.currentTarget.value)}
-                                        placeholder="localhost"
-                                    />
-                                </div>
-                                <div class="field">
-                                    <label>Server Port</label>
-                                    <input
-                                        type="text"
-                                        value={mcPort()}
-                                        onInput={(e) => setMcPort(e.currentTarget.value)}
-                                        placeholder={`Default: ${managedServerPort()}`}
-                                    />
-                                </div>
-                                <div class="field">
-                                    <label>Game Version</label>
-                                    <input
-                                        type="text"
-                                        value={mcVersion()}
-                                        onInput={(e) => setMcVersion(e.currentTarget.value)}
-                                        placeholder="Auto-detect"
-                                    />
-                                    <span class="field-hint">Leave empty to auto-detect from server</span>
-                                </div>
-                            </Show>
                         </div>
                     </div>
                 </Show>
@@ -451,17 +418,33 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
                     </Show>
                     <button
                         class="btn btn-connect"
-                        onClick={() => setStep('chat')}
+                        onClick={() => setStep('server')}
                         disabled={!selectedCharacterId()}
                     >
-                        Next: Chat →
+                        Next: Server →
+                    </button>
+                </div>
+            </Show>
+
+            <Show when={view() === 'guided' && step() === 'server'}>
+                <div class="connection-actions">
+                    <button class="wizard-back" onClick={() => setStep('companion')}>
+                        ← Back
+                    </button>
+                    <button
+                        class="btn btn-connect"
+                        onClick={handleServerNext}
+                        disabled={!useCustomServer() && (!isInstalled() || serverState() === 'stopping')}
+                        title={!useCustomServer() && !isInstalled() ? 'Set up the built-in server first' : ''}
+                    >
+                        {builtInNeedsStart() ? 'Start server & continue →' : 'Next: Chat →'}
                     </button>
                 </div>
             </Show>
 
             <Show when={view() === 'guided' && step() === 'chat'}>
                 <div class="connection-actions">
-                    <button class="wizard-back" onClick={() => setStep('companion')}>
+                    <button class="wizard-back" onClick={() => setStep('server')}>
                         ← Back
                     </button>
                     <button

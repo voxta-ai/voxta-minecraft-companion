@@ -39,6 +39,8 @@ interface ServerStatusBarProps {
     installedVersion: Accessor<string | null>;
     /** Extra buttons shown before Start/Stop (e.g. the Server Manager's version change). */
     actions?: JSXElement;
+    /** Hide Start when the caller starts the server itself (the wizard's "Start server & continue"). */
+    hideStart?: boolean;
 }
 
 /** Built-in server state, port and version with Start/Stop. */
@@ -70,13 +72,15 @@ export default function ServerStatusBar(props: ServerStatusBarProps) {
                         </button>
                     }
                 >
-                    <button
-                        class="btn btn-connect"
-                        onClick={() => void startServer()}
-                        disabled={serverState() === 'stopping'}
-                    >
-                        Start
-                    </button>
+                    <Show when={!props.hideStart}>
+                        <button
+                            class="btn btn-connect"
+                            onClick={() => void startServer()}
+                            disabled={serverState() === 'stopping'}
+                        >
+                            Start
+                        </button>
+                    </Show>
                 </Show>
             </div>
         </div>
