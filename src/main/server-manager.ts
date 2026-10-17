@@ -8,7 +8,8 @@ import { parseProperties, updatePropertiesContent } from './server-properties';
 import { PluginManager } from './plugin-manager';
 import { WorldManager } from './world-manager';
 import { PlayerManager } from './player-manager';
-import { JavaManager } from './java-manager';
+import { JavaManager, requiredJavaMajor } from './java-manager';
+import { selectServerVersions } from './server-versions';
 import type {
     ServerState,
     ServerStatus,
@@ -27,7 +28,8 @@ import type {
     PluginUpdateInfo,
 } from '../shared/ipc-types';
 
-const PAPER_API = 'https://api.papermc.io';
+// Paper's download API (Fill v3). The old api.papermc.io/v2 was shut down on 2026-07-01.
+const PAPER_API = 'https://fill.papermc.io/v3';
 
 // Bundled voice bridge JAR — built from plugins/voxta-voice-bridge/.
 // Bump this filename in lockstep with the plugin's version in
@@ -110,10 +112,11 @@ export class ServerManager extends EventEmitter {
     }
 
     async getAvailableVersions(): Promise<string[]> {
-        const data = await fetchJson(`${PAPER_API}/v2/projects/paper`);
-        const versions = data.versions as string[];
-        const stable = versions.filter((v) => !v.includes('-'));
-        return stable.reverse().slice(0, 15);
+        const data = await fetchJson(`${PAPER_API}/projects/paper`);
+        // Versions come grouped by family: { "26.1": ["26.1.2", "26.1.1"], "1.21": [...] }
+        const families = data.versions as Record<string, string[]> | undefined;
+        if (!families) throw new Error(`Paper version list unavailable: ${JSON.stringify(data).slice(0, 200)}`);
+        return selectServerVersions(Object.values(families).flat()).slice(0, 15);
     }
 
     async setup(version: string): Promise<void> {
@@ -127,6 +130,7 @@ export class ServerManager extends EventEmitter {
         // Step 2: Ensure a Java runtime is available (auto-downloads one if needed)
         this.emitProgress({ step: 2, totalSteps, label: 'Checking Java runtime...' });
         await this.java.resolveJavaPath(
+            requiredJavaMajor(version),
             (text, level) => this.emitConsoleLine(text, level),
             (p) => this.emitProgress(p),
         );
@@ -185,6 +189,7 @@ export class ServerManager extends EventEmitter {
         let javaPath: string;
         try {
             javaPath = await this.java.resolveJavaPath(
+                requiredJavaMajor(await this.getInstalledVersion()),
                 (text, level) => this.emitConsoleLine(text, level),
                 (p) => this.emitProgress(p),
             );
@@ -551,18 +556,15 @@ export class ServerManager extends EventEmitter {
     }
 
     private async downloadPaper(version: string): Promise<void> {
-        const buildsUrl = `${PAPER_API}/v2/projects/paper/versions/${version}/builds`;
-        const buildsData = await fetchJson(buildsUrl);
-        const builds = buildsData.builds as Array<{ build: number; downloads: { application: { name: string } } }>;
-        const latestBuild = builds[builds.length - 1];
-        const buildNumber = latestBuild.build;
-        const downloadName = latestBuild.downloads.application.name;
+        const build = await fetchJson(`${PAPER_API}/projects/paper/versions/${version}/builds/latest`);
+        const downloads = build.downloads as Record<string, { name: string; url: string }> | undefined;
+        const download = downloads?.['server:default'];
+        if (!download) throw new Error(`No Paper download found for ${version}: ${JSON.stringify(build).slice(0, 200)}`);
 
-        this.emitConsoleLine(`Found Paper build #${buildNumber} (${downloadName})`, 'info');
+        this.emitConsoleLine(`Found Paper build #${build.id as number} (${download.name})`, 'info');
 
-        const downloadUrl = `${PAPER_API}/v2/projects/paper/versions/${version}/builds/${buildNumber}/downloads/${downloadName}`;
         const dest = path.join(this.serverDir, 'paper.jar');
-        await downloadFile(downloadUrl, dest, (p) => this.emitProgress(p));
+        await downloadFile(download.url, dest, (p) => this.emitProgress(p));
     }
 
     private async installVoiceBridge(): Promise<void> {
