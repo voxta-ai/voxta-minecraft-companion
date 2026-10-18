@@ -18,6 +18,8 @@ const AUDIO_BITS_PER_SECOND = 64_000;
 const KEEP_ALIVE_MS = 15_000;
 const RECONNECT_RETRY_MS = 1_000;
 const RECORDING_OFF_TIMEOUT_MS = 30_000;
+const LEVEL_LOG_INTERVAL_MS = 2_000;
+const LEVEL_LOG_COUNT = 10;
 
 /** Forward log to main process terminal via IPC */
 function log(msg: string): void {
@@ -59,6 +61,8 @@ export class AudioInputService {
     private keepAliveInterval: ReturnType<typeof setInterval> | null = null;
     private recordingOffTimeout: ReturnType<typeof setTimeout> | null = null;
     private chunksSent = 0;
+    private levelContext: AudioContext | null = null;
+    private levelInterval: ReturnType<typeof setInterval> | null = null;
     /** When set, mic acquisition has permanently failed in this session — skip
      *  retries so the log doesn't fill with the same error every time the
      *  server requests recording. Common cause: companion running on a
@@ -130,9 +134,10 @@ export class AudioInputService {
                     log('[AudioInput] Mic track ended unexpectedly!');
                 });
                 log(
-                    `[AudioInput] Started streaming (track: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted})`,
+                    `[AudioInput] Started streaming (device: "${track.label}", track: ${track.readyState}, enabled: ${track.enabled}, muted: ${track.muted})`,
                 );
             }
+            this.logInputLevel();
         } catch (error) {
             const errorName = error instanceof Error ? error.name : '';
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -167,6 +172,7 @@ export class AudioInputService {
             clearTimeout(this.recordingOffTimeout);
             this.recordingOffTimeout = null;
         }
+        this.stopLevelLog();
         if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
             this.mediaRecorder.stop();
         }
@@ -226,6 +232,8 @@ export class AudioInputService {
             log(`[AudioInput] WARNING: MediaRecorder state is "${recorderState}", expected "recording"!`);
         }
 
+        this.logInputLevel();
+
         // Verify data is flowing 2s after resume
         const chunksAtResume = this.chunksSent;
         setTimeout(() => {
@@ -282,6 +290,42 @@ export class AudioInputService {
                 }
             }
         }
+    }
+
+    /**
+     * Log the microphone's peak input level for a short while. Audio can flow to the server and
+     * still contain only silence (wrong default device, muted input), which shows up there as
+     * empty transcripts; this tells silence apart from a transport problem.
+     */
+    private logInputLevel(): void {
+        this.stopLevelLog();
+        if (!this.stream) return;
+        const context = new AudioContext();
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 2048;
+        context.createMediaStreamSource(this.stream).connect(analyser);
+        const samples = new Float32Array(analyser.fftSize);
+        let peak = 0;
+        let ticks = 0;
+        this.levelContext = context;
+        this.levelInterval = setInterval(() => {
+            analyser.getFloatTimeDomainData(samples);
+            for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+            if (++ticks % 4 !== 0) return;
+            const db = peak > 0 ? `${(20 * Math.log10(peak)).toFixed(1)} dBFS` : 'silent';
+            log(`[AudioInput] Mic peak level: ${db} (chunks sent: ${this.chunksSent}, paused: ${this.paused})`);
+            peak = 0;
+            if (ticks >= LEVEL_LOG_COUNT * 4) this.stopLevelLog();
+        }, LEVEL_LOG_INTERVAL_MS / 4);
+    }
+
+    private stopLevelLog(): void {
+        if (this.levelInterval) {
+            clearInterval(this.levelInterval);
+            this.levelInterval = null;
+        }
+        void this.levelContext?.close();
+        this.levelContext = null;
     }
 
     private async connectWebSocket(sessionId: string, url: string): Promise<void> {
