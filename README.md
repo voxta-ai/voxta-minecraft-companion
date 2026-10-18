@@ -2,7 +2,7 @@
 
 An AI-powered Minecraft companion bot that lives in your game world. It uses [Mineflayer](https://github.com/PrismarineJS/mineflayer) to interact with Minecraft and [Voxta](https://voxta.ai) for AI-driven conversation, voice chat, and action inference.
 
-Talk to your companion by voice or text — they follow you, fight for you, build shelters, craft tools from scratch, fish, cook, and respond to the world around them.
+Talk to your companion by voice or text — they follow you, fight for you, build shelters, craft tools from scratch, fish, cook, and respond to the world around you.
 
 ![Voxta Minecraft Companion](docs/screenshot.png)
 
