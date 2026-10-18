@@ -51,6 +51,8 @@ export class AudioInputService {
     public sessionId: string | null = null;
     public enabled = false;
     public paused = false;
+    /** Microphone to record from; null uses the system default device. */
+    public inputDeviceId: string | null = null;
 
     private stream: MediaStream | null = null;
     private socket: WebSocket | null = null;
@@ -89,14 +91,7 @@ export class AudioInputService {
         this.chunksSent = 0;
 
         try {
-            this.stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    channelCount: 1,
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                },
-            });
+            this.stream = await this.acquireMicrophone();
 
             this.mediaRecorder = new MediaRecorder(this.stream, {
                 mimeType: 'audio/wav',
@@ -153,6 +148,28 @@ export class AudioInputService {
             }
             this.stopStreaming();
         }
+    }
+
+    /** Open the chosen microphone, falling back to the system default if it is no longer available. */
+    private async acquireMicrophone(): Promise<MediaStream> {
+        const constraints: MediaTrackConstraints = {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+        };
+        if (this.inputDeviceId) {
+            try {
+                return await navigator.mediaDevices.getUserMedia({
+                    audio: { ...constraints, deviceId: { exact: this.inputDeviceId } },
+                });
+            } catch (error) {
+                const errorName = error instanceof Error ? error.name : '';
+                if (errorName !== 'OverconstrainedError' && errorName !== 'NotFoundError') throw error;
+                log(`[AudioInput] Chosen microphone is not available (${errorName}), using the system default`);
+            }
+        }
+        return navigator.mediaDevices.getUserMedia({ audio: constraints });
     }
 
     /** Full stop — releases mic, WebSocket, MediaRecorder */

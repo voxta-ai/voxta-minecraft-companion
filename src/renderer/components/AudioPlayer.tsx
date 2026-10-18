@@ -1,10 +1,12 @@
-import { onMount, onCleanup, createEffect } from 'solid-js';
+import { onMount, onCleanup, createEffect, on } from 'solid-js';
 import type { AudioChunk, RecordingStartEvent } from '../../shared/ipc-types';
 import { AudioInputService } from '../services/AudioInputService';
 import { SpatialAudioEngine } from '../services/SpatialAudioEngine';
 import {
     setMicStatus,
     micMuted,
+    micDeviceId,
+    speakerDeviceId,
     setSpeakerStatus,
     speakerMuted,
     setSpeechPartialText,
@@ -101,6 +103,7 @@ export default function AudioPlayer() {
 
         // --- Audio input (mic streaming) ---
         const audioInput = new AudioInputService();
+        audioInput.inputDeviceId = micDeviceId();
 
         // Track whether the server wants recording enabled (independent of user mute)
         let serverRecordingEnabled = false;
@@ -168,6 +171,26 @@ export default function AudioPlayer() {
             }
         });
 
+        // Switch microphones mid-session: restart the stream on the new device, keeping it
+        // paused if the server had recording stopped
+        createEffect(
+            on(
+                micDeviceId,
+                (deviceId) => {
+                    audioInput.inputDeviceId = deviceId;
+                    if (!audioInput.enabled || !lastRecordingEvent) return;
+                    const wasPaused = audioInput.paused;
+                    const event = lastRecordingEvent;
+                    void audioInput
+                        .startStreaming(event.sessionId, event.voxtaBaseUrl, event.voxtaApiKey)
+                        .then(() => {
+                            if (wasPaused) audioInput.pauseStreaming();
+                        });
+                },
+                { defer: true },
+            ),
+        );
+
         // React to speaker mute toggle — if muted mid-playback, stop current audio
         createEffect(() => {
             if (speakerMuted()) {
@@ -182,6 +205,11 @@ export default function AudioPlayer() {
         // React to audio settings changes — apply in real-time
         createEffect(() => {
             engine.applySettings(settings);
+        });
+
+        // Route the voice to the chosen speaker, live
+        createEffect(() => {
+            engine.setOutputDevice(speakerDeviceId());
         });
 
         onCleanup(() => {

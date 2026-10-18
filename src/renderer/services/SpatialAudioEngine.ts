@@ -1,5 +1,10 @@
 import type { SpatialPosition, McSettings } from '../../shared/ipc-types';
 
+/** Chromium supports AudioContext.setSinkId; TypeScript's DOM types only declare it on media elements. */
+interface AudioContextWithSink extends AudioContext {
+    setSinkId?: (sinkId: string) => Promise<void>;
+}
+
 /**
  * Spatial audio engine using the Web Audio API.
  * Provides distance-based volume attenuation, stereo directional panning,
@@ -33,14 +38,35 @@ export class SpatialAudioEngine {
     private lastSettings: McSettings | null = null;
     private autoCaveEnabled = false;
     private lastInCave = false;
+    /** Output device for the voice; null = system default */
+    private outputDeviceId: string | null = null;
 
     /** Initialize the AudioContext and build the audio graph */
     private ensureContext(): AudioContext {
         if (!this.ctx) {
             this.ctx = new AudioContext();
             this.buildGraph();
+            void this.applyOutputDevice(this.ctx);
         }
         return this.ctx;
+    }
+
+    /** Play the voice on the given output device (null = system default). */
+    setOutputDevice(deviceId: string | null): void {
+        this.outputDeviceId = deviceId;
+        if (this.ctx) void this.applyOutputDevice(this.ctx);
+    }
+
+    private async applyOutputDevice(ctx: AudioContext): Promise<void> {
+        const sinkCtx: AudioContextWithSink = ctx;
+        if (!sinkCtx.setSinkId) return;
+        try {
+            await sinkCtx.setSinkId(this.outputDeviceId ?? '');
+        } catch (err) {
+            // Chosen speaker unplugged or gone: fall back to the system default
+            console.warn('[Audio] Could not use the chosen speaker, using the system default:', err);
+            await sinkCtx.setSinkId('');
+        }
     }
 
     /** Build the Web Audio API node graph */
