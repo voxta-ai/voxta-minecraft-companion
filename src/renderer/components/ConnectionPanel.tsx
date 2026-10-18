@@ -1,6 +1,12 @@
 import { createSignal, createEffect, Show } from 'solid-js';
 import { status, connectVoxta, launchBot, disconnect, voxtaInfo } from '../stores/connection-store';
-import { serverState, serverPort as managedServerPort, isInstalled, startServer } from '../stores/server-store';
+import {
+    serverState,
+    serverPort as managedServerPort,
+    isInstalled,
+    startServer,
+    ensureServerRunning,
+} from '../stores/server-store';
 import type { BotConfig, ScenarioInfo, VoxtaConnectConfig } from '../../shared/ipc-types';
 import CharacterSelector from './CharacterSelector';
 import ChatList from './ChatList';
@@ -236,6 +242,8 @@ export default function ConnectionPanel(props: ConnectionPanelProps) {
         });
         setLaunching(true);
         try {
+            // Quick Start and resume skip the Server step, so a stopped built-in server is started here
+            if (!custom && !(await ensureServerRunning())) return;
             await launchBot(config);
             props.onClose();
         } finally {

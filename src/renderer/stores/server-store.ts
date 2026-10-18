@@ -81,12 +81,46 @@ export function clearServerConsole(): void {
     setServerConsole('lines', []);
 }
 
-export async function startServer(): Promise<void> {
+/** Start the built-in server. Resolves false (after a toast) if the start request fails. */
+export async function startServer(): Promise<boolean> {
     try {
         await window.api.serverStart();
+        return true;
     } catch (err) {
         addToast('error', `Failed to start server: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        return false;
     }
+}
+
+/**
+ * Start the built-in server if it is stopped, then resolve once it is ready for the bot.
+ * serverStart only covers spawning the process; the server counts as ready when the world
+ * has loaded. Resolves false if the server stops or fails on the way.
+ */
+export function ensureServerRunning(): Promise<boolean> {
+    const state = serverState();
+    if (state === 'running') return Promise.resolve(true);
+    if (state === 'not-installed') {
+        addToast('error', "The built-in server isn't set up yet. Use Change setup → Server to install it.");
+        return Promise.resolve(false);
+    }
+    return new Promise((resolve) => {
+        const finish = (ready: boolean): void => {
+            unsubscribe();
+            resolve(ready);
+        };
+        const unsubscribe = window.api.onServerStatusChanged((status) => {
+            if (status.state === 'running') finish(true);
+            else if (status.state === 'error' || status.state === 'idle' || status.state === 'not-installed') {
+                finish(false);
+            }
+        });
+        if (state === 'idle' || state === 'error') {
+            void startServer().then((started) => {
+                if (!started) finish(false);
+            });
+        }
+    });
 }
 
 export async function stopServer(): Promise<void> {
