@@ -487,7 +487,34 @@ const MESSAGE_HANDLERS: Record<string, MessageHandler> = {
 };
 
 // Quiet message types — don't log these to avoid console noise
-const QUIET_MESSAGES = new Set(['replyChunk', 'speechRecognitionPartial', 'memoryUpdated', 'contextUpdated']);
+const QUIET_MESSAGES = new Set([
+    'replyChunk',
+    'speechRecognitionPartial',
+    'memoryUpdated',
+    'contextUpdated',
+    // Routine traffic that says nothing on its own: credit ticks, status echoes, inspector events,
+    // and the burst of chatLoadingMessage at every chat start
+    'chatLoadingMessage',
+    'cloudCredits',
+    'recordingStatus',
+    'update',
+    'inspectorEnabled',
+    'inspectorActionExecuted',
+    'inspectorScriptExecuted',
+    'chatsSessionsUpdated',
+    'speechPlaybackStart',
+    'speechPlaybackComplete',
+    // Their handlers (or the audio pipeline) already log them in more detail
+    'chatStarted',
+    'chatFlow',
+    'replyGenerating',
+    'replyStart',
+    'replyEnd',
+    'action',
+    'speechRecognitionStart',
+    'speechRecognitionEnd',
+    'recordingRequest',
+]);
 
 /**
  * Route a Voxta server message to the appropriate handler.

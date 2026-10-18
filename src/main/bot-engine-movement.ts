@@ -545,19 +545,27 @@ export function createFollowWatchdog(
         }
     });
 
+    // The watchdog ticks every few seconds; a skip is logged when its reason changes, not on every tick
+    let lastSkipReason: string | null = null;
+    const skip = (reason: string): void => {
+        if (reason !== lastSkipReason) console.log(`[${label}] Watchdog skip: ${reason}`);
+        lastSkipReason = reason;
+    };
+
     return setInterval(() => {
         const followingPlayer = callbacks.getFollowingPlayer();
         if (!isBotActive() || !followingPlayer) return;
         if (getBotMode(bot) === 'guard') return;
-        if (isAutoDefending(bot)) { console.log(`[${label}] Watchdog skip: auto-defending`); return; }
-        if (isActionBusy(bot)) { console.log(`[${label}] Watchdog skip: action busy`); return; }
+        if (isAutoDefending(bot)) { skip('auto-defending'); return; }
+        if (isActionBusy(bot)) { skip('action busy'); return; }
 
         const vehicle = getVehicle(bot);
         if (vehicle) {
             const vn = (vehicle.displayName ?? vehicle.name ?? 'vehicle').toLowerCase();
-            console.log(`[${label}] Watchdog skip: bot is mounted (${vn})`);
+            skip(`bot is mounted (${vn})`);
             return;
         }
+        lastSkipReason = null;
 
         const pos = bot.entity.position;
         if (!isPositionFinite(pos)) return;

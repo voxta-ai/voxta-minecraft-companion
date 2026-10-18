@@ -18,26 +18,24 @@ export function logStuckDiagnostic(bot: Bot, cycle: number): void {
         { label: 'E', dx: 1, dz: 0 },
         { label: 'W', dx: -1, dz: 0 },
     ];
-    const survey: string[] = [];
-    for (let dy = STUCK_DIAG_Y_MIN; dy <= STUCK_DIAG_Y_MAX; dy++) {
-        const b = bot.blockAt(pos.offset(0, dy, 0));
-        survey.push(`  self  y${dy >= 0 ? '+' : ''}${dy}: ${b?.name ?? 'unloaded'} (${b?.boundingBox ?? '?'})`);
-    }
-    for (const dir of dirs) {
+    // One entry per column, bottom to top (y-1 .. y+2); a non-air block with no collision is marked "(empty)"
+    const column = (dx: number, dz: number): string => {
+        const blocks: string[] = [];
         for (let dy = STUCK_DIAG_Y_MIN; dy <= STUCK_DIAG_Y_MAX; dy++) {
-            const b = bot.blockAt(pos.offset(dir.dx, dy, dir.dz));
-            survey.push(`  ${dir.label}     y${dy >= 0 ? '+' : ''}${dy}: ${b?.name ?? 'unloaded'} (${b?.boundingBox ?? '?'})`);
+            const b = bot.blockAt(pos.offset(dx, dy, dz));
+            if (!b) blocks.push('unloaded');
+            else blocks.push(b.boundingBox === 'empty' && b.name !== 'air' ? `${b.name}(empty)` : b.name);
         }
-    }
+        return blocks.join('/');
+    };
+    const survey = [`self ${column(0, 0)}`, ...dirs.map((dir) => `${dir.label} ${column(dir.dx, dir.dz)}`)];
     const controls = ['forward', 'back', 'left', 'right', 'jump', 'sprint', 'sneak'] as const;
     const activeControls = controls.filter((c) => bot.getControlState(c));
     console.log(
-        `[MC Stuck] === DIAGNOSTIC DUMP (cycle #${cycle}) ===\n` +
-        `  pos: (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}) block: (${bx}, ${by}, ${bz})\n` +
-        `  yaw: ${((yaw * 180) / Math.PI).toFixed(1)}°, onGround: ${bot.entity.onGround}, inWater: ${isInWater(bot.entity)}\n` +
-        `  controls: [${activeControls.join(', ')}]\n` +
-        `  pathfinder: goal=${!!bot.pathfinder.goal}, moving=${bot.pathfinder.isMoving()}, mining=${bot.pathfinder.isMining()}\n` +
-        `  --- Block survey ---\n` +
-        survey.join('\n'),
+        `[MC Stuck] Diagnostic (cycle #${cycle}): pos (${pos.x.toFixed(2)}, ${pos.y.toFixed(2)}, ${pos.z.toFixed(2)}) ` +
+        `block (${bx}, ${by}, ${bz}), yaw ${((yaw * 180) / Math.PI).toFixed(1)}°, ` +
+        `onGround=${bot.entity.onGround}, inWater=${isInWater(bot.entity)}, controls=[${activeControls.join(', ')}], ` +
+        `pathfinder goal=${!!bot.pathfinder.goal} moving=${bot.pathfinder.isMoving()} mining=${bot.pathfinder.isMining()}\n` +
+        `  blocks y${STUCK_DIAG_Y_MIN}..y+${STUCK_DIAG_Y_MAX}: ${survey.join('  ')}`,
     );
 }
